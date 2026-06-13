@@ -17,6 +17,9 @@ public final class TerrainDiffusionConfig {
     private static final boolean DEFAULT_VALIDATE_MODEL = true;
     private static final int DEFAULT_EXPLORER_PORT = 19801;
     private static final int DEFAULT_TILE_SIZE = 256;
+    private static final int DEFAULT_TERRAIN_REGION_CACHE_MAX_MIB = 64;
+    private static final int DEFAULT_TERRAIN_REGION_CACHE_MAX_ENTRIES = 32;
+    private static final int DEFAULT_PIPELINE_TENSOR_CACHE_MAX_MIB = 64;
 
     static {
         loadDefaults();
@@ -75,6 +78,21 @@ public final class TerrainDiffusionConfig {
         return configuredTileSize;
     }
 
+    /** Maximum retained generated heightmap/biome regions, in bytes. */
+    public static long terrainRegionCacheMaxBytes() {
+        return positiveMibToBytes("terrain_cache.max_mib", DEFAULT_TERRAIN_REGION_CACHE_MAX_MIB);
+    }
+
+    /** Maximum retained generated heightmap/biome regions, by entry count. */
+    public static int terrainRegionCacheMaxEntries() {
+        return readPositiveInt("terrain_cache.max_entries", DEFAULT_TERRAIN_REGION_CACHE_MAX_ENTRIES);
+    }
+
+    /** Per-tensor cache limit for pipeline windows, in bytes. */
+    public static long pipelineTensorCacheMaxBytes() {
+        return positiveMibToBytes("pipeline_cache.tensor_max_mib", DEFAULT_PIPELINE_TENSOR_CACHE_MAX_MIB);
+    }
+
     private static void loadDefaults() {
         boolean loadedFromResource = false;
         try (InputStream in = TerrainDiffusionConfig.class.getResourceAsStream(RESOURCE_PATH)) {
@@ -90,6 +108,9 @@ public final class TerrainDiffusionConfig {
             PROPERTIES.setProperty("inference.device", "gpu");
             PROPERTIES.setProperty("validate_model", String.valueOf(DEFAULT_VALIDATE_MODEL));
             PROPERTIES.setProperty("tile_size", String.valueOf(DEFAULT_TILE_SIZE));
+            PROPERTIES.setProperty("terrain_cache.max_mib", String.valueOf(DEFAULT_TERRAIN_REGION_CACHE_MAX_MIB));
+            PROPERTIES.setProperty("terrain_cache.max_entries", String.valueOf(DEFAULT_TERRAIN_REGION_CACHE_MAX_ENTRIES));
+            PROPERTIES.setProperty("pipeline_cache.tensor_max_mib", String.valueOf(DEFAULT_PIPELINE_TENSOR_CACHE_MAX_MIB));
         }
     }
 
@@ -150,6 +171,20 @@ public final class TerrainDiffusionConfig {
             System.err.println("Invalid int for " + key + ": " + value + ", using default " + defaultValue);
             return defaultValue;
         }
+    }
+
+    private static int readPositiveInt(String key, int defaultValue) {
+        int value = readInt(key, defaultValue);
+        if (value <= 0) {
+            System.err.println("Invalid positive int for " + key + ": " + value + ", using default " + defaultValue);
+            return defaultValue;
+        }
+        return value;
+    }
+
+    private static long positiveMibToBytes(String key, int defaultMib) {
+        int mib = readPositiveInt(key, defaultMib);
+        return (long) mib * 1024L * 1024L;
     }
 
     private static boolean isPowerOfTwo(int value) {

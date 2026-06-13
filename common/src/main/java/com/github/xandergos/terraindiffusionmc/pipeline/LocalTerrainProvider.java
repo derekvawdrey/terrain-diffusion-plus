@@ -1,12 +1,11 @@
 package com.github.xandergos.terraindiffusionmc.pipeline;
 
+import com.github.xandergos.terraindiffusionmc.config.TerrainDiffusionConfig;
 import com.github.xandergos.terraindiffusionmc.infinitetensor.FloatTensor;
 import com.github.xandergos.terraindiffusionmc.world.WorldScaleManager;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.util.Iterator;
-import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Random;
 import java.util.Comparator;
@@ -59,12 +58,13 @@ public final class LocalTerrainProvider {
     }
 
     private static record CacheKey(int i1, int j1, int i2, int j2) {}
-    private static record CacheEntry(HeightmapData data, AtomicLong lastAccessed) {}
+    private static record CacheEntry(HeightmapData data, AtomicLong lastAccessed, long bytes) {}
 
-    private static final int MAX_CACHE_SIZE = 64;
-    private static final int MAX_CACHE_SIZE_HEADROOM = 8;
+    private static final int MAX_CACHE_ENTRIES = TerrainDiffusionConfig.terrainRegionCacheMaxEntries();
+    private static final long MAX_CACHE_BYTES = TerrainDiffusionConfig.terrainRegionCacheMaxBytes();
     private static final Map<CacheKey, CacheEntry> CACHE = new ConcurrentHashMap<>();
     private static final AtomicLong CACHE_CLOCK = new AtomicLong();
+    private static final AtomicLong CACHE_BYTES = new AtomicLong();
     private static final Map<CacheKey, Future<HeightmapData>> PENDING = new ConcurrentHashMap<>();
     /** Single thread for pipeline.get() so MemoryTileStore is not accessed concurrently. */
     private static final ExecutorService INFERENCE_EXECUTOR = Executors.newSingleThreadExecutor(r -> {
@@ -95,8 +95,7 @@ public final class LocalTerrainProvider {
         } else if (instanceSeed != seed) {
             INSTANCE.pipeline.setSeed(seed);
             instanceSeed = seed;
-            CACHE.clear();
-            PENDING.clear();
+            clearRegionCaches();
         }
     }
 
@@ -116,8 +115,11 @@ public final class LocalTerrainProvider {
     }
 
     public static void clearCache() {
-        CACHE.clear();
-        PENDING.clear();
+        clearRegionCaches();
+        LocalTerrainProvider provider = INSTANCE;
+        if (provider != null) {
+            provider.pipeline.clearCaches();
+        }
     }
 
     // =========================================================================
@@ -157,8 +159,7 @@ public final class LocalTerrainProvider {
             LocalTerrainProvider provider = getInstance();
             provider.pipeline.setSeed(newSeed);
             instanceSeed = newSeed;
-            CACHE.clear();
-            PENDING.clear();
+            clearRegionCaches();
             return null;
         });
     }
@@ -206,8 +207,7 @@ public final class LocalTerrainProvider {
             LOG.info(
                     "Terrain Diffusion ({}) finished generating region {}x{} ({} newly computed windows)",
                     OnnxModel.getResolvedInferenceProvider(), regionWidth, regionHeight, newlyComputedWindowCount);
-            CACHE.put(key, new CacheEntry(data, new AtomicLong(CACHE_CLOCK.incrementAndGet())));
-            evictLruTo(MAX_CACHE_SIZE);
+            cacheHeightmap(key, data);
             PENDING.remove(key);
             return data;
         });
@@ -229,15 +229,57 @@ public final class LocalTerrainProvider {
         }
     }
 
-    private static void evictLruTo(int maxSize) {
-        int headroomHalf = MAX_CACHE_SIZE_HEADROOM / 2;
-        if (CACHE.size() > maxSize + headroomHalf) {
-            CACHE.entrySet().stream()
-                .sorted(Comparator.comparingLong(e -> e.getValue().lastAccessed.get()))
-                .limit(MAX_CACHE_SIZE_HEADROOM)
-                .map(Map.Entry::getKey)
-                .forEach(CACHE::remove);
+    private static void clearRegionCaches() {
+        CACHE.clear();
+        CACHE_BYTES.set(0L);
+        PENDING.clear();
+    }
+
+    private static void cacheHeightmap(CacheKey key, HeightmapData data) {
+        long bytes = estimateHeightmapBytes(data);
+        CacheEntry previous = CACHE.put(key, new CacheEntry(data, new AtomicLong(CACHE_CLOCK.incrementAndGet()), bytes));
+        if (previous != null) {
+            CACHE_BYTES.addAndGet(-previous.bytes());
         }
+        long retainedBytes = CACHE_BYTES.addAndGet(bytes);
+        evictLruIfNeeded(retainedBytes);
+    }
+
+    private static void evictLruIfNeeded(long retainedBytes) {
+        if (CACHE.size() <= MAX_CACHE_ENTRIES && retainedBytes <= MAX_CACHE_BYTES) {
+            return;
+        }
+
+        CACHE.entrySet().stream()
+                .sorted(Comparator.comparingLong(e -> e.getValue().lastAccessed.get()))
+                .map(Map.Entry::getKey)
+                .forEach(key -> {
+                    if (CACHE.size() <= MAX_CACHE_ENTRIES && CACHE_BYTES.get() <= MAX_CACHE_BYTES) {
+                        return;
+                    }
+                    CacheEntry removed = CACHE.remove(key);
+                    if (removed != null) {
+                        CACHE_BYTES.addAndGet(-removed.bytes());
+                    }
+                });
+    }
+
+    private static long estimateHeightmapBytes(HeightmapData data) {
+        if (data == null) return 0L;
+        return estimateShortMatrixBytes(data.heightmap)
+                + estimateShortMatrixBytes(data.biomeIds)
+                + 64L;
+    }
+
+    private static long estimateShortMatrixBytes(short[][] values) {
+        if (values == null) return 0L;
+        long bytes = 16L + (long) values.length * Long.BYTES;
+        for (short[] row : values) {
+            if (row != null) {
+                bytes += 16L + (long) row.length * Short.BYTES;
+            }
+        }
+        return bytes;
     }
 
     // =========================================================================

@@ -189,6 +189,7 @@ public class InfiniteTensor {
         FloatTensor result = function.apply(windowIndex, args);
         validateOutputShape(result, windowIndex);
         store.cacheWindow(id, windowIndex, result);
+        store.evictIfNeeded(id, cacheLimitBytes);
     }
 
     private void computeBatched(List<int[]> windowIndices) {
@@ -220,6 +221,7 @@ public class InfiniteTensor {
                 int[] windowIndex = batch.get(k);
                 validateOutputShape(result, windowIndex);
                 store.cacheWindow(id, windowIndex, result);
+                store.evictIfNeeded(id, cacheLimitBytes);
             }
 
             from = to;

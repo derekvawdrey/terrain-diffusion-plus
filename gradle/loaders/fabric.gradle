@@ -5,7 +5,6 @@ project.ext.terrainDiffusionBuildVariant = buildVariant
 
 // Runtime JVM memory for Fabric dev runs. These settings affect runClient/runServer,
 // unlike org.gradle.jvmargs which only affects Gradle itself.
-// need to be clear later
 def terrainDiffusionMinecraftRunXms = (findProperty('minecraft_run_xms')
         ?: rootProject.findProperty('minecraft_run_xms')
         ?: '8G').toString()

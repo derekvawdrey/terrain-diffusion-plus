@@ -4,48 +4,28 @@ def terrainDiffusionVersions = [
         '1.21.11': [buildName: 'tdmc_1_21_11', taskName: 'Mc12111']
 ]
 
+def terrainDiffusionRuntimeVariants = [
+        windows: [taskSuffix: 'Windows', displayName: 'Windows / DirectML'],
+        cuda   : [taskSuffix: 'Cuda', displayName: 'CUDA'],
+        cpu    : [taskSuffix: 'Cpu', displayName: 'CPU / CoreML']
+]
+
 def terrainDiffusionTaskGroup = 'terrain diffusion multiversion'
 
 terrainDiffusionVersions.each { String mcVersion, Map cfg ->
     tasks.register("build${cfg.taskName}") {
         group = terrainDiffusionTaskGroup
         description = "Builds every configured loader/runtime variant for Minecraft ${mcVersion}."
-        dependsOn gradle.includedBuild(cfg.buildName).task(':buildRelease')
+        dependsOn gradle.includedBuild(cfg.buildName).task(':buildAllVariants')
     }
 
-    tasks.register("collect${cfg.taskName}ReleaseJars", Copy) {
-        group = terrainDiffusionTaskGroup
-        description = "Copies release jars for Minecraft ${mcVersion} into the root build/release folder."
-        dependsOn "build${cfg.taskName}"
-        duplicatesStrategy = DuplicatesStrategy.EXCLUDE
-        from("versions/${mcVersion}/build/release")
-        into(layout.buildDirectory.dir("release/${mcVersion}"))
-    }
-}
-
-tasks.register('buildAllVersions') {
-    group = terrainDiffusionTaskGroup
-    description = 'Builds every configured Minecraft version, loader, and runtime variant.'
-    dependsOn terrainDiffusionVersions.values().collect { cfg -> "build${cfg.taskName}" }
-}
-
-tasks.register('buildRelease') {
-    group = terrainDiffusionTaskGroup
-    description = 'Compatibility alias for buildAllVersions.'
-    dependsOn 'buildAllVersions'
-}
-
-tasks.register('collectAllReleaseJars', Copy) {
-    group = terrainDiffusionTaskGroup
-    description = 'Builds everything and collects all distributable jars into build/release/<minecraft-version>.'
-    dependsOn terrainDiffusionVersions.values().collect { cfg -> "collect${cfg.taskName}ReleaseJars" }
-    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
-    terrainDiffusionVersions.keySet().each { String mcVersion ->
-        from("versions/${mcVersion}/build/release") {
-            into mcVersion
+    terrainDiffusionRuntimeVariants.each { String variantName, Map variant ->
+        tasks.register("build${cfg.taskName}${variant.taskSuffix}") {
+            group = terrainDiffusionTaskGroup
+            description = "Builds every configured loader for Minecraft ${mcVersion} using the ${variant.displayName} runtime."
+            dependsOn gradle.includedBuild(cfg.buildName).task(":build${variant.taskSuffix}")
         }
     }
-    into(layout.buildDirectory.dir('release'))
 }
 
 tasks.register('cleanAllVersions') {

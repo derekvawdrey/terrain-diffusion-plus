@@ -187,7 +187,7 @@ cd .\versions\1.21.11
 
 ### Build one Minecraft version
 
-From the repository root:
+From the repository root, these tasks build every configured loader and runtime variant for one Minecraft version:
 
 ```powershell
 .\gradlew.bat buildMc1201
@@ -195,9 +195,35 @@ From the repository root:
 .\gradlew.bat buildMc12111
 ```
 
-These tasks build every configured loader and runtime variant for that Minecraft version.
+### Build one Minecraft version by runtime variant
 
-### Build per-version release jars
+From the repository root, these tasks build every configured loader for one Minecraft version and one runtime variant.
+
+#### Windows / DirectML
+
+```powershell
+.\gradlew.bat buildMc1201Windows
+.\gradlew.bat buildMc1211Windows
+.\gradlew.bat buildMc12111Windows
+```
+
+#### CUDA
+
+```powershell
+.\gradlew.bat buildMc1201Cuda
+.\gradlew.bat buildMc1211Cuda
+.\gradlew.bat buildMc12111Cuda
+```
+
+#### CPU / CoreML
+
+```powershell
+.\gradlew.bat buildMc1201Cpu
+.\gradlew.bat buildMc1211Cpu
+.\gradlew.bat buildMc12111Cpu
+```
+
+### Build inside a version folder
 
 From a version folder, use the version's own Gradle tasks.
 
@@ -205,76 +231,46 @@ From a version folder, use the version's own Gradle tasks.
 
 ```powershell
 cd .\versions\1.20.1
+..\..\gradlew.bat buildAllVariants
+..\..\gradlew.bat buildWindows
+..\..\gradlew.bat buildCuda
+..\..\gradlew.bat buildCpu
 ..\..\gradlew.bat buildFabricWindows
 ..\..\gradlew.bat buildFabricCuda
 ..\..\gradlew.bat buildFabricCpu
 ..\..\gradlew.bat buildForgeWindows
 ..\..\gradlew.bat buildForgeCuda
 ..\..\gradlew.bat buildForgeCpu
-..\..\gradlew.bat buildRelease
 ```
 
 #### 1.21.1 and 1.21.11: Fabric + NeoForge
 
 ```powershell
 cd .\versions\1.21.1
+..\..\gradlew.bat buildAllVariants
+..\..\gradlew.bat buildWindows
+..\..\gradlew.bat buildCuda
+..\..\gradlew.bat buildCpu
 ..\..\gradlew.bat buildFabricWindows
 ..\..\gradlew.bat buildFabricCuda
 ..\..\gradlew.bat buildFabricCpu
 ..\..\gradlew.bat buildNeoForgeWindows
 ..\..\gradlew.bat buildNeoForgeCuda
 ..\..\gradlew.bat buildNeoForgeCpu
-..\..\gradlew.bat buildRelease
 ```
 
 ```powershell
 cd .\versions\1.21.11
+..\..\gradlew.bat buildAllVariants
+..\..\gradlew.bat buildWindows
+..\..\gradlew.bat buildCuda
+..\..\gradlew.bat buildCpu
 ..\..\gradlew.bat buildFabricWindows
 ..\..\gradlew.bat buildFabricCuda
 ..\..\gradlew.bat buildFabricCpu
 ..\..\gradlew.bat buildNeoForgeWindows
 ..\..\gradlew.bat buildNeoForgeCuda
 ..\..\gradlew.bat buildNeoForgeCpu
-..\..\gradlew.bat buildRelease
-```
-
-### Build variant flags
-
-The named tasks above are preferred, but the direct Gradle property calls also work.
-
-```powershell
-# Default Windows/DirectML build
-..\..\gradlew.bat :fabric:build
-..\..\gradlew.bat :forge:build
-..\..\gradlew.bat :neoforge:build
-
-# CUDA build
-..\..\gradlew.bat :fabric:build -PuseCuda=true
-..\..\gradlew.bat :forge:build -PuseCuda=true
-..\..\gradlew.bat :neoforge:build -PuseCuda=true
-
-# CPU/CoreML build
-..\..\gradlew.bat :fabric:build -PuseCpu=true
-..\..\gradlew.bat :forge:build -PuseCpu=true
-..\..\gradlew.bat :neoforge:build -PuseCpu=true
-```
-
-Only one of `-PuseDml=true`, `-PuseCuda=true`, or `-PuseCpu=true` may be set at a time. If no property is set, the build defaults to the Windows/DirectML variant.
-
-### Build outputs
-
-Loader jars are written under each loader module:
-
-```text
-versions/<minecraft-version>/fabric/build/libs/
-versions/<minecraft-version>/forge/build/libs/
-versions/<minecraft-version>/neoforge/build/libs/
-```
-
-Per-version release collection writes to:
-
-```text
-versions/<minecraft-version>/build/release/<loader>/
 ```
 
 ## Common issues

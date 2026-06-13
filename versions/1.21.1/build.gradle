@@ -203,28 +203,6 @@ tasks.register('buildAll') {
     dependsOn 'buildAllVariants'
 }
 
-tasks.register('buildRelease') {
-    group = terrainDiffusionBuildTaskGroup
-    description = 'Builds every release jar for Fabric and NeoForge.'
-    dependsOn 'buildAllVariants'
-}
-
-tasks.register('collectReleaseJars', Copy) {
-    group = terrainDiffusionBuildTaskGroup
-    description = 'Builds every release jar and copies the distributable jars to build/release/<loader>.'
-    dependsOn 'buildRelease'
-    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
-    into layout.buildDirectory.dir('release')
-
-    rootProject.ext.terrainDiffusionLoaderProjects.each { String loaderName ->
-        from(rootProject.file("${loaderName}/build/libs")) {
-            include '*.jar'
-            exclude '*-sources.jar', '*-javadoc.jar', '*-dev.jar'
-            into loaderName
-        }
-    }
-}
-
 subprojects { subproject ->
     boolean isTerrainDiffusionLoaderProject = subproject.name in rootProject.ext.terrainDiffusionLoaderProjects
 

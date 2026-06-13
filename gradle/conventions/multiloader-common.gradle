@@ -1,0 +1,248 @@
+apply plugin: 'java-library'
+apply plugin: 'maven-publish'
+
+ext.terrainDiffusionMultiversionRoot = { ->
+    return rootProject.rootDir.parentFile?.parentFile?.canonicalFile
+}
+
+ext.terrainDiffusionRootFile = { String relativePath ->
+    File sharedFile = new File(terrainDiffusionMultiversionRoot(), relativePath)
+    if (sharedFile.exists()) {
+        return sharedFile.canonicalFile
+    }
+    return rootProject.file(relativePath).canonicalFile
+}
+
+ext.terrainDiffusionSharedCommonDir = { ->
+    return new File(terrainDiffusionMultiversionRoot(), 'common').canonicalFile
+}
+
+ext.terrainDiffusionCommonProjectDir = { ->
+    return project(':common').projectDir.canonicalFile
+}
+
+ext.terrainDiffusionCommonFile = { String relativePath ->
+    File versionFile = new File(terrainDiffusionCommonProjectDir(), relativePath)
+    if (versionFile.exists()) {
+        return versionFile
+    }
+    return new File(terrainDiffusionSharedCommonDir(), relativePath)
+}
+
+ext.terrainDiffusionOverlayExcludes = { File overlayDir ->
+    List<String> excludes = []
+    if (overlayDir.exists()) {
+        overlayDir.eachFileRecurse(groovy.io.FileType.FILES) { File file ->
+            if (file.name != '.gitkeep') {
+                excludes.add(overlayDir.toPath().relativize(file.toPath()).toString().replace(File.separatorChar, '/' as char))
+            }
+        }
+    }
+    return excludes
+}
+
+ext.terrainDiffusionOverlayTaskName = { String prefix, String sourceBucket, String kind ->
+    String safePrefix = prefix.replaceAll('[^A-Za-z0-9]+', '_')
+    String safeBucket = sourceBucket.replaceAll('[^A-Za-z0-9]+', '_')
+    String safeKind = kind.replaceAll('[^A-Za-z0-9]+', '_')
+    return "terrainDiffusionSync${safePrefix.capitalize()}${safeBucket.capitalize()}${safeKind.capitalize()}Overlay"
+}
+
+ext.terrainDiffusionAddOverlaySourceDir = { Object sourceDirectorySet, String prefix, File sharedDir, File overlayDir, String sourceBucket, String kind ->
+    List<String> overlayFiles = terrainDiffusionOverlayExcludes(overlayDir)
+    String taskName = terrainDiffusionOverlayTaskName(prefix, sourceBucket, kind)
+    File outputDir = project.layout.buildDirectory.dir("generated/terrain-diffusion-overlay/${prefix}/${sourceBucket}/${kind}").get().asFile
+
+    def syncTask = tasks.register(taskName, Sync) {
+        into outputDir
+
+        if (sharedDir.exists()) {
+            from(sharedDir) {
+                if (!overlayFiles.isEmpty()) {
+                    exclude overlayFiles
+                }
+                exclude '**/.gitkeep'
+            }
+        }
+
+        if (overlayDir.exists()) {
+            from(overlayDir) {
+                exclude '**/.gitkeep'
+            }
+        }
+
+        includeEmptyDirs = false
+    }
+
+    sourceDirectorySet.srcDir(syncTask)
+    sourceDirectorySet.exclude '**/.gitkeep'
+
+    def syncTaskProvider = syncTask
+    if (kind == 'resources') {
+        tasks.matching { Task task ->
+            task.name == 'processResources' || task.name == 'runClient' || task.name == 'runServer' || task.name.startsWith('run')
+        }.configureEach { Task task ->
+            task.dependsOn(syncTaskProvider)
+        }
+    }
+}
+
+ext.terrainDiffusionAddCommonOverlay = { Object sourceDirectorySet, String sourceBucket, String kind ->
+    File sharedDir = new File(terrainDiffusionSharedCommonDir(), "src/${sourceBucket}/${kind}")
+    File overlayDir = new File(terrainDiffusionCommonProjectDir(), "src/${sourceBucket}/${kind}")
+    terrainDiffusionAddOverlaySourceDir(sourceDirectorySet, 'common', sharedDir, overlayDir, sourceBucket, kind)
+}
+
+ext.terrainDiffusionAddVersionOnlyCommonResources = { Object sourceDirectorySet, String sourceBucket ->
+    File noSharedResourcesDir = new File(terrainDiffusionCommonProjectDir(), "__no_shared_common_resources__/${sourceBucket}/resources")
+    File versionResourcesDir = new File(terrainDiffusionCommonProjectDir(), "src/${sourceBucket}/resources")
+    terrainDiffusionAddOverlaySourceDir(sourceDirectorySet, 'version_common_resources', noSharedResourcesDir, versionResourcesDir, sourceBucket, 'resources')
+}
+
+ext.terrainDiffusionSharedLoaderDir = { String loaderName ->
+    return new File(terrainDiffusionMultiversionRoot(), "loaders/${loaderName}").canonicalFile
+}
+
+ext.terrainDiffusionAddLoaderOverlay = { Object sourceDirectorySet, String loaderName, String sourceBucket, String kind ->
+    File sharedDir = new File(terrainDiffusionSharedLoaderDir(loaderName), "src/${sourceBucket}/${kind}")
+    File overlayDir = new File(project.projectDir, "src/${sourceBucket}/${kind}")
+    terrainDiffusionAddOverlaySourceDir(sourceDirectorySet, "loader_${loaderName}", sharedDir, overlayDir, sourceBucket, kind)
+}
+
+base {
+    archivesName = "${mod_id}-${project.name}-${minecraft_version}"
+}
+
+def terrainDiffusionJavaVersion = (findProperty('java_version') ?: rootProject.findProperty('java_version') ?: '21') as Integer
+
+extensions.configure(org.gradle.api.plugins.JavaPluginExtension) { org.gradle.api.plugins.JavaPluginExtension javaExtension ->
+    javaExtension.toolchain.languageVersion.set(org.gradle.jvm.toolchain.JavaLanguageVersion.of(terrainDiffusionJavaVersion))
+    javaExtension.withSourcesJar()
+    javaExtension.withJavadocJar()
+}
+
+repositories {
+    mavenCentral()
+    exclusiveContent {
+        forRepository {
+            maven {
+                name = 'Sponge'
+                url = 'https://repo.spongepowered.org/repository/maven-public'
+            }
+        }
+        filter { includeGroupAndSubgroups('org.spongepowered') }
+    }
+    exclusiveContent {
+        forRepositories(
+                maven {
+                    name = 'ParchmentMC'
+                    url = 'https://maven.parchmentmc.org/'
+                },
+                maven {
+                    name = "NeoForge"
+                    url = 'https://maven.neoforged.net/releases'
+                }
+        )
+        filter { includeGroup('org.parchmentmc.data') }
+    }
+    maven {
+        name = 'BlameJared'
+        url = 'https://maven.blamejared.com'
+    }
+}
+
+['apiElements', 'runtimeElements', 'sourcesElements', 'javadocElements'].each { variant ->
+    configurations."$variant".outgoing {
+        capability("$group:${project.name}:$version")
+        capability("$group:${base.archivesName.get()}:$version")
+        capability("$group:$mod_id-${project.name}-${minecraft_version}:$version")
+        capability("$group:$mod_id:$version")
+    }
+    publishing.publications.configureEach {
+        suppressPomMetadataWarningsFor(variant)
+    }
+}
+
+def terrainDiffusionLicenseFile = terrainDiffusionRootFile('LICENSE')
+
+sourcesJar {
+    if (terrainDiffusionLicenseFile.exists()) {
+        from(terrainDiffusionLicenseFile) {
+            rename { "${it}_${mod_name}" }
+        }
+    }
+}
+
+jar {
+    if (terrainDiffusionLicenseFile.exists()) {
+        from(terrainDiffusionLicenseFile) {
+            rename { "${it}_${mod_name}" }
+        }
+    }
+
+    manifest {
+        attributes([
+                'Specification-Title'   : mod_name,
+                'Specification-Vendor'  : mod_author,
+                'Specification-Version' : project.jar.archiveVersion,
+                'Implementation-Title'  : project.name,
+                'Implementation-Version': project.jar.archiveVersion,
+                'Implementation-Vendor' : mod_author,
+                'Built-On-Minecraft'    : minecraft_version
+        ])
+    }
+}
+
+processResources {
+    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+
+    var expandProps = [
+            'version'                      : version,
+            'group'                        : project.group,
+            'minecraft_version'            : minecraft_version,
+            'minecraft_version_range'      : minecraft_version_range,
+            'fabric_version'               : fabric_version,
+            'fabric_loader_version'        : fabric_loader_version,
+            'loader_version'               : fabric_loader_version,
+            'mod_name'                     : mod_name,
+            'mod_author'                   : mod_author,
+            'mod_id'                       : mod_id,
+            'fml_mod_id'                   : findProperty('fml_mod_id') ?: mod_id.replace('-', '_'),
+            'license'                      : license,
+            'description'                  : project.description,
+            'neoforge_version'             : findProperty('neoforge_version') ?: '',
+            'neoforge_loader_version_range': findProperty('neoforge_loader_version_range') ?: '',
+            'forge_version'                : findProperty('forge_version') ?: '',
+            'forge_loader_version_range'   : findProperty('forge_loader_version_range') ?: '',
+            'credits'                      : credits,
+            'java_version'                 : java_version
+    ]
+
+    var jsonExpandProps = expandProps.collectEntries {
+        key, value -> [(key): value instanceof String ? value.replace("\n", "\\\\n") : value]
+    }
+
+    filesMatching(['META-INF/neoforge.mods.toml', 'META-INF/mods.toml']) {
+        expand expandProps
+    }
+
+    filesMatching(['pack.mcmeta', 'fabric.mod.json', '*.mixins.json']) {
+        expand jsonExpandProps
+    }
+
+    inputs.properties(expandProps)
+}
+
+publishing {
+    publications {
+        register('mavenJava', MavenPublication) {
+            artifactId base.archivesName.get()
+            from components.java
+        }
+    }
+    repositories {
+        maven {
+            url System.getenv('local_maven_url')
+        }
+    }
+}

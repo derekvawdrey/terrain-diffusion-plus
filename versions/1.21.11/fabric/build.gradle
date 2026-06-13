@@ -1,0 +1,7 @@
+plugins {
+    id 'fabric-loom'
+    id 'maven-publish'
+}
+
+apply from: new File(rootProject.rootDir.parentFile.parentFile, 'gradle/conventions/multiloader-loader.gradle')
+apply from: new File(rootProject.rootDir.parentFile.parentFile, 'gradle/loaders/fabric.gradle')

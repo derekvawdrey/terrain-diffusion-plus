@@ -1,0 +1,9 @@
+{
+  "pack": {
+    "description": {
+      "text": "Terrain Diffusion MC resources"
+    },
+    "pack_format": 48,
+    "supported_formats": [34, 48]
+  }
+}

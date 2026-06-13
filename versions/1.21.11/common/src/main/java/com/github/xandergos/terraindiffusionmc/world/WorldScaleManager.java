@@ -17,9 +17,6 @@ public final class WorldScaleManager {
 
     /**
      * Loads or creates per-world scale settings and sets the active runtime value.
-     *
-     * <p>If the world has no explicit stored scale yet, this applies pending
-     * world-creation selection when present, otherwise falls back to {@value #DEFAULT_SCALE}.
      */
     public static void initializeForWorld(ServerLevel serverWorld) {
         WorldScaleSettingsState worldScaleSettingsState = serverWorld.getDataStorage()

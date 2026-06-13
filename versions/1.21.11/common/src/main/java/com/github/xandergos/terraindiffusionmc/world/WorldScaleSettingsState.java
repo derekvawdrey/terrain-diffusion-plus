@@ -7,8 +7,6 @@ import net.minecraft.world.level.saveddata.SavedDataType;
 
 /**
  * Persisted per-world settings for terrain diffusion.
- *
- * <p>This is stored in the world save via Minecraft's persistent state manager.
  */
 public final class WorldScaleSettingsState extends SavedData {
     private static final Codec<WorldScaleSettingsState> CODEC = RecordCodecBuilder.create(instance -> instance.group(

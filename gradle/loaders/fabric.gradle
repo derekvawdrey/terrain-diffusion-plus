@@ -3,6 +3,19 @@ def buildVariant = project.ext.has('terrainDiffusionBuildVariant')
         : rootProject.ext.terrainDiffusionBuildVariant(project)
 project.ext.terrainDiffusionBuildVariant = buildVariant
 
+// Runtime JVM memory for Fabric dev runs. These settings affect runClient/runServer,
+// unlike org.gradle.jvmargs which only affects Gradle itself.
+// need to be clear later
+def terrainDiffusionMinecraftRunXms = (findProperty('minecraft_run_xms')
+        ?: rootProject.findProperty('minecraft_run_xms')
+        ?: '8G').toString()
+def terrainDiffusionMinecraftRunXmx = (findProperty('minecraft_run_xmx')
+        ?: rootProject.findProperty('minecraft_run_xmx')
+        ?: '12G').toString()
+def terrainDiffusionMinecraftRunHeapDump = (findProperty('minecraft_run_heap_dump')
+        ?: rootProject.findProperty('minecraft_run_heap_dump')
+        ?: 'false').toString().equalsIgnoreCase('true')
+
 loom {
     def aw = terrainDiffusionCommonFile("src/main/resources/${mod_id}.accesswidener")
     if (aw.exists()) {

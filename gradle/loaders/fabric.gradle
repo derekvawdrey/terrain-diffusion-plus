@@ -109,6 +109,31 @@ jar {
     }
 }
 
+// Keep the development jar and the remapped distribution jar as two distinct
+// files. If both tasks write to the same path, Loom can end up remapping its own
+// output and leave a tiny placeholder jar in build/libs.
+tasks.named('jar', Jar).configure { Jar jarTask ->
+    archiveClassifier.set('dev')
+    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+    dependsOn tasks.named('classes')
+    from(sourceSets.main.output)
+
+    if (sourceSets.findByName('client') != null) {
+        dependsOn tasks.named('clientClasses')
+        from(sourceSets.client.output)
+    }
+}
+
+tasks.named('remapJar').configure { Task remapTask ->
+    dependsOn tasks.named('jar')
+    inputFile.set(tasks.named('jar', Jar).flatMap { Jar jarTask -> jarTask.archiveFile })
+
+    if (remapTask.hasProperty('archiveClassifier')) {
+        remapTask.archiveClassifier.set('')
+    }
+}
+
+
 tasks.withType(JavaExec).configureEach {
     systemProperty 'log4j2.configurationFile', terrainDiffusionRootFile('log4j2-dev.xml').absolutePath
 }
@@ -132,7 +157,7 @@ tasks.register('pipelineTest', JavaExec) {
 
 def loaderAttribute = Attribute.of('io.github.mcgradleconventions.loader', String)
 ['apiElements', 'runtimeElements', 'sourcesElements', 'javadocElements', 'includeInternal', 'modCompileClasspath'].each { variant ->
-    configurations.named("$variant") {
+    configurations.matching { it.name == variant }.configureEach {
         attributes {
             attribute(loaderAttribute, 'fabric')
         }
@@ -165,3 +190,5 @@ tasks.register('terrainDiffusionEnsureFabricClientResourcesDir') {
 tasks.matching { Task task -> task.name == 'runClient' }.configureEach { Task task ->
     task.dependsOn(tasks.named('terrainDiffusionEnsureFabricClientResourcesDir'))
 }
+
+

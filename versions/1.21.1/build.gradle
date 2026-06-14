@@ -1,5 +1,5 @@
 plugins {
-    id 'fabric-loom' version '1.8-SNAPSHOT' apply false
+    id 'fabric-loom' version '1.13.6' apply false
     id 'net.neoforged.moddev' version '2.0.49-beta' apply false
     id 'org.spongepowered.mixin' version '0.7-SNAPSHOT' apply false
 }
@@ -25,7 +25,7 @@ ext {
             cpu    : [taskSuffix: 'Cpu', propertyName: 'useCpu', displayName: 'CPU', runtimeName: 'CPU/CoreML']
     ]
     terrainDiffusionOnnxRuntimeVersion = '1.20.0'
-    terrainDiffusionOnnxDmlVersion = '1.0'
+    terrainDiffusionOnnxDmlVersion = '1.0.0'
     terrainDiffusionLocalDmlMavenRepo = rootProject.file('.gradle/terrain-diffusion-local-maven')
 
     terrainDiffusionPrepareLocalDmlMavenArtifact = { ->
@@ -209,7 +209,7 @@ subprojects { subproject ->
     if (isTerrainDiffusionLoaderProject) {
         String buildVariant = rootProject.ext.terrainDiffusionBuildVariant(subproject)
         subproject.ext.terrainDiffusionBuildVariant = buildVariant
-        subproject.version = "${rootProject.version}-${buildVariant}+${subproject.minecraft_version}"
+        subproject.version = "${rootProject.version}-${buildVariant}"
         subproject.group = rootProject.group
 
         subproject.repositories {
@@ -281,17 +281,20 @@ subprojects { subproject ->
             compileTask.options.release.set(terrainDiffusionJavaVersion)
         }
 
-        if (isTerrainDiffusionLoaderProject) {
-            subproject.dependencies {
-                implementation rootProject.ext.terrainDiffusionOnnxNotation(subproject.ext.terrainDiffusionBuildVariant)
-            }
-        }
+        // Runtime dependencies are wired by the loader-specific blocks below.
+        // Fabric needs Loom's include configuration, NeoForge/Forge need jarJar.
     }
 
     subproject.plugins.withId('fabric-loom') {
         if (subproject.name == 'fabric') {
             subproject.dependencies {
-                include rootProject.ext.terrainDiffusionOnnxNotation(subproject.ext.terrainDiffusionBuildVariant)
+                def onnxNotation = rootProject.ext.terrainDiffusionOnnxNotation(subproject.ext.terrainDiffusionBuildVariant)
+                implementation onnxNotation
+                include onnxNotation
+            }
+
+            subproject.tasks.named('build') {
+                dependsOn subproject.tasks.named('remapJar')
             }
         }
     }
@@ -320,8 +323,25 @@ subprojects { subproject ->
 
     subproject.plugins.withId('net.neoforged.moddev.legacyforge') {
         if (isTerrainDiffusionLoaderProject) {
-            subproject.tasks.matching { it.name == 'reobfJar' }.configureEach { reobfTask ->
-                subproject.tasks.named('build') { dependsOn reobfTask }
+            subproject.dependencies {
+                def onnxModule = rootProject.ext.terrainDiffusionOnnxModule(subproject.ext.terrainDiffusionBuildVariant)
+                def onnxNotation = "${onnxModule.group}:${onnxModule.name}:${onnxModule.version}"
+
+                additionalRuntimeClasspath onnxNotation
+
+                jarJar(implementation("${onnxModule.group}:${onnxModule.name}")) {
+                    version {
+                        strictly "[${onnxModule.version}]"
+                        prefer onnxModule.version
+                    }
+                }
+            }
+
+            // ForgeGradle creates reobfJar lazily. Do not query/configure another
+            // task from inside reobfJar creation; Gradle 8.14 rejects that context.
+            subproject.tasks.named('build').configure {
+                dependsOn 'jarJar'
+                dependsOn 'reobfJar'
             }
         }
     }

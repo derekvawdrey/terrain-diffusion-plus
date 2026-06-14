@@ -45,6 +45,46 @@ plugins {
 }
 
 rootProject.name = 'terrain-diffusion-mc-1.21.11'
+
+import java.util.Locale
+
+// Include only the loader projects needed by the requested task.
+// This keeps Forge/NeoForge-only builds from configuring Fabric Loom.
+def tdmcRequestedTaskNames = gradle.startParameter.taskNames.collect { String taskName ->
+    String normalized = taskName.toLowerCase(Locale.ROOT)
+    while (normalized.startsWith(':')) {
+        normalized = normalized.substring(1)
+    }
+    return normalized
+}
+
+def tdmcAllLoaderTasks = [
+        'build',
+        'assemble',
+        'check',
+        'clean',
+        'classes',
+        'jar',
+        'buildall',
+        'buildallvariants',
+        'buildcpu',
+        'buildcuda',
+        'buildwindows',
+        'builddml',
+        'runclient',
+        'runserver'
+] as Set
+
+def tdmcRequestsAllLoaders = tdmcRequestedTaskNames.isEmpty() || tdmcRequestedTaskNames.any { String taskName ->
+    tdmcAllLoaderTasks.contains(taskName)
+}
+
+def tdmcRequestsLoader = { String loaderName ->
+    tdmcRequestedTaskNames.any { String taskName ->
+        taskName == loaderName || taskName.startsWith("${loaderName}:") || taskName.contains(loaderName)
+    }
+}
+
 include('common')
-include('fabric')
-include('neoforge')
+if (tdmcRequestsAllLoaders || tdmcRequestsLoader('fabric')) include('fabric')
+if (tdmcRequestsAllLoaders || tdmcRequestsLoader('neoforge')) include('neoforge')

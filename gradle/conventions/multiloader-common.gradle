@@ -246,3 +246,13 @@ publishing {
         }
     }
 }
+
+
+// Keep Gradle's sources/javadoc configurations registered because Loom and
+// publication metadata expect them, but do not actually build auxiliary jars.
+// The distributed mod artifacts should be runtime jars only.
+tasks.matching { Task task ->
+    task.name == 'sourcesJar' || task.name == 'javadocJar' || task.name == 'remapSourcesJar'
+}.configureEach { Task task ->
+    task.enabled = false
+}

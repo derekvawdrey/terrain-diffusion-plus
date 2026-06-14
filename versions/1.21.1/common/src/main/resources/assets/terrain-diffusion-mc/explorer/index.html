@@ -342,7 +342,38 @@
     box-shadow: 0 0 0 1px rgba(249,115,22,0.3);
     pointer-events: none;
     display: none;
+    z-index: 4;
   }
+
+  .origin-marker {
+    position: absolute;
+    pointer-events: none;
+    display: none;
+    z-index: 5;
+  }
+
+  .origin-marker.inside {
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    background: #facc15;
+    border: 2px solid #090b11;
+    box-shadow: 0 0 0 2px rgba(250,204,21,0.35), 0 0 12px rgba(250,204,21,0.45);
+    transform: translate(-50%, -50%);
+  }
+
+  .origin-marker.edge {
+    width: 22px;
+    height: 22px;
+    color: #facc15;
+    font-size: 22px;
+    line-height: 22px;
+    text-align: center;
+    text-shadow: 0 1px 4px rgba(0,0,0,0.9);
+    transform: translate(-50%, -50%) rotate(var(--marker-angle, 0rad));
+  }
+
+  .origin-marker.edge::before { content: '▲'; }
 
   .btn-up    { grid-column: 2; grid-row: 1; }
   .btn-down  { grid-column: 2; grid-row: 3; }
@@ -570,6 +601,7 @@
         <div class="map-container" id="coarse-container">
           <img id="coarse-img" class="map-img" alt="coarse map">
           <div class="tile-marker" id="tile-marker"></div>
+          <div class="origin-marker" id="origin-marker" title="/td-explore origin"></div>
           <div class="spinner" id="coarse-spinner"></div>
           <div class="map-placeholder" id="coarse-placeholder">Loading…</div>
         </div>
@@ -585,13 +617,14 @@
         <button class="active" id="mode-relief">Relief</button>
         <button id="mode-elevation">Elevation</button>
         <button id="mode-temperature">Temperature</button>
+        <button id="mode-biome">Biome</button>
         <span class="panel-info" id="detail-info">click coarse map to load</span>
       </div>
       <div class="nav-grid">
         <button class="pan-btn btn-up"    id="detail-up">↑</button>
         <button class="pan-btn btn-left"  id="detail-left">←</button>
         <div class="map-container" id="detail-container">
-          <img id="detail-img" class="map-img" alt="detail map" style="display:none">
+          <canvas id="detail-img" class="map-img" style="display:none"></canvas>
           <div class="spinner" id="detail-spinner"></div>
           <div class="map-placeholder" id="detail-placeholder">Click coarse map to generate</div>
         </div>
@@ -625,12 +658,15 @@
     seed: null,
     channel: 0,
     channels: [],
+    biomes: {},
+    biomeColors: {},
     nativeResolution: null,
     coordScale: 1,
     coarseOffsetI: 0,
     coarseOffsetJ: 0,
     coarseWindow: 50,
     coarseData: null,
+    commandOrigin: null,
     detailRaw: null,
     detailCI: null,
     detailCJ: null,
@@ -655,6 +691,7 @@
   const coarseInfo      = document.getElementById('coarse-info');
   const coarseZoomLabel = document.getElementById('coarse-zoom-label');
   const tileMarker      = document.getElementById('tile-marker');
+  const originMarker    = document.getElementById('origin-marker');
   const detailImg       = document.getElementById('detail-img');
   const detailSpinner   = document.getElementById('detail-spinner');
   const detailPlaceholder = document.getElementById('detail-placeholder');
@@ -761,7 +798,7 @@
     if (clamped === state.coarseWindow) return;
     state.coarseWindow = clamped;
     updateCoarseZoomLabel();
-    loadCoarse();
+    if (!syncCoarseToDetailIfNeeded()) loadCoarse();
   }
 
   let _lastDetailClick = null;
@@ -794,8 +831,166 @@
     });
   }
 
-  // ── Debounce ──
+  // ── Debounce / request guards ──
   let debounceTimer = null;
+  let coarseRequestSeq = 0;
+  let detailRequestSeq = 0;
+  let activeCoarseImageController = null;
+  let activeDetailImageController = null;
+  let activeDetailRawController = null;
+  let coarseObjectUrl = null;
+  let detailObjectUrl = null;
+
+  function clearCoarseImage() {
+    coarseImg.onload = null;
+    coarseImg.onerror = null;
+    if (coarseObjectUrl) URL.revokeObjectURL(coarseObjectUrl);
+    coarseObjectUrl = null;
+    coarseImg.removeAttribute('src');
+    coarseImg.style.display = 'none';
+  }
+
+  function clearDetailImage() {
+    detailImg.onload = null;
+    detailImg.onerror = null;
+    if (detailObjectUrl) URL.revokeObjectURL(detailObjectUrl);
+    detailObjectUrl = null;
+    const ctx = detailImg.getContext ? detailImg.getContext('2d') : null;
+    if (ctx) ctx.clearRect(0, 0, detailImg.width || 0, detailImg.height || 0);
+    detailImg.width = 0;
+    detailImg.height = 0;
+    detailImg.style.display = 'none';
+  }
+
+  function decodeBlobAsImage(blob) {
+    if ('createImageBitmap' in window) return createImageBitmap(blob);
+    return new Promise((resolve, reject) => {
+      const url = URL.createObjectURL(blob);
+      const img = new Image();
+      img.onload = () => { URL.revokeObjectURL(url); resolve(img); };
+      img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('image decode failed')); };
+      img.src = url;
+    });
+  }
+
+  function drawDetailImage(image) {
+    const ctx = detailImg.getContext('2d', { alpha: false });
+    detailImg.width = image.width;
+    detailImg.height = image.height;
+    ctx.clearRect(0, 0, detailImg.width, detailImg.height);
+    ctx.drawImage(image, 0, 0);
+    if (typeof image.close === 'function') image.close();
+  }
+
+
+  // ── Client-side detail rendering ──
+  function parseBiomeColor(rawColor, fallback) {
+    if (typeof rawColor === 'number' && Number.isFinite(rawColor)) return rawColor & 0xFFFFFF;
+    if (typeof rawColor === 'string') {
+      const clean = rawColor.startsWith('#') ? rawColor.slice(1) : rawColor;
+      const parsed = parseInt(clean, 16);
+      if (Number.isFinite(parsed)) return parsed & 0xFFFFFF;
+    }
+    return fallback;
+  }
+
+  function writeRGB(buf, idx, color, shade = 1) {
+    buf[idx]     = clamp(((color >> 16) & 255) * shade, 0, 255);
+    buf[idx + 1] = clamp(((color >> 8) & 255) * shade, 0, 255);
+    buf[idx + 2] = clamp((color & 255) * shade, 0, 255);
+    buf[idx + 3] = 255;
+  }
+
+  function lerp(a, b, t) { return a + (b - a) * clamp(t, 0, 1); }
+
+  function lerpColor(c1, c2, t) {
+    t = clamp(t, 0, 1);
+    const r = Math.round(lerp((c1 >> 16) & 255, (c2 >> 16) & 255, t));
+    const g = Math.round(lerp((c1 >> 8) & 255, (c2 >> 8) & 255, t));
+    const b = Math.round(lerp(c1 & 255, c2 & 255, t));
+    return (r << 16) | (g << 8) | b;
+  }
+
+  function terrainBaseColor(e) {
+    if (e < -800) return 0x071B3A;
+    if (e < -120) return lerpColor(0x09285A, 0x185A8A, (e + 800) / 680);
+    if (e < 0) return lerpColor(0x185A8A, 0x328CA8, (e + 120) / 120);
+    if (e < 40) return lerpColor(0xD8C76A, 0x5E9F4A, e / 40);
+    if (e < 900) return lerpColor(0x5E9F4A, 0x3F7135, (e - 40) / 860);
+    if (e < 2200) return lerpColor(0x6F7A59, 0x8D8D84, (e - 900) / 1300);
+    return lerpColor(0xA7A7A0, 0xE8EEEE, (e - 2200) / 1600);
+  }
+
+  function heatColor(t) {
+    if (t < 0.5) return lerpColor(0x283C9A, 0xE6EDF2, t / 0.5);
+    return lerpColor(0xE6EDF2, 0x9F1D1D, (t - 0.5) / 0.5);
+  }
+
+  function viridisish(t) {
+    if (t < 0.33) return lerpColor(0x440154, 0x31688E, t / 0.33);
+    if (t < 0.66) return lerpColor(0x31688E, 0x35B779, (t - 0.33) / 0.33);
+    return lerpColor(0x35B779, 0xFDE725, (t - 0.66) / 0.34);
+  }
+
+  function arrayMinMax(arr) {
+    let min = Infinity, max = -Infinity;
+    for (let i = 0; i < arr.length; i++) {
+      const v = arr[i];
+      if (!Number.isFinite(v)) continue;
+      if (v < min) min = v;
+      if (v > max) max = v;
+    }
+    if (!Number.isFinite(min) || !Number.isFinite(max) || min === max) return [0, 1];
+    return [min, max];
+  }
+
+  function biomeColor(index) {
+    const raw = state.biomeColors[String(index)];
+    return parseBiomeColor(raw, 0x8DB360);
+  }
+
+  function renderDetailFromRaw() {
+    const raw = state.detailRaw;
+    if (!raw) return;
+    const { elev, temp, biome, h, w } = raw;
+    const ctx = detailImg.getContext('2d', { alpha: false });
+    if (detailImg.width !== w) detailImg.width = w;
+    if (detailImg.height !== h) detailImg.height = h;
+    const image = ctx.createImageData(w, h);
+    const data = image.data;
+    const mode = state.detailMode;
+
+    if (mode === 'biome' && biome) {
+      for (let i = 0; i < h * w; i++) writeRGB(data, i * 4, biomeColor(biome[i]));
+    } else if (mode === 'temperature' && temp) {
+      const [vmin, vmax] = arrayMinMax(temp);
+      const span = vmax - vmin || 1;
+      for (let i = 0; i < h * w; i++) writeRGB(data, i * 4, heatColor((temp[i] - vmin) / span));
+    } else if (mode === 'elevation') {
+      const [vmin, vmax] = arrayMinMax(elev);
+      const span = vmax - vmin || 1;
+      for (let i = 0; i < h * w; i++) writeRGB(data, i * 4, viridisish((elev[i] - vmin) / span));
+    } else {
+      for (let r = 0; r < h; r++) {
+        const r0 = Math.max(0, r - 1), r1 = Math.min(h - 1, r + 1);
+        for (let c = 0; c < w; c++) {
+          const c0 = Math.max(0, c - 1), c1 = Math.min(w - 1, c + 1);
+          const idx = r * w + c;
+          const dx = (elev[r * w + c1] - elev[r * w + c0]) * 0.004;
+          const dy = (elev[r1 * w + c] - elev[r0 * w + c]) * 0.004;
+          const shade = clamp(0.86 - dx * 0.24 - dy * 0.34, 0.42, 1.22);
+          writeRGB(data, idx * 4, terrainBaseColor(elev[idx]), shade);
+        }
+      }
+    }
+
+    ctx.putImageData(image, 0, 0);
+    detailImg.style.display = 'block';
+    detailImg.classList.remove('loading');
+    detailSpinner.classList.remove('active');
+    detailPlaceholder.style.display = 'none';
+  }
+
   function debouncedLoadCoarse() {
     clearTimeout(debounceTimer);
     debounceTimer = setTimeout(loadCoarse, 350);
@@ -826,87 +1021,227 @@
 
   // ── Load helpers ──
   function loadCoarse() {
+    const req = ++coarseRequestSeq;
     state.coarseData = null;
+    coarseImg.dataset.req = String(req);
     coarseImg.classList.add('loading');
     coarseSpinner.classList.add('active');
     coarsePlaceholder.style.display = 'none';
-    coarseImg.src = coarseUrl();
+    tileMarker.style.display = 'none';
+    originMarker.style.display = 'none';
+
+    if (activeCoarseImageController) activeCoarseImageController.abort();
+    clearCoarseImage();
+
+    const src = `${coarseUrl()}&_req=${req}`;
+    const controller = new AbortController();
+    activeCoarseImageController = controller;
+
+    fetch(src, { signal: controller.signal, cache: 'no-store' })
+      .then(res => {
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        return res.blob();
+      })
+      .then(blob => {
+        if (req !== coarseRequestSeq || activeCoarseImageController !== controller) return;
+        const url = URL.createObjectURL(blob);
+        coarseObjectUrl = url;
+        coarseImg.onload = () => {
+          if (req !== coarseRequestSeq || activeCoarseImageController !== controller) return;
+          coarseImg.style.display = 'block';
+          coarseImg.classList.remove('loading');
+          coarseSpinner.classList.remove('active');
+          const { coarseOffsetI: oi, coarseOffsetJ: oj, coarseWindow: w } = state;
+          coarseInfo.textContent = `ci=[${oi-w}…${oi+w}], cj=[${oj-w}…${oj+w}]`;
+          updateMapMarkers();
+          loadCoarseData(req);
+        };
+        coarseImg.onerror = () => {
+          if (req !== coarseRequestSeq || activeCoarseImageController !== controller) return;
+          coarseImg.classList.remove('loading');
+          coarseSpinner.classList.remove('active');
+          statusBar.textContent = 'Error decoding coarse map';
+        };
+        coarseImg.src = url;
+      })
+      .catch(err => {
+        if (err && err.name === 'AbortError') return;
+        if (req !== coarseRequestSeq || activeCoarseImageController !== controller) return;
+        coarseImg.classList.remove('loading');
+        coarseSpinner.classList.remove('active');
+        statusBar.textContent = 'Error loading coarse map';
+      });
   }
 
-  async function loadCoarseData() {
+  async function loadCoarseData(req) {
     const { coarseOffsetI: oi, coarseOffsetJ: oj, coarseWindow: w, seed } = state;
     const ci0 = oi - w, ci1 = oi + w, cj0 = oj - w, cj1 = oj + w;
     try {
-      const res = await fetch(`/api/coarse_data.json?ci0=${ci0}&ci1=${ci1}&cj0=${cj0}&cj1=${cj1}&_s=${seed}`);
-      state.coarseData = await res.json();
+      const res = await fetch(`/api/coarse_data.json?ci0=${ci0}&ci1=${ci1}&cj0=${cj0}&cj1=${cj1}&_s=${seed}&_req=${req}`, { cache: 'no-store' });
+      if (!res.ok || req !== coarseRequestSeq) return;
+      const data = await res.json();
+      if (req === coarseRequestSeq) state.coarseData = data;
     } catch (_) {}
   }
 
   function loadDetail() {
     if (state.detailCI === null) return;
+    const req = ++detailRequestSeq;
+    const params = {
+      ci: state.detailCI,
+      cj: state.detailCJ,
+      pi: state.detailPanI,
+      pj: state.detailPanJ,
+      seed: state.seed,
+    };
     state.detailRaw = null;
-    detailImg.style.display = 'block';
+    if (activeDetailRawController) activeDetailRawController.abort();
+    if (activeDetailImageController) activeDetailImageController.abort();
+    activeDetailImageController = null;
+    clearDetailImage();
+
+    detailImg.dataset.req = String(req);
     detailImg.classList.add('loading');
     detailSpinner.classList.add('active');
     detailPlaceholder.style.display = 'none';
-    detailImg.src = detailUrl();
-    detailInfo.textContent = `ci=${state.detailCI}, cj=${state.detailCJ} | pan=(${state.detailPanI},${state.detailPanJ})`;
+    detailInfo.textContent = `ci=${params.ci}, cj=${params.cj} | pan=(${params.pi},${params.pj})`;
+
+    loadDetailRaw(req, params);
   }
 
-  async function loadDetailRaw() {
-    if (state.detailCI === null) return;
-    const { detailCI: ci, detailCJ: cj, detailPanI: pi, detailPanJ: pj, seed } = state;
+  async function loadDetailRaw(req, params) {
+    if (state.detailCI === null || req !== detailRequestSeq) return;
+    const { ci, cj, pi, pj, seed } = params;
+    const controller = new AbortController();
+    activeDetailRawController = controller;
     try {
-      const res = await fetch(`/api/detail_raw?ci=${ci}&cj=${cj}&detail_size=${DETAIL_SIZE}&pan_i=${pi}&pan_j=${pj}&_s=${seed}`);
+      const res = await fetch(`/api/detail_raw?ci=${ci}&cj=${cj}&detail_size=${DETAIL_SIZE}&pan_i=${pi}&pan_j=${pj}&_s=${seed}&_req=${req}`, { signal: controller.signal, cache: 'no-store' });
+      if (!res.ok || req !== detailRequestSeq || activeDetailRawController !== controller) return;
       const h = parseInt(res.headers.get('X-Height'));
       const w = parseInt(res.headers.get('X-Width'));
+      if (!Number.isFinite(h) || !Number.isFinite(w) || h <= 0 || w <= 0) return;
       const hasTemp = res.headers.get('X-Has-Temp') === '1';
+      const hasBiome = res.headers.get('X-Has-Biome') === '1';
       const buf = await res.arrayBuffer();
+      if (req !== detailRequestSeq || activeDetailRawController !== controller) return;
+      const tempOffset = h * w * 2;
+      const biomeOffset = tempOffset + (hasTemp ? h * w * 4 : 0);
       state.detailRaw = {
         elev: new Int16Array(buf, 0, h * w),
-        temp: hasTemp ? new Float32Array(buf, h * w * 2, h * w) : null,
+        temp: hasTemp ? new Float32Array(buf, tempOffset, h * w) : null,
+        biome: hasBiome ? new Int16Array(buf, biomeOffset, h * w) : null,
         h, w,
       };
-    } catch (_) {}
+      renderDetailFromRaw();
+    } catch (err) {
+      if (err && err.name === 'AbortError') return;
+      if (req !== detailRequestSeq || activeDetailRawController !== controller) return;
+      detailImg.classList.remove('loading');
+      detailSpinner.classList.remove('active');
+      statusBar.textContent = 'Error loading detail map';
+    } finally {
+      if (activeDetailRawController === controller) activeDetailRawController = null;
+    }
   }
 
-  // ── Image events ──
-  coarseImg.onload = () => {
-    coarseImg.classList.remove('loading');
-    coarseSpinner.classList.remove('active');
+  // ── Coarse-map markers ──
+  function coarseBounds() {
     const { coarseOffsetI: oi, coarseOffsetJ: oj, coarseWindow: w } = state;
-    coarseInfo.textContent = `ci=[${oi-w}…${oi+w}], cj=[${oj-w}…${oj+w}]`;
-    updateTileMarker();
-    loadCoarseData();
-  };
-  coarseImg.onerror = () => {
-    coarseImg.classList.remove('loading');
-    coarseSpinner.classList.remove('active');
-    statusBar.textContent = 'Error loading coarse map';
-  };
-  detailImg.onload = () => {
-    detailImg.classList.remove('loading');
-    detailSpinner.classList.remove('active');
-    loadDetailRaw();
-  };
-  detailImg.onerror = () => {
-    detailImg.classList.remove('loading');
-    detailSpinner.classList.remove('active');
-    statusBar.textContent = 'Error loading detail map';
-  };
+    return { ci0: oi - w, ci1: oi + w, cj0: oj - w, cj1: oj + w };
+  }
 
-  // ── Tile marker ──
+  function detailViewportCoarse() {
+    if (state.detailCI === null) return null;
+    const centerI = state.detailCI + state.detailPanI / 256.0;
+    const centerJ = state.detailCJ + state.detailPanJ / 256.0;
+    const half = DETAIL_SIZE / 512.0;
+    return {
+      centerI, centerJ,
+      minI: centerI - half, maxI: centerI + half,
+      minJ: centerJ - half, maxJ: centerJ + half,
+    };
+  }
+
+  function updateMapMarkers() {
+    updateTileMarker();
+    updateOriginMarker();
+  }
+
   function updateTileMarker() {
-    if (state.detailCI === null) { tileMarker.style.display = 'none'; return; }
-    const { detailCI: dci, detailCJ: dcj, coarseOffsetI: oi, coarseOffsetJ: oj, coarseWindow: w } = state;
-    const ci0 = oi - w, ci1 = oi + w, cj0 = oj - w, cj1 = oj + w;
-    if (dci < ci0 || dci >= ci1 || dcj < cj0 || dcj >= cj1) { tileMarker.style.display = 'none'; return; }
+    const view = detailViewportCoarse();
+    if (!view) { tileMarker.style.display = 'none'; return; }
+    const { ci0, ci1, cj0, cj1 } = coarseBounds();
+    if (view.maxI <= ci0 || view.minI >= ci1 || view.maxJ <= cj0 || view.minJ >= cj1) {
+      tileMarker.style.display = 'none';
+      return;
+    }
     const tI = ci1 - ci0, tJ = cj1 - cj0;
-    tileMarker.style.left   = ((dcj - cj0) / tJ * 100) + '%';
-    tileMarker.style.top    = ((dci - ci0) / tI * 100) + '%';
-    tileMarker.style.width  = (1 / tJ * 100) + '%';
-    tileMarker.style.height = (1 / tI * 100) + '%';
+    tileMarker.style.left   = ((view.minJ - cj0) / tJ * 100) + '%';
+    tileMarker.style.top    = ((view.minI - ci0) / tI * 100) + '%';
+    tileMarker.style.width  = ((view.maxJ - view.minJ) / tJ * 100) + '%';
+    tileMarker.style.height = ((view.maxI - view.minI) / tI * 100) + '%';
     tileMarker.style.display = 'block';
+  }
+
+  function updateOriginMarker() {
+    const origin = state.commandOrigin;
+    if (!origin || !Number.isFinite(origin.coarse_i) || !Number.isFinite(origin.coarse_j)) {
+      originMarker.style.display = 'none';
+      return;
+    }
+    const { ci0, ci1, cj0, cj1 } = coarseBounds();
+    const tI = ci1 - ci0, tJ = cj1 - cj0;
+    const xPct = (origin.coarse_j - cj0) / tJ * 100;
+    const yPct = (origin.coarse_i - ci0) / tI * 100;
+    const inside = xPct >= 0 && xPct <= 100 && yPct >= 0 && yPct <= 100;
+    originMarker.className = `origin-marker ${inside ? 'inside' : 'edge'}`;
+    originMarker.title = `/td-explore origin x=${Math.round(origin.x)}, z=${Math.round(origin.z)}`;
+    if (inside) {
+      originMarker.style.left = xPct + '%';
+      originMarker.style.top = yPct + '%';
+      originMarker.style.removeProperty('--marker-angle');
+    } else {
+      const clampedX = clamp(xPct, 3, 97);
+      const clampedY = clamp(yPct, 3, 97);
+      const dx = xPct - clampedX;
+      const dy = yPct - clampedY;
+      const angle = Math.atan2(dy, dx) + Math.PI / 2;
+      originMarker.style.left = clampedX + '%';
+      originMarker.style.top = clampedY + '%';
+      originMarker.style.setProperty('--marker-angle', `${angle}rad`);
+    }
+    originMarker.style.display = 'block';
+  }
+
+  function syncCoarseToDetailIfNeeded() {
+    const view = detailViewportCoarse();
+    if (!view) return false;
+    const { ci0, ci1, cj0, cj1 } = coarseBounds();
+    if (view.minI < ci0 || view.maxI > ci1 || view.minJ < cj0 || view.maxJ > cj1) {
+      state.coarseOffsetI = Math.round(view.centerI);
+      state.coarseOffsetJ = Math.round(view.centerJ);
+      loadCoarse();
+      return true;
+    }
+    return false;
+  }
+
+  function normalizeCommandOrigin(raw) {
+    if (!raw) return null;
+    const origin = {
+      x: Number(raw.x),
+      z: Number(raw.z),
+      coarse_i: Number(raw.coarse_i),
+      coarse_j: Number(raw.coarse_j),
+    };
+    return Number.isFinite(origin.coarse_i) && Number.isFinite(origin.coarse_j) ? origin : null;
+  }
+
+  function centerCoarseOnCommandOrigin() {
+    const origin = state.commandOrigin;
+    if (!origin) return;
+    state.coarseOffsetI = Math.round(origin.coarse_i);
+    state.coarseOffsetJ = Math.round(origin.coarse_j);
   }
 
   // ── Tooltip helpers ──
@@ -947,7 +1282,7 @@
     state.detailCJ = Math.floor(cj0 + (e.clientX - rect.left) / rect.width  * (cj1 - cj0));
     state.detailPanI = 0;
     state.detailPanJ = 0;
-    updateTileMarker();
+    updateMapMarkers();
     loadDetail();
     statusBar.textContent = `Selected tile ci=${state.detailCI}, cj=${state.detailCJ}`;
   });
@@ -955,7 +1290,7 @@
   // ── Detail hover ──
   detailImg.addEventListener('mousemove', (e) => {
     if (!state.detailRaw) return;
-    const { elev, temp, h, w } = state.detailRaw;
+    const { elev, temp, biome, h, w } = state.detailRaw;
     const rect = detailImg.getBoundingClientRect();
     const col = Math.floor((e.clientX - rect.left) / rect.width  * w);
     const row = Math.floor((e.clientY - rect.top)  / rect.height * h);
@@ -963,6 +1298,10 @@
     const idx = row * w + col;
     let html = `<div class="ht-row"><span class="ht-label">Elevation</span><span class="ht-val">${elev[idx]} m</span></div>`;
     if (temp) html += `<div class="ht-row"><span class="ht-label">Temperature</span><span class="ht-val">${temp[idx].toFixed(2)}°</span></div>`;
+    if (biome) {
+      const biomeKey = state.biomes[String(biome[idx])] || `#${biome[idx]}`;
+      html += `<div class="ht-row"><span class="ht-label">Biome</span><span class="ht-val">${biomeKey}</span></div>`;
+    }
     showTooltip(e, html);
   });
   detailImg.addEventListener('mouseleave', hideTooltip);
@@ -994,12 +1333,13 @@
   }
 
   // ── Detail mode ──
-  ['relief', 'elevation', 'temperature'].forEach(mode => {
+  ['relief', 'elevation', 'temperature', 'biome'].forEach(mode => {
     document.getElementById(`mode-${mode}`).addEventListener('click', () => {
       state.detailMode = mode;
-      ['relief','elevation','temperature'].forEach(m =>
+      ['relief','elevation','temperature','biome'].forEach(m =>
         document.getElementById(`mode-${m}`).classList.toggle('active', m === mode));
-      loadDetail();
+      if (state.detailRaw) renderDetailFromRaw();
+      else loadDetail();
     });
   });
 
@@ -1032,10 +1372,15 @@
   });
 
   function resetDetail() {
+    detailRequestSeq++;
+    if (activeDetailRawController) activeDetailRawController.abort();
+    if (activeDetailImageController) activeDetailImageController.abort();
+    activeDetailImageController = null;
     state.detailCI = state.detailCJ = null;
     state.detailPanI = state.detailPanJ = 0;
     state.detailRaw = null;
-    detailImg.style.display = 'none';
+    clearDetailImage();
+    detailSpinner.classList.remove('active');
     detailPlaceholder.style.display = '';
     detailInfo.textContent = 'click coarse map to load';
     tileMarker.style.display = 'none';
@@ -1083,10 +1428,19 @@
     setCoarseWindow(Math.round(state.coarseWindow * factor));
   }, { passive: false });
 
-  document.getElementById('detail-up').addEventListener('click',    () => { if (state.detailCI !== null) { state.detailPanI -= DETAIL_PAN_STEP; loadDetail(); } });
-  document.getElementById('detail-down').addEventListener('click',  () => { if (state.detailCI !== null) { state.detailPanI += DETAIL_PAN_STEP; loadDetail(); } });
-  document.getElementById('detail-left').addEventListener('click',  () => { if (state.detailCI !== null) { state.detailPanJ -= DETAIL_PAN_STEP; loadDetail(); } });
-  document.getElementById('detail-right').addEventListener('click', () => { if (state.detailCI !== null) { state.detailPanJ += DETAIL_PAN_STEP; loadDetail(); } });
+  function panDetail(di, dj) {
+    if (state.detailCI === null) return;
+    state.detailPanI += di;
+    state.detailPanJ += dj;
+    syncCoarseToDetailIfNeeded();
+    updateTileMarker();
+    loadDetail();
+  }
+
+  document.getElementById('detail-up').addEventListener('click',    () => panDetail(-DETAIL_PAN_STEP, 0));
+  document.getElementById('detail-down').addEventListener('click',  () => panDetail( DETAIL_PAN_STEP, 0));
+  document.getElementById('detail-left').addEventListener('click',  () => panDetail(0, -DETAIL_PAN_STEP));
+  document.getElementById('detail-right').addEventListener('click', () => panDetail(0,  DETAIL_PAN_STEP));
 
   // ── Init ──
   async function init() {
@@ -1095,9 +1449,13 @@
       const data = await res.json();
       state.seed = data.seed;
       state.channels = data.channels;
+      state.biomes = data.biomes || {};
+      state.biomeColors = data.biome_colors || {};
+      state.commandOrigin = normalizeCommandOrigin(data.command_origin);
       state.nativeResolution = data.native_resolution ?? state.nativeResolution;
       // Scale is fixed to the mod's configured value (blocks per native pixel)
       state.coordScale = data.scale || 1;
+      centerCoarseOnCommandOrigin();
       seedDisplay.textContent = data.seed;
       buildChannelButtons(data.channels);
       updateCoordScale();

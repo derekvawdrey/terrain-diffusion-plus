@@ -1,7 +1,9 @@
 package com.github.xandergos.terraindiffusionmc.explorer;
 
+import com.github.xandergos.terraindiffusionmc.biome.TerrainBiomeCatalog;
 import com.github.xandergos.terraindiffusionmc.config.TerrainDiffusionConfig;
 import com.github.xandergos.terraindiffusionmc.infinitetensor.FloatTensor;
+import com.github.xandergos.terraindiffusionmc.pipeline.BiomeClassifier;
 import com.github.xandergos.terraindiffusionmc.pipeline.LocalTerrainProvider;
 import com.github.xandergos.terraindiffusionmc.pipeline.WorldPipelineModelConfig;
 import com.github.xandergos.terraindiffusionmc.world.WorldScaleManager;
@@ -44,9 +46,12 @@ public final class ExplorerServer {
 
     private static final String[] CHANNEL_NAMES = {"Elev", "p5", "Temp", "T std", "Precip", "Precip CV"};
     private static final float NATIVE_RESOLUTION = WorldPipelineModelConfig.nativeResolution();
+    private static final int DETAIL_PIPELINE_PADDING = 0;
 
     private static volatile HttpServer SERVER;
     private static volatile int SERVER_PORT = -1;
+    private static volatile double COMMAND_ORIGIN_X = Double.NaN;
+    private static volatile double COMMAND_ORIGIN_Z = Double.NaN;
 
     private ExplorerServer() {}
 
@@ -101,6 +106,15 @@ public final class ExplorerServer {
         return SERVER_PORT;
     }
 
+    /**
+     * Stores the world position from which /td-explore was last executed.
+     * The browser uses this as a stable navigation landmark on the coarse map.
+     */
+    public static void setCommandOrigin(double x, double z) {
+        COMMAND_ORIGIN_X = x;
+        COMMAND_ORIGIN_Z = z;
+    }
+
     // =========================================================================
     // Handlers — direct port of server.py routes
     // =========================================================================
@@ -115,6 +129,7 @@ public final class ExplorerServer {
                 return;
             }
             byte[] body = in.readAllBytes();
+            setNoStoreHeaders(ex);
             ex.getResponseHeaders().set("Content-Type", "text/html; charset=utf-8");
             ex.sendResponseHeaders(200, body.length);
             ex.getResponseBody().write(body);
@@ -131,7 +146,19 @@ public final class ExplorerServer {
             resp.put("seed", Long.toUnsignedString(LocalTerrainProvider.getSeed()));
             resp.put("channels", Arrays.asList(CHANNEL_NAMES));
             resp.put("native_resolution", NATIVE_RESOLUTION);
-            resp.put("scale", WorldScaleManager.getCurrentScale());
+            int scale = WorldScaleManager.getCurrentScale();
+            resp.put("scale", scale);
+            resp.put("biomes", TerrainBiomeCatalog.indexToKeyMap());
+            resp.put("biome_colors", TerrainBiomeCatalog.indexToColorMap());
+            if (!Double.isNaN(COMMAND_ORIGIN_X) && !Double.isNaN(COMMAND_ORIGIN_Z)) {
+                double safeScale = Math.max(1.0, scale);
+                Map<String, Object> origin = new LinkedHashMap<>();
+                origin.put("x", COMMAND_ORIGIN_X);
+                origin.put("z", COMMAND_ORIGIN_Z);
+                origin.put("coarse_i", COMMAND_ORIGIN_Z / safeScale / 256.0);
+                origin.put("coarse_j", COMMAND_ORIGIN_X / safeScale / 256.0);
+                resp.put("command_origin", origin);
+            }
             sendJson(ex, 200, resp);
         } catch (Exception e) {
             sendError(ex, 500, e.getMessage());
@@ -231,6 +258,7 @@ public final class ExplorerServer {
             }
 
             byte[] png = toPng(rgba, H, W);
+            setNoStoreHeaders(ex);
             ex.getResponseHeaders().set("Content-Type", "image/png");
             ex.getResponseHeaders().set("X-Vmin", String.format("%.3f", vmin));
             ex.getResponseHeaders().set("X-Vmax", String.format("%.3f", vmax));
@@ -314,37 +342,44 @@ public final class ExplorerServer {
             int centerJ = cj * 256 + panJ;
             int half    = detailSize / 2;
 
-            float[][] out = LocalTerrainProvider.getPipelineData(
-                    centerI - half, centerJ - half, centerI + half, centerJ + half,
-                    mode.equals("temperature"));
-            float[] elevFlat  = out[0];
-            float[] climate   = out[1];
             int H = detailSize, W = detailSize;
 
             float[][] rgba;
-            if (mode.equals("elevation")) {
-                float vmin = nanMin(elevFlat), vmax = nanMax(elevFlat);
-                if (vmax == vmin) vmax = vmin + 1f;
-                rgba = applyColormap1D(elevFlat, H, W, vmin, vmax, "terrain");
-            } else if (mode.equals("temperature") && climate != null) {
-                // climate[0] = temperature channel (H*W floats)
-                float[] temp = Arrays.copyOfRange(climate, 0, H * W);
-                float vmin = nanMin(temp), vmax = nanMax(temp);
-                if (vmax == vmin) vmax = vmin + 1f;
-                rgba = applyColormap1D(temp, H, W, vmin, vmax, "rdbu_r");
+            if (mode.equals("biome")) {
+                short[] biomeIndexes = classifyDetailBiomes(centerI - half, centerJ - half, centerI + half, centerJ + half);
+                rgba = applyBiomeColors(biomeIndexes, H, W);
             } else {
-                // relief mode (default)
-                float[][] reliefRgb = ReliefMap.getReliefMap(elevFlat, H, W, 90.0);
-                rgba = new float[4][H * W];
-                for (int i = 0; i < H * W; i++) {
-                    rgba[0][i] = reliefRgb[0][i];
-                    rgba[1][i] = reliefRgb[1][i];
-                    rgba[2][i] = reliefRgb[2][i];
-                    rgba[3][i] = 1f;
+                boolean needsClimate = mode.equals("temperature");
+                float[][] out = getDetailPipelineData(centerI - half, centerJ - half,
+                        centerI + half, centerJ + half, needsClimate);
+                float[] elevFlat  = out[0];
+                float[] climate   = out[1];
+
+                if (mode.equals("elevation")) {
+                    float vmin = nanMin(elevFlat), vmax = nanMax(elevFlat);
+                    if (vmax == vmin) vmax = vmin + 1f;
+                    rgba = applyColormap1D(elevFlat, H, W, vmin, vmax, "terrain");
+                } else if (mode.equals("temperature") && climate != null) {
+                    // climate[0] = temperature channel (H*W floats)
+                    float[] temp = Arrays.copyOfRange(climate, 0, H * W);
+                    float vmin = nanMin(temp), vmax = nanMax(temp);
+                    if (vmax == vmin) vmax = vmin + 1f;
+                    rgba = applyColormap1D(temp, H, W, vmin, vmax, "rdbu_r");
+                } else {
+                    // relief mode (default)
+                    float[][] reliefRgb = ReliefMap.getReliefMap(elevFlat, H, W, 90.0);
+                    rgba = new float[4][H * W];
+                    for (int i = 0; i < H * W; i++) {
+                        rgba[0][i] = reliefRgb[0][i];
+                        rgba[1][i] = reliefRgb[1][i];
+                        rgba[2][i] = reliefRgb[2][i];
+                        rgba[3][i] = 1f;
+                    }
                 }
             }
 
             byte[] png = toPng(rgba, H, W);
+            setNoStoreHeaders(ex);
             ex.getResponseHeaders().set("Content-Type", "image/png");
             ex.sendResponseHeaders(200, png.length);
             ex.getResponseBody().write(png);
@@ -376,8 +411,8 @@ public final class ExplorerServer {
             int half    = detailSize / 2;
             int H = detailSize, W = detailSize;
 
-            float[][] out = LocalTerrainProvider.getPipelineData(
-                    centerI - half, centerJ - half, centerI + half, centerJ + half, true);
+            float[][] out = getDetailPipelineData(centerI - half, centerJ - half,
+                    centerI + half, centerJ + half, true);
             float[] elevFlat = out[0];
             float[] climate  = out[1];
 
@@ -389,23 +424,35 @@ public final class ExplorerServer {
             }
 
             boolean hasTemp = climate != null;
-            byte[] payload;
+            ByteBuffer tempBuf = null;
             if (hasTemp) {
                 // Temperature = climate[0..H*W] as float32 LE
-                ByteBuffer tempBuf = ByteBuffer.allocate(H * W * 4).order(ByteOrder.LITTLE_ENDIAN);
+                tempBuf = ByteBuffer.allocate(H * W * 4).order(ByteOrder.LITTLE_ENDIAN);
                 for (int i = 0; i < H * W; i++) tempBuf.putFloat(climate[i]);
-                payload = new byte[elevBuf.capacity() + tempBuf.capacity()];
-                System.arraycopy(elevBuf.array(), 0, payload, 0, elevBuf.capacity());
-                System.arraycopy(tempBuf.array(), 0, payload, elevBuf.capacity(), tempBuf.capacity());
-            } else {
-                payload = elevBuf.array();
             }
 
+            short[] biomeIndexes = classifyDetailBiomes(centerI - half, centerJ - half, centerI + half, centerJ + half);
+            ByteBuffer biomeBuf = ByteBuffer.allocate(H * W * 2).order(ByteOrder.LITTLE_ENDIAN);
+            for (short biomeIndex : biomeIndexes) biomeBuf.putShort(biomeIndex);
+
+            int payloadSize = elevBuf.capacity() + (tempBuf != null ? tempBuf.capacity() : 0) + biomeBuf.capacity();
+            byte[] payload = new byte[payloadSize];
+            int offset = 0;
+            System.arraycopy(elevBuf.array(), 0, payload, offset, elevBuf.capacity());
+            offset += elevBuf.capacity();
+            if (tempBuf != null) {
+                System.arraycopy(tempBuf.array(), 0, payload, offset, tempBuf.capacity());
+                offset += tempBuf.capacity();
+            }
+            System.arraycopy(biomeBuf.array(), 0, payload, offset, biomeBuf.capacity());
+
             ex.getResponseHeaders().set("Content-Type", "application/octet-stream");
+            setNoStoreHeaders(ex);
             ex.getResponseHeaders().set("X-Height", String.valueOf(H));
             ex.getResponseHeaders().set("X-Width", String.valueOf(W));
             ex.getResponseHeaders().set("X-Has-Temp", hasTemp ? "1" : "0");
-            ex.getResponseHeaders().set("Access-Control-Expose-Headers", "X-Height, X-Width, X-Has-Temp");
+            ex.getResponseHeaders().set("X-Has-Biome", "1");
+            ex.getResponseHeaders().set("Access-Control-Expose-Headers", "X-Height, X-Width, X-Has-Temp, X-Has-Biome");
             ex.sendResponseHeaders(200, payload.length);
             ex.getResponseBody().write(payload);
         } catch (Exception e) {
@@ -474,16 +521,120 @@ public final class ExplorerServer {
         return rgba;
     }
 
+
+    private static float[][] getDetailPipelineData(int i1, int j1, int i2, int j2, boolean withClimate) throws Exception {
+        int H = i2 - i1;
+        int W = j2 - j1;
+        int pad = DETAIL_PIPELINE_PADDING;
+        if (pad <= 0) {
+            return LocalTerrainProvider.getPipelineData(i1, j1, i2, j2, withClimate);
+        }
+        int paddedH = H + 2 * pad;
+        int paddedW = W + 2 * pad;
+
+        float[][] padded = LocalTerrainProvider.getPipelineData(i1 - pad, j1 - pad,
+                i2 + pad, j2 + pad, withClimate);
+        float[] elev = cropFlat(padded[0], paddedH, paddedW, pad, pad, H, W);
+        float[] climate = cropClimate(padded[1], paddedH, paddedW, pad, pad, H, W);
+        return new float[][]{elev, climate};
+    }
+
+    private static short[] classifyDetailBiomes(int i1, int j1, int i2, int j2) throws Exception {
+        int H = i2 - i1;
+        int W = j2 - j1;
+        int pad = BiomeClassifier.detailShorelinePadding();
+
+        // Classify a larger padded window and crop the result. This removes the
+        // hard rectangular artifacts that appeared when shoreline/variant logic
+        // only saw the exact 1024x1024 viewport while panning.
+        int paddedH = H + 2 * pad;
+        int paddedW = W + 2 * pad;
+        float[][] padded = LocalTerrainProvider.getPipelineData(i1 - pad, j1 - pad, i2 + pad, j2 + pad, true);
+        float[] elevPaddedWindow = padded[0];
+        float[] climatePaddedWindow = padded[1];
+
+        float[] classifierElevPadded = addOnePixelElevationPadding(elevPaddedWindow, paddedH, paddedW);
+        short[] paddedBiomes = BiomeClassifier.classify(elevPaddedWindow, climatePaddedWindow,
+                i1 - pad, j1 - pad, classifierElevPadded, paddedH, paddedW, NATIVE_RESOLUTION);
+
+        short[] out = new short[H * W];
+        for (int r = 0; r < H; r++) {
+            System.arraycopy(paddedBiomes, (r + pad) * paddedW + pad, out, r * W, W);
+        }
+        return out;
+    }
+
+    private static float[] addOnePixelElevationPadding(float[] src, int H, int W) {
+        float[] out = new float[(H + 2) * (W + 2)];
+        for (int r = 0; r < H + 2; r++) {
+            int sr = Math.max(0, Math.min(H - 1, r - 1));
+            for (int c = 0; c < W + 2; c++) {
+                int sc = Math.max(0, Math.min(W - 1, c - 1));
+                out[r * (W + 2) + c] = src[sr * W + sc];
+            }
+        }
+        return out;
+    }
+
+    private static float[] cropFlat(float[] src, int srcH, int srcW, int row0, int col0, int H, int W) {
+        float[] out = new float[H * W];
+        for (int r = 0; r < H; r++) {
+            int sr = Math.max(0, Math.min(srcH - 1, row0 + r));
+            for (int c = 0; c < W; c++) {
+                int sc = Math.max(0, Math.min(srcW - 1, col0 + c));
+                out[r * W + c] = src[sr * srcW + sc];
+            }
+        }
+        return out;
+    }
+
+    private static float[] cropClimate(float[] src, int srcH, int srcW, int row0, int col0, int H, int W) {
+        if (src == null) return null;
+        int srcPlane = srcH * srcW;
+        int channels = Math.max(1, src.length / srcPlane);
+        float[] out = new float[channels * H * W];
+        int outPlane = H * W;
+        for (int ch = 0; ch < channels; ch++) {
+            for (int r = 0; r < H; r++) {
+                int sr = Math.max(0, Math.min(srcH - 1, row0 + r));
+                for (int c = 0; c < W; c++) {
+                    int sc = Math.max(0, Math.min(srcW - 1, col0 + c));
+                    out[ch * outPlane + r * W + c] = src[ch * srcPlane + sr * srcW + sc];
+                }
+            }
+        }
+        return out;
+    }
+
+    private static float[][] applyBiomeColors(short[] biomeIndexes, int H, int W) {
+        float[][] rgba = new float[4][H * W];
+        for (int i = 0; i < H * W; i++) {
+            int color = TerrainBiomeCatalog.colorForIndex(biomeIndexes[i]);
+            rgba[0][i] = ((color >> 16) & 0xFF) / 255f;
+            rgba[1][i] = ((color >> 8) & 0xFF) / 255f;
+            rgba[2][i] = (color & 0xFF) / 255f;
+            rgba[3][i] = 1f;
+        }
+        return rgba;
+    }
+
     // =========================================================================
     // HTTP utilities
     // =========================================================================
 
     private static void sendJson(HttpExchange ex, int status, Object obj) throws IOException {
         byte[] body = GSON.toJson(obj).getBytes(StandardCharsets.UTF_8);
+        setNoStoreHeaders(ex);
         ex.getResponseHeaders().set("Content-Type", "application/json; charset=utf-8");
         ex.sendResponseHeaders(status, body.length);
         try (OutputStream os = ex.getResponseBody()) { os.write(body); }
         ex.close();
+    }
+
+    private static void setNoStoreHeaders(HttpExchange ex) {
+        ex.getResponseHeaders().set("Cache-Control", "no-store, no-cache, max-age=0, must-revalidate");
+        ex.getResponseHeaders().set("Pragma", "no-cache");
+        ex.getResponseHeaders().set("Expires", "0");
     }
 
     private static void sendError(HttpExchange ex, int status, String msg) throws IOException {

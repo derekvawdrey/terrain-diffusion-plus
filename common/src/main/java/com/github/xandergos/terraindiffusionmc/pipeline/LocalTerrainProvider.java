@@ -45,13 +45,13 @@ public final class LocalTerrainProvider {
 
     public static final class HeightmapData {
         public final short[][] heightmap;
-        public final short[][] biomeIds;
+        public final short[][] biomeIndexes;
         public final int width;
         public final int height;
 
-        public HeightmapData(short[][] heightmap, short[][] biomeIds, int width, int height) {
-            this.heightmap = heightmap;
-            this.biomeIds  = biomeIds;
+        public HeightmapData(short[][] heightmap, short[][] biomeIndexes, int width, int height) {
+            this.heightmap     = heightmap;
+            this.biomeIndexes  = biomeIndexes;
             this.width     = width;
             this.height    = height;
         }
@@ -267,7 +267,7 @@ public final class LocalTerrainProvider {
     private static long estimateHeightmapBytes(HeightmapData data) {
         if (data == null) return 0L;
         return estimateShortMatrixBytes(data.heightmap)
-                + estimateShortMatrixBytes(data.biomeIds)
+                + estimateShortMatrixBytes(data.biomeIndexes)
                 + 64L;
     }
 
@@ -429,13 +429,13 @@ public final class LocalTerrainProvider {
 
     private static HeightmapData buildHeightmapData(float[] elevFlat, short[] biomeFlat, int H, int W) {
         short[][] heightmap = new short[H][W];
-        short[][] biomeIds  = new short[H][W];
+        short[][] biomeIndexes  = new short[H][W];
         for (int r = 0; r < H; r++)
             for (int c = 0; c < W; c++) {
                 float e = elevFlat[r * W + c];
                 heightmap[r][c] = (short) Math.max(-32768, Math.min(32767, (int) Math.floor(e)));
-                biomeIds[r][c]  = biomeFlat[r * W + c];
+                biomeIndexes[r][c]  = biomeFlat[r * W + c];
             }
-        return new HeightmapData(heightmap, biomeIds, W, H);
+        return new HeightmapData(heightmap, biomeIndexes, W, H);
     }
 }

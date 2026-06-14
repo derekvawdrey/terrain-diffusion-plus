@@ -112,6 +112,8 @@ public final class TerrainDiffusionLifecycle {
 
     private static int executeExplore(CommandContext<CommandSourceStack> ctx) {
         try {
+            var pos = ctx.getSource().getPosition();
+            ExplorerServer.setCommandOrigin(pos.x, pos.z);
             int port = ExplorerServer.startIfNotRunning();
             String url = "http://localhost:" + port;
             MutableComponent link = Component.literal(url)

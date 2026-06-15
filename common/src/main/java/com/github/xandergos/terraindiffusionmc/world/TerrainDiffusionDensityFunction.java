@@ -8,6 +8,15 @@ import net.minecraft.util.KeyDispatchDataCodec;
 import net.minecraft.world.level.levelgen.DensityFunction;
 
 public class TerrainDiffusionDensityFunction implements DensityFunction {
+    /**
+     * Vertical density falloff around the generated terrain surface.
+     *
+     * <p>Do not return a hard +/-1 step: vanilla structure terrain adaptation
+     * (beardifier) needs a signed-distance-like density near the surface so it
+     * can fill small gaps under structures instead of leaving villages hanging
+     * in the air.</p>
+     */
+    private static final double SURFACE_DENSITY_FALLOFF_BLOCKS = 16.0;
     public static final MapCodec<TerrainDiffusionDensityFunction> CODEC =
             MapCodec.unit(TerrainDiffusionDensityFunction::new);
 
@@ -39,7 +48,15 @@ public class TerrainDiffusionDensityFunction implements DensityFunction {
         int localZ = Math.max(0, Math.min(data.height - 1, z - blockStartZ));
 
         int targetHeight = HeightConverter.convertToMinecraftHeight(data.heightmap[localZ][localX]);
-        return y < targetHeight ? 1.0 : -1.0;
+        return terrainSignedDensity(targetHeight, y);
+    }
+
+    private static double terrainSignedDensity(int targetHeight, int y) {
+        double distanceToSurface = targetHeight - y - 0.5;
+        double density = distanceToSurface / SURFACE_DENSITY_FALLOFF_BLOCKS;
+        if (density < -1.0) return -1.0;
+        if (density > 1.0) return 1.0;
+        return density;
     }
 
     private static final class FillContext {
@@ -97,7 +114,7 @@ public class TerrainDiffusionDensityFunction implements DensityFunction {
 
             int targetHeight = HeightConverter
                 .convertToMinecraftHeight(data.heightmap[localZ][localX]);
-            densities[i] = y < targetHeight ? 1.0 : -1.0;
+            densities[i] = terrainSignedDensity(targetHeight, y);
         }
     }
 

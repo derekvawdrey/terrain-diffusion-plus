@@ -34,7 +34,17 @@
       "type": "terrain-diffusion-mc:terrain_diffusion"
     },
     "final_density": {
-      "type": "terrain-diffusion-mc:terrain_diffusion"
+      "type": "minecraft:add",
+      "argument1": {
+        "type": "terrain-diffusion-mc:terrain_diffusion"
+      },
+      "argument2": {
+        "type": "minecraft:mul",
+        "argument1": 2.5,
+        "argument2": {
+          "type": "minecraft:beardifier"
+        }
+      }
     },
     "vein_toggle": 0,
     "vein_ridged": 0,

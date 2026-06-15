@@ -2,9 +2,6 @@ package com.github.xandergos.terraindiffusionmc.biome;
 
 /**
  * Version-independent biome definition.
- *
- * <p>The numeric index is an internal catalog index only. It is not a Minecraft
- * biome ID and must not be treated as a registry contract.</p>
  */
 public record TerrainBiomeProfile(
         short index,

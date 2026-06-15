@@ -7,10 +7,7 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Common, version-independent catalog of vanilla biomes.
- *
- * <p>The catalog is expressed in climate-space and registry keys. Version
- * modules resolve these keys to the Minecraft API type used by that version.</p>
+ * Version-independent catalog of vanilla biomes.
  */
 public final class TerrainBiomeCatalog {
     private TerrainBiomeCatalog() {}
@@ -93,9 +90,6 @@ public final class TerrainBiomeCatalog {
     static {
         List<TerrainBiomeProfile> profiles = new ArrayList<>();
 
-        // Overworld land biomes. Ranges are intentionally broad; the classifier
-        // computes the climate variables and can use these ranges as a stable
-        // ecological contract rather than registry IDs.
         add(profiles, PLAINS, "minecraft:plains", "minecraft:plains", TerrainBiomeKind.OVERWORLD, -5f, 26f, 0.25f, 0.95f, 250f, 1200f, 0f, 1800f, 0f, 0.55f, 0.15f, 1.00f, 40, 0x8DB360);
         add(profiles, SUNFLOWER_PLAINS, "minecraft:sunflower_plains", "minecraft:plains", TerrainBiomeKind.OVERWORLD, 10f, 26f, 0.35f, 0.95f, 350f, 1300f, 0f, 900f, 0f, 0.35f, 0.30f, 1.00f, 35, 0xB5C95A);
         add(profiles, SNOWY_PLAINS, "minecraft:snowy_plains", "minecraft:snowy_plains", TerrainBiomeKind.OVERWORLD, -60f, 2f, 0.20f, 1.10f, 150f, 1800f, 0f, 1800f, 0f, 0.55f, 0.10f, 1.00f, 60, 0xDDE8E8);
@@ -134,7 +128,6 @@ public final class TerrainBiomeCatalog {
         add(profiles, MUSHROOM_FIELDS, "minecraft:mushroom_fields", "minecraft:plains", TerrainBiomeKind.OVERWORLD, 8f, 24f, 0.55f, 1.80f, 450f, 2500f, 0f, 900f, 0f, 0.40f, 0.10f, 0.80f, 1, 0xFF00FF);
         add(profiles, PALE_GARDEN, "minecraft:pale_garden", "minecraft:dark_forest", TerrainBiomeKind.OVERWORLD, 3f, 21f, 0.75f, 2.40f, 600f, 3400f, 0f, 1800f, 0f, 0.55f, 0.00f, 0.45f, 58, 0xBFC8B6);
 
-        // Rivers, beaches, and oceans.
         add(profiles, RIVER, "minecraft:river", "minecraft:river", TerrainBiomeKind.RIVER, -5f, 60f, 0.00f, 3.00f, 0f, 4000f, -20f, 500f, 0f, 0.60f, 0.00f, 1.00f, 10, 0x0000FF);
         add(profiles, FROZEN_RIVER, "minecraft:frozen_river", "minecraft:frozen_river", TerrainBiomeKind.RIVER, -60f, 0f, 0.00f, 3.00f, 0f, 3000f, -20f, 500f, 0f, 0.60f, 0.00f, 1.00f, 10, 0xA0A0FF);
         add(profiles, BEACH, "minecraft:beach", "minecraft:beach", TerrainBiomeKind.BEACH, -5f, 60f, 0.00f, 1.50f, 0f, 1800f, -10f, 80f, 0f, 0.35f, 0.35f, 1.00f, 10, 0xFADE55);
@@ -150,9 +143,6 @@ public final class TerrainBiomeCatalog {
         add(profiles, STONY_SHORE, "minecraft:stony_shore", "minecraft:stony_shore", TerrainBiomeKind.BEACH, -5f, 24f, 0.00f, 1.50f, 0f, 1800f, -10f, 250f, 0.25f, 1.00f, 0.40f, 1.00f, 40, 0xA2A284);
         add(profiles, SNOWY_BEACH, "minecraft:snowy_beach", "minecraft:snowy_beach", TerrainBiomeKind.BEACH, -60f, 2f, 0.00f, 1.50f, 0f, 1800f, -10f, 120f, 0f, 0.45f, 0.35f, 1.00f, 40, 0xFAF0C0);
 
-        // Cave, Nether, End, and utility vanilla biomes. They are present in the
-        // resolver so all vanilla registry keys are supported, but the surface
-        // terrain classifier does not select Nether/End biomes in the Overworld.
         add(profiles, LUSH_CAVES, "minecraft:lush_caves", "minecraft:lush_caves", TerrainBiomeKind.CAVE, 8f, 26f, 0.80f, 3.00f, 800f, 5000f, -12000f, 1500f, 0f, 2.00f, 0.00f, 1.00f, 0, 0x708A30);
         add(profiles, DRIPSTONE_CAVES, "minecraft:dripstone_caves", "minecraft:dripstone_caves", TerrainBiomeKind.CAVE, -5f, 28f, 0.00f, 1.20f, 0f, 1600f, -12000f, 1500f, 0f, 2.00f, 0.00f, 1.00f, 0, 0x6F5F50);
         add(profiles, DEEP_DARK, "minecraft:deep_dark", "minecraft:deep_dark", TerrainBiomeKind.CAVE, -60f, 20f, 0.00f, 2.00f, 0f, 3000f, -12000f, 0f, 0f, 2.00f, 0.00f, 1.00f, 0, 0x11111F);

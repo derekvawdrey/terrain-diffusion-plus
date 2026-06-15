@@ -19,6 +19,7 @@ public final class BiomeClassifier {
     private static final FastNoiseLite PRECIP_NOISE;
     private static final FastNoiseLite SNOW_NOISE, SNOW_NOISE_FINE;
     private static final FastNoiseLite BIOME_VARIANT_NOISE, CHERRY_GROVE_NOISE, PALE_GARDEN_NOISE;
+    private static final FastNoiseLite FOREST_CLEARING_NOISE, FLOWER_PATCH_NOISE;
 
     static {
         TEMP_NOISE = makeFnl(12345, 1f/500f, 3, 2f, 0.5f);
@@ -27,11 +28,12 @@ public final class BiomeClassifier {
         SNOW_NOISE = makeFnl(12345, 1f/500f, 3, 2f, 0.5f);
         SNOW_NOISE_FINE = makeFnl(54321, 1f/128f, 2, 2f, 0.5f);
         BIOME_VARIANT_NOISE = makeFnl(24680, 1f/650f, 3, 2f, 0.55f);
-        // Sub-biome noises are deliberately coarser than before. Fine 64px noise
-        // made cherry/pale patches noisy and produced harsh salt-and-pepper
-        // transitions. These frequencies produce readable biome pockets.
-        CHERRY_GROVE_NOISE = makeFnl(97531, 1f/240f, 3, 2f, 0.55f);
-        PALE_GARDEN_NOISE = makeFnl(86420, 1f/220f, 3, 2f, 0.55f);
+
+        CHERRY_GROVE_NOISE = makeFnl(97531, 1f/320f, 3, 2f, 0.55f);
+        PALE_GARDEN_NOISE = makeFnl(86420, 1f/280f, 3, 2f, 0.55f);
+
+        FOREST_CLEARING_NOISE = makeFnl(112233, 1f/260f, 3, 2f, 0.54f);
+        FLOWER_PATCH_NOISE = makeFnl(445566, 1f/220f, 3, 2f, 0.54f);
     }
 
     /** Extra elevation/climate pixels used by Explorer detail biome rendering. */
@@ -78,6 +80,8 @@ public final class BiomeClassifier {
         float[] variantNoise = new float[H * W];
         float[] cherryNoise = new float[H * W];
         float[] paleNoise = new float[H * W];
+        float[] clearingNoise = new float[H * W];
+        float[] flowerNoise = new float[H * W];
 
         for (int r = 0; r < H; r++) {
             for (int c = 0; c < W; c++) {
@@ -97,6 +101,8 @@ public final class BiomeClassifier {
                 variantNoise[idx] = BIOME_VARIANT_NOISE.GetNoise(nx, ny);
                 cherryNoise[idx] = CHERRY_GROVE_NOISE.GetNoise(nx, ny);
                 paleNoise[idx] = PALE_GARDEN_NOISE.GetNoise(nx, ny);
+                clearingNoise[idx] = FOREST_CLEARING_NOISE.GetNoise(nx, ny);
+                flowerNoise[idx] = FLOWER_PATCH_NOISE.GetNoise(nx, ny);
             }
         }
 
@@ -108,10 +114,11 @@ public final class BiomeClassifier {
                 boolean coastline = isCoastlineCandidate(elev, H, W, r, c, elev[idx], slopeRatio[idx]);
                 out[idx] = classifyPixel(elev[idx], climate, H, W, idx, tempNoise[idx],
                         precipNoiseFact[idx], snowNoise[idx], variantNoise[idx], cherryNoise[idx], paleNoise[idx],
-                        slopeRatio[idx], coastline);
+                        clearingNoise[idx], flowerNoise[idx], slopeRatio[idx], coastline);
             }
         }
         smoothIsolatedTransitions(out, H, W);
+        smoothOrganicTransitions(out, H, W);
         return out;
     }
 
@@ -153,6 +160,92 @@ public final class BiomeClassifier {
         }
     }
 
+    private static void smoothOrganicTransitions(short[] biomes, int H, int W) {
+        short[] src = biomes.clone();
+
+        // 3x3 local majority. This rounds off jagged edges and creates
+        // less blocky transitions without touching coast/ocean/peak boundaries.
+        for (int r = 1; r < H - 1; r++) {
+            for (int c = 1; c < W - 1; c++) {
+                int idx = r * W + c;
+                short current = src[idx];
+                if (!isBlendableLandBiome(current)) continue;
+
+                short best = current;
+                int bestCount = 0;
+                int currentCount = 0;
+                for (int dr = -1; dr <= 1; dr++) {
+                    for (int dc = -1; dc <= 1; dc++) {
+                        short candidate = src[(r + dr) * W + (c + dc)];
+                        if (!isBlendableLandBiome(candidate)) continue;
+                        int count = 0;
+                        for (int er = -1; er <= 1; er++) {
+                            for (int ec = -1; ec <= 1; ec++) {
+                                short neighbour = src[(r + er) * W + (c + ec)];
+                                if (neighbour == candidate) count++;
+                            }
+                        }
+                        if (candidate == current) currentCount = Math.max(currentCount, count);
+                        if (count > bestCount) {
+                            bestCount = count;
+                            best = candidate;
+                        }
+                    }
+                }
+
+                if (best != current && bestCount >= 6 && currentCount <= 3) {
+                    biomes[idx] = best;
+                }
+            }
+        }
+
+        // Broader 5x5 dominant-region smoothing. This reduces square
+        // patchwork inside inland biome masses while keeping distinct pockets.
+        src = biomes.clone();
+        for (int r = 2; r < H - 2; r++) {
+            for (int c = 2; c < W - 2; c++) {
+                int idx = r * W + c;
+                short current = src[idx];
+                if (!isBlendableLandBiome(current)) continue;
+
+                short best = current;
+                int bestCount = 0;
+                int currentCount = 0;
+                for (int dr = -2; dr <= 2; dr++) {
+                    for (int dc = -2; dc <= 2; dc++) {
+                        short candidate = src[(r + dr) * W + (c + dc)];
+                        if (!isBlendableLandBiome(candidate)) continue;
+                        int count = 0;
+                        for (int er = -2; er <= 2; er++) {
+                            for (int ec = -2; ec <= 2; ec++) {
+                                short neighbour = src[(r + er) * W + (c + ec)];
+                                if (neighbour == candidate) count++;
+                            }
+                        }
+                        if (candidate == current) currentCount = Math.max(currentCount, count);
+                        if (count > bestCount) {
+                            bestCount = count;
+                            best = candidate;
+                        }
+                    }
+                }
+
+                if (best != current && bestCount >= 15 && currentCount <= 7) {
+                    biomes[idx] = best;
+                }
+            }
+        }
+    }
+
+    private static boolean isBlendableLandBiome(short biome) {
+        if (isHardBoundaryBiome(biome)) return false;
+        return biome != TerrainBiomeCatalog.RIVER
+                && biome != TerrainBiomeCatalog.FROZEN_RIVER
+                && biome != TerrainBiomeCatalog.LUSH_CAVES
+                && biome != TerrainBiomeCatalog.DRIPSTONE_CAVES
+                && biome != TerrainBiomeCatalog.DEEP_DARK;
+    }
+
     private static boolean isHardBoundaryBiome(short biome) {
         return biome == TerrainBiomeCatalog.WARM_OCEAN
                 || biome == TerrainBiomeCatalog.LUKEWARM_OCEAN
@@ -173,7 +266,7 @@ public final class BiomeClassifier {
 
     private static short classifyPixel(float elevation, float[] climate, int H, int W, int idx,
                                        float tempNoise, float precipNoiseFactor, float snowNoise,
-                                       float variantNoise, float cherryNoise, float paleNoise, float slope, boolean coastline) {
+                                       float variantNoise, float cherryNoise, float paleNoise, float clearingNoise, float flowerNoise, float slope, boolean coastline) {
         float altM = Math.max(0f, elevation);
 
         // Climate channels: [0]=temp, [1]=t_season, [2]=precip, [3]=p_cv
@@ -241,18 +334,13 @@ public final class BiomeClassifier {
 
         float snowTemp = temp + snowNoise;
         boolean isSteep = slope > 0.78f;
-        // Keep snow from turning broad lowland climate-tile transitions into
-        // huge white rectangles in the biome view. Low terrain needs genuinely
-        // cold air; high terrain can still snow close to freezing.
+
         boolean hasSnow = (snowTemp < -2f || (altM > 800f && snowTemp < -0.5f))
                 && precip > 150f && !isSteep;
 
         boolean isOcean = elevation < 0f;
         boolean deepOcean = elevation < -250f;
-        // Beaches are a shoreline biome, not a lowland climate biome. The
-        // coastline flag is computed from neighbouring elevation and prevents
-        // flat inland valleys from becoming beaches just because they are near
-        // sea level.
+
         boolean beachBand = coastline;
         boolean mountains = altM > 2500f;
         boolean highland = altM > 900f;
@@ -278,7 +366,7 @@ public final class BiomeClassifier {
                     treesNone, treesSparse, treesForest, treesDense, treesRainforest, variantNoise, cherryNoise);
         } else {
             biome = selectLowland(sample, frozen, cold, cool, temperate, warm, hot, barren,
-                    treesNone, treesSparse, treesForest, treesDense, treesRainforest, highland, variantNoise, cherryNoise, paleNoise);
+                    treesNone, treesSparse, treesForest, treesDense, treesRainforest, highland, variantNoise, cherryNoise, paleNoise, clearingNoise, flowerNoise);
         }
 
         if (slopeBare && !isOcean && !mountains) {
@@ -353,7 +441,7 @@ public final class BiomeClassifier {
                                        boolean temperate, boolean warm, boolean hot, boolean barren,
                                        boolean treesNone, boolean treesSparse, boolean treesForest,
                                        boolean treesDense, boolean treesRainforest, boolean highland,
-                                       float variantNoise, float cherryNoise, float paleNoise) {
+                                       float variantNoise, float cherryNoise, float paleNoise, float clearingNoise, float flowerNoise) {
         if (sample.snowy() && treesNone) {
             return (sample.sparsity() > 0.85f && variantNoise > 0.20f) ? TerrainBiomeCatalog.ICE_SPIKES : TerrainBiomeCatalog.SNOWY_PLAINS;
         }
@@ -362,6 +450,16 @@ public final class BiomeClassifier {
         }
 
         if (treesNone) {
+            if (temperate && !barren && sample.moisture() >= 0.36f && sample.moisture() <= 0.78f
+                    && sample.precipitationMm() > 330f && sample.slope() < 0.36f) {
+                // At the open/wooded boundary, add occasional wooded and flower
+                // pockets so the transition is ecological rather than a hard
+                // binary line.
+                if (flowerNoise > 0.72f && variantNoise > 0.20f) return TerrainBiomeCatalog.SUNFLOWER_PLAINS;
+                if (clearingNoise > 0.78f && variantNoise > 0.25f) return flowerNoise > 0.55f
+                        ? TerrainBiomeCatalog.FLOWER_FOREST
+                        : TerrainBiomeCatalog.FOREST;
+            }
             if ((warm || hot) && sample.moisture() < 0.30f) {
                 // Red sand is not a separate biome; modern Minecraft exposes it
                 // through the badlands family. Make those variants reachable
@@ -371,7 +469,7 @@ public final class BiomeClassifier {
                 }
                 if (highland || sample.slope() > 0.22f || variantNoise > 0.18f) {
                     return (sample.slope() > 0.38f || variantNoise > 0.42f)
-                            ? TerrainBiomeCatalog.ERODED_BADLANDS
+                            ? TerrainBiomeCatalog.WOODED_BADLANDS
                             : TerrainBiomeCatalog.BADLANDS;
                 }
                 return hot && sample.precipitationMm() < 420f ? TerrainBiomeCatalog.BADLANDS : TerrainBiomeCatalog.SAVANNA;
@@ -395,10 +493,14 @@ public final class BiomeClassifier {
                 return TerrainBiomeCatalog.SPARSE_JUNGLE;
             }
             if (temperate) {
+                if (isOpenClearingCandidate(sample, clearingNoise, false)) {
+                    return selectOpenFlowerPatch(sample, highland, flowerNoise, variantNoise);
+                }
                 if (isPaleGardenCandidate(sample, paleNoise, false)) return TerrainBiomeCatalog.PALE_GARDEN;
                 if (isCherryCandidate(sample, cherryNoise, highland)) return TerrainBiomeCatalog.CHERRY_GROVE;
-                if (sample.sparsity() > 0.70f) return variantNoise > 0.15f ? TerrainBiomeCatalog.FLOWER_FOREST : TerrainBiomeCatalog.PLAINS;
-                if (variantNoise > 0.45f && sample.moisture() > 0.60f) return TerrainBiomeCatalog.FLOWER_FOREST;
+                if (sample.sparsity() > 0.72f) return variantNoise > 0.22f ? TerrainBiomeCatalog.FLOWER_FOREST : TerrainBiomeCatalog.PLAINS;
+                if (variantNoise > 0.48f && sample.moisture() > 0.58f) return TerrainBiomeCatalog.FLOWER_FOREST;
+                if (flowerNoise > 0.66f && sample.moisture() > 0.58f && variantNoise > 0.10f) return TerrainBiomeCatalog.FLOWER_FOREST;
                 if (variantNoise < -0.35f) return TerrainBiomeCatalog.BIRCH_FOREST;
                 return sample.moisture() > 1.12f ? TerrainBiomeCatalog.DARK_FOREST : TerrainBiomeCatalog.FOREST;
             }
@@ -408,6 +510,9 @@ public final class BiomeClassifier {
         if (treesDense) {
             if (hot) return sample.moisture() > 1.45f && variantNoise > 0.15f ? TerrainBiomeCatalog.BAMBOO_JUNGLE : TerrainBiomeCatalog.JUNGLE;
             if (warm && sample.lowland()) return sample.moisture() > 1.35f ? TerrainBiomeCatalog.MANGROVE_SWAMP : TerrainBiomeCatalog.SWAMP;
+            if (isOpenClearingCandidate(sample, clearingNoise, true)) {
+                return selectOpenFlowerPatch(sample, highland, flowerNoise, variantNoise);
+            }
             if (isPaleGardenCandidate(sample, paleNoise, true)) return TerrainBiomeCatalog.PALE_GARDEN;
             if (cool || cold) return sample.moisture() > 1.10f ? TerrainBiomeCatalog.OLD_GROWTH_PINE_TAIGA : TerrainBiomeCatalog.TAIGA;
             if (isCherryCandidate(sample, cherryNoise, highland)) return TerrainBiomeCatalog.CHERRY_GROVE;
@@ -416,9 +521,11 @@ public final class BiomeClassifier {
             return TerrainBiomeCatalog.FOREST;
         }
 
-        // Rainforest / very dense vegetation.
         if (hot || (warm && sample.temperatureC() >= 18f && sample.temperatureSeasonality() / 100f < 5f)) {
             return sample.moisture() > 1.55f && variantNoise > 0.05f ? TerrainBiomeCatalog.BAMBOO_JUNGLE : TerrainBiomeCatalog.JUNGLE;
+        }
+        if (isOpenClearingCandidate(sample, clearingNoise, true)) {
+            return selectOpenFlowerPatch(sample, highland, flowerNoise, variantNoise);
         }
         if (isPaleGardenCandidate(sample, paleNoise, true)) return TerrainBiomeCatalog.PALE_GARDEN;
         if (sample.lowland()) return warm ? TerrainBiomeCatalog.MANGROVE_SWAMP : TerrainBiomeCatalog.SWAMP;
@@ -428,40 +535,63 @@ public final class BiomeClassifier {
         return TerrainBiomeCatalog.FOREST;
     }
 
-    private static boolean isCherryCandidate(TerrainClimateSample sample, float cherryNoise, boolean highlandContext) {
-        if (sample.temperatureC() < 7f || sample.temperatureC() > 17f) return false;
-        if (sample.moisture() < 0.64f || sample.moisture() > 1.24f) return false;
-        if (sample.precipitationMm() < 420f || sample.precipitationMm() > 2300f) return false;
-        if (sample.slope() > 0.48f) return false;
+    private static boolean isOpenClearingCandidate(TerrainClimateSample sample, float clearingNoise, boolean denseContext) {
+        if (sample.temperatureC() < 5f || sample.temperatureC() > 23f) return false;
+        if (sample.moisture() < 0.52f || sample.moisture() > 1.35f) return false;
+        if (sample.precipitationMm() < 380f || sample.slope() > 0.38f) return false;
+        if (sample.snowy() || sample.bareSlope()) return false;
 
-        // Cherry grove should be a rare shoulder/highland pocket, not the
-        // default temperate forest. Flat lowlands are intentionally excluded.
-        if (!highlandContext && sample.elevationM() < 700f && sample.slope() < 0.18f) return false;
-        float threshold = (highlandContext || sample.elevationM() > 800f || sample.slope() > 0.20f) ? 0.30f : 0.45f;
-        if (sample.elevationM() > 1400f) threshold -= 0.03f;
+        float threshold = denseContext ? 0.82f : 0.60f;
+        if (!denseContext && sample.sparsity() > 0.50f) threshold -= 0.05f;
+        if (!denseContext && sample.sparsity() > 0.65f) threshold -= 0.04f;
+        if (sample.moisture() > 1.12f) threshold += 0.07f;
+        return clearingNoise > threshold;
+    }
+
+    private static short selectOpenFlowerPatch(TerrainClimateSample sample, boolean highland, float flowerNoise, float variantNoise) {
+        if (highland || sample.elevationM() > 850f) {
+            return flowerNoise > 0.64f ? TerrainBiomeCatalog.FLOWER_FOREST : TerrainBiomeCatalog.MEADOW;
+        }
+        if (flowerNoise > 0.68f && variantNoise > 0.18f) {
+            return TerrainBiomeCatalog.SUNFLOWER_PLAINS;
+        }
+        if (flowerNoise < -0.46f && variantNoise > 0.26f && sample.moisture() > 0.72f) {
+            return TerrainBiomeCatalog.FLOWER_FOREST;
+        }
+        return TerrainBiomeCatalog.PLAINS;
+    }
+
+    private static boolean isCherryCandidate(TerrainClimateSample sample, float cherryNoise, boolean highlandContext) {
+        if (sample.temperatureC() < 6f || sample.temperatureC() > 18.5f) return false;
+        if (sample.moisture() < 0.58f || sample.moisture() > 1.35f) return false;
+        if (sample.precipitationMm() < 360f || sample.precipitationMm() > 2600f) return false;
+        if (sample.slope() > 0.52f) return false;
+
+        if (!highlandContext && sample.elevationM() < 560f && sample.slope() < 0.12f) return false;
+
+        float threshold = (highlandContext || sample.elevationM() > 760f || sample.slope() > 0.17f) ? 0.18f : 0.32f;
+        if (sample.moisture() > 0.90f) threshold -= 0.04f;
+        if (sample.precipitationMm() > 1100f) threshold -= 0.03f;
+        if (sample.elevationM() > 1000f) threshold -= 0.03f;
         return cherryNoise > threshold;
     }
 
     private static boolean isPaleGardenCandidate(TerrainClimateSample sample, float paleNoise, boolean denseContext) {
-        if (sample.temperatureC() < 6f || sample.temperatureC() > 19f) return false;
-        if (sample.moisture() < 0.90f || sample.precipitationMm() < 680f) return false;
-        if (sample.elevationM() > 550f) return false;
-        if (sample.slope() > 0.42f || sample.sparsity() > 0.50f) return false;
+        if (sample.temperatureC() < 5f || sample.temperatureC() > 20f) return false;
+        if (sample.moisture() < 0.82f || sample.precipitationMm() < 620f) return false;
+        if (sample.elevationM() > 720f) return false;
+        if (sample.slope() > 0.48f || sample.sparsity() > 0.58f) return false;
 
-        // Pale garden should win more often than before inside wet dark-forest
-        // climates, but remain a pocket biome. Forest-edge cells use a higher
-        // threshold so transitions stay gradual instead of turning every humid
-        // forest border pale.
-        float threshold = denseContext ? 0.13f : 0.50f;
-        if (sample.moisture() > 1.20f && sample.precipitationMm() > 1000f) threshold -= 0.04f;
+        float threshold = denseContext ? 0.02f : 0.34f;
+        if (sample.moisture() > 1.10f) threshold -= 0.04f;
+        if (sample.precipitationMm() > 1000f) threshold -= 0.04f;
+        if (sample.elevationM() < 250f) threshold -= 0.02f;
         return paleNoise > threshold;
     }
 
     private static boolean isCoastlineCandidate(float[] elev, int H, int W, int r, int c,
                                                 float elevation, float slope) {
-        // A beach must be a narrow shoreline strip. Do not classify broad flat
-        // lowlands or inland wet depressions as beaches just because they are
-        // close to sea level.
+
         if (elevation < 0f || elevation > 18f || slope > 0.35f) return false;
 
         int waterCount = 0;
@@ -487,9 +617,6 @@ public final class BiomeClassifier {
             }
         }
 
-        // Real ocean/coastline has a sizeable water side and a land side. Tiny
-        // below-zero ponds/ravines fail this test and will remain the normal
-        // climate biome instead of becoming beach.
         return waterCount >= 8 && landCount >= 8 && higherLandCount >= 3
                 && (deepWaterCount >= 2 || waterCount >= 18);
     }

@@ -344,38 +344,40 @@ public final class ExplorerServer {
 
             int H = detailSize, W = detailSize;
 
-            float[][] rgba;
-            if (mode.equals("biome")) {
-                short[] biomeIndexes = classifyDetailBiomes(centerI - half, centerJ - half, centerI + half, centerJ + half);
-                rgba = applyBiomeColors(biomeIndexes, H, W);
-            } else {
-                boolean needsClimate = mode.equals("temperature");
-                float[][] out = getDetailPipelineData(centerI - half, centerJ - half,
-                        centerI + half, centerJ + half, needsClimate);
-                float[] elevFlat  = out[0];
-                float[] climate   = out[1];
+            LocalTerrainProvider.RiverTerrainData riverData = LocalTerrainProvider.getRiverTerrainData(
+                    centerI - half, centerJ - half, centerI + half, centerJ + half, true);
+            float[] elevFlat = riverData.elevation;
+            float[] climate = riverData.climate;
+            byte[] waterMask = riverData.waterMask;
 
-                if (mode.equals("elevation")) {
-                    float vmin = nanMin(elevFlat), vmax = nanMax(elevFlat);
-                    if (vmax == vmin) vmax = vmin + 1f;
-                    rgba = applyColormap1D(elevFlat, H, W, vmin, vmax, "terrain");
-                } else if (mode.equals("temperature") && climate != null) {
-                    // climate[0] = temperature channel (H*W floats)
-                    float[] temp = Arrays.copyOfRange(climate, 0, H * W);
-                    float vmin = nanMin(temp), vmax = nanMax(temp);
-                    if (vmax == vmin) vmax = vmin + 1f;
-                    rgba = applyColormap1D(temp, H, W, vmin, vmax, "rdbu_r");
-                } else {
-                    // relief mode (default)
-                    float[][] reliefRgb = ReliefMap.getReliefMap(elevFlat, H, W, 90.0);
-                    rgba = new float[4][H * W];
-                    for (int i = 0; i < H * W; i++) {
-                        rgba[0][i] = reliefRgb[0][i];
-                        rgba[1][i] = reliefRgb[1][i];
-                        rgba[2][i] = reliefRgb[2][i];
-                        rgba[3][i] = 1f;
-                    }
+            float[][] rgba;
+            if (mode.equals("biome") && riverData.biomeIndexes != null) {
+                rgba = applyBiomeColors(riverData.biomeIndexes, H, W);
+            } else if (mode.equals("elevation")) {
+                float vmin = nanMin(elevFlat), vmax = nanMax(elevFlat);
+                if (vmax == vmin) vmax = vmin + 1f;
+                rgba = applyColormap1D(elevFlat, H, W, vmin, vmax, "terrain");
+            } else if (mode.equals("temperature") && climate != null) {
+                // climate[0] = temperature channel (H*W floats)
+                float[] temp = Arrays.copyOfRange(climate, 0, H * W);
+                float vmin = nanMin(temp), vmax = nanMax(temp);
+                if (vmax == vmin) vmax = vmin + 1f;
+                rgba = applyColormap1D(temp, H, W, vmin, vmax, "rdbu_r");
+            } else if (mode.equals("river")) {
+                rgba = applyRiverWaterColors(waterMask, H, W);
+            } else {
+                // relief mode (default)
+                float[][] reliefRgb = ReliefMap.getReliefMap(elevFlat, H, W, 90.0);
+                rgba = new float[4][H * W];
+                for (int i = 0; i < H * W; i++) {
+                    rgba[0][i] = reliefRgb[0][i];
+                    rgba[1][i] = reliefRgb[1][i];
+                    rgba[2][i] = reliefRgb[2][i];
+                    rgba[3][i] = 1f;
                 }
+            }
+            if (!mode.equals("river")) {
+                overlayRiverWater(rgba, waterMask, H, W);
             }
 
             byte[] png = toPng(rgba, H, W);
@@ -393,8 +395,8 @@ public final class ExplorerServer {
 
     /**
      * GET /api/detail_raw — port of detail_raw().
-     * Binary: int16-LE elevation (H*W*2 bytes) + float32-LE temperature (H*W*4 bytes).
-     * Headers: X-Height, X-Width, X-Has-Temp.
+     * Binary: int16-LE elevation + optional float32-LE temperature + int16-LE biome + optional uint8 river-water mask.
+     * Headers: X-Height, X-Width, X-Has-Temp, X-Has-Biome, X-Has-River.
      */
     private static void handleDetailRaw(HttpExchange ex) throws IOException {
         if (!ex.getRequestMethod().equalsIgnoreCase("GET")) { send405(ex); return; }
@@ -411,10 +413,12 @@ public final class ExplorerServer {
             int half    = detailSize / 2;
             int H = detailSize, W = detailSize;
 
-            float[][] out = getDetailPipelineData(centerI - half, centerJ - half,
-                    centerI + half, centerJ + half, true);
-            float[] elevFlat = out[0];
-            float[] climate  = out[1];
+            LocalTerrainProvider.RiverTerrainData riverData = LocalTerrainProvider.getRiverTerrainData(
+                    centerI - half, centerJ - half, centerI + half, centerJ + half, true);
+            float[] elevFlat = riverData.elevation;
+            float[] climate  = riverData.climate;
+            short[] biomeIndexes = riverData.biomeIndexes;
+            byte[] riverWater = riverData.waterMask;
 
             // Elevation → int16 LE (matching Python: clip(floor(elev), -32768, 32767).astype('<i2'))
             ByteBuffer elevBuf = ByteBuffer.allocate(H * W * 2).order(ByteOrder.LITTLE_ENDIAN);
@@ -431,11 +435,11 @@ public final class ExplorerServer {
                 for (int i = 0; i < H * W; i++) tempBuf.putFloat(climate[i]);
             }
 
-            short[] biomeIndexes = classifyDetailBiomes(centerI - half, centerJ - half, centerI + half, centerJ + half);
             ByteBuffer biomeBuf = ByteBuffer.allocate(H * W * 2).order(ByteOrder.LITTLE_ENDIAN);
-            for (short biomeIndex : biomeIndexes) biomeBuf.putShort(biomeIndex);
+            for (int i = 0; i < H * W; i++) biomeBuf.putShort(biomeIndexes != null ? biomeIndexes[i] : 0);
 
-            int payloadSize = elevBuf.capacity() + (tempBuf != null ? tempBuf.capacity() : 0) + biomeBuf.capacity();
+            int riverSize = riverWater != null ? riverWater.length : 0;
+            int payloadSize = elevBuf.capacity() + (tempBuf != null ? tempBuf.capacity() : 0) + biomeBuf.capacity() + riverSize;
             byte[] payload = new byte[payloadSize];
             int offset = 0;
             System.arraycopy(elevBuf.array(), 0, payload, offset, elevBuf.capacity());
@@ -445,6 +449,10 @@ public final class ExplorerServer {
                 offset += tempBuf.capacity();
             }
             System.arraycopy(biomeBuf.array(), 0, payload, offset, biomeBuf.capacity());
+            offset += biomeBuf.capacity();
+            if (riverWater != null) {
+                System.arraycopy(riverWater, 0, payload, offset, riverWater.length);
+            }
 
             ex.getResponseHeaders().set("Content-Type", "application/octet-stream");
             setNoStoreHeaders(ex);
@@ -452,7 +460,8 @@ public final class ExplorerServer {
             ex.getResponseHeaders().set("X-Width", String.valueOf(W));
             ex.getResponseHeaders().set("X-Has-Temp", hasTemp ? "1" : "0");
             ex.getResponseHeaders().set("X-Has-Biome", "1");
-            ex.getResponseHeaders().set("Access-Control-Expose-Headers", "X-Height, X-Width, X-Has-Temp, X-Has-Biome");
+            ex.getResponseHeaders().set("X-Has-River", riverWater != null ? "1" : "0");
+            ex.getResponseHeaders().set("Access-Control-Expose-Headers", "X-Height, X-Width, X-Has-Temp, X-Has-Biome, X-Has-River");
             ex.sendResponseHeaders(200, payload.length);
             ex.getResponseBody().write(payload);
         } catch (Exception e) {
@@ -519,6 +528,30 @@ public final class ExplorerServer {
             rgba[0][i] = rgb[0]; rgba[1][i] = rgb[1]; rgba[2][i] = rgb[2]; rgba[3][i] = 1f;
         }
         return rgba;
+    }
+
+    private static float[][] applyRiverWaterColors(byte[] waterMask, int H, int W) {
+        float[][] rgba = new float[4][H * W];
+        for (int i = 0; i < H * W; i++) {
+            float t = waterMask != null ? (waterMask[i] & 0xFF) / 255.0f : 0.0f;
+            rgba[0][i] = 0.015f + 0.02f * t;
+            rgba[1][i] = 0.035f + 0.36f * t;
+            rgba[2][i] = 0.08f + 0.82f * t;
+            rgba[3][i] = 1f;
+        }
+        return rgba;
+    }
+
+    private static void overlayRiverWater(float[][] rgba, byte[] waterMask, int H, int W) {
+        if (waterMask == null) return;
+        for (int i = 0; i < H * W; i++) {
+            float t = (waterMask[i] & 0xFF) / 255.0f;
+            if (t <= 0.0f) continue;
+            float a = Math.min(0.88f, 0.18f + 0.70f * t);
+            rgba[0][i] = rgba[0][i] * (1.0f - a) + 0.04f * a;
+            rgba[1][i] = rgba[1][i] * (1.0f - a) + 0.34f * a;
+            rgba[2][i] = rgba[2][i] * (1.0f - a) + 0.95f * a;
+        }
     }
 
 

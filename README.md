@@ -68,7 +68,8 @@ validate_model=true
 explorer.port=19801
 
 # Optional startup override for current world scale (1-6).
-# Without this setting, existing worlds keep their saved scale and new worlds default to 2.
+# Applies only when initializing a world without a saved scale.
+# Clients also use it as the new-world UI value. Existing worlds always keep their saved scale.
 # world.current_scale=6
 
 # Spawn search: coarse-pixel region sizes for finding a land spawn near (0, 0).
@@ -86,7 +87,7 @@ java -Dterrain-diffusion-mc.current-scale=4 ...
 TERRAIN_DIFFUSION_MC_CURRENT_SCALE=4 ./gradlew runClient
 ```
 
-Supported values are integers from `1` to `6`. A startup override replaces and persists the current world's saved scale. For newly created dedicated-server Terrain Diffusion worlds, it also selects the matching world height. Without an override, existing worlds keep their saved scale and new worlds use the original default of `2`. Mod integrations can call `WorldScaleManager.setCurrentScale(ServerWorld, int)` to update and persist the runtime scale of a loaded world.
+Supported values are integers from `1` to `6`. A startup override applies only when initializing a world without a saved scale. For a newly created dedicated-server Terrain Diffusion world, it also selects the matching world height. On a client, it initializes the world-creation scale field, but the player's selection takes precedence. Existing dedicated-server and single-player worlds always keep their saved scale regardless of startup overrides. Without an override, new worlds use the original default of `2`. Mod integrations can call `WorldScaleManager.setCurrentScale(ServerWorld, int)` to explicitly update and persist the runtime scale of a loaded world.
 
 Changing scale after terrain has generated can create seams between old and new chunks. A loaded world's dimension height cannot be changed safely at runtime, so select the intended scale before creating the world.
 

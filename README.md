@@ -67,12 +67,28 @@ validate_model=true
 # Port for the local terrain explorer web UI (/td-explore).
 explorer.port=19801
 
+# Optional startup override for current world scale (1-6).
+# Without this setting, existing worlds keep their saved scale and new worlds default to 2.
+# world.current_scale=6
+
 # Spawn search: coarse-pixel region sizes for finding a land spawn near (0, 0).
 # Starts at initial_size x initial_size and expands by 8 each step up to max_size x max_size.
 # Each coarse pixel covers a large area (hundreds of blocks), so 16–128 is typically sufficient.
 spawn_search.initial_size=16
 spawn_search.max_size=128
 ```
+
+Current world scale can be overridden before Minecraft starts. Precedence is JVM system property, environment variable, then `world.current_scale` from the properties file:
+
+```bash
+java -Dterrain-diffusion-mc.current-scale=4 ...
+# or
+TERRAIN_DIFFUSION_MC_CURRENT_SCALE=4 ./gradlew runClient
+```
+
+Supported values are integers from `1` to `6`. A startup override replaces and persists the current world's saved scale. For newly created dedicated-server Terrain Diffusion worlds, it also selects the matching world height. Without an override, existing worlds keep their saved scale and new worlds use the original default of `2`. Mod integrations can call `WorldScaleManager.setCurrentScale(ServerWorld, int)` to update and persist the runtime scale of a loaded world.
+
+Changing scale after terrain has generated can create seams between old and new chunks. A loaded world's dimension height cannot be changed safely at runtime, so select the intended scale before creating the world.
 
 ### Per-world settings
 

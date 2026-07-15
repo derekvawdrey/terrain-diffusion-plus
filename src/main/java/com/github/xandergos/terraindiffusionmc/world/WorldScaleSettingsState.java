@@ -5,6 +5,8 @@ import com.mojang.serialization.codecs.RecordCodecBuilder;
 import net.minecraft.world.PersistentState;
 import net.minecraft.world.PersistentStateType;
 
+import java.util.Optional;
+
 /**
  * Persisted per-world settings for terrain diffusion.
  *
@@ -12,9 +14,12 @@ import net.minecraft.world.PersistentStateType;
  */
 public final class WorldScaleSettingsState extends PersistentState {
     private static final Codec<WorldScaleSettingsState> CODEC = RecordCodecBuilder.create(instance -> instance.group(
-            Codec.INT.optionalFieldOf("scale", WorldScaleManager.DEFAULT_SCALE).forGetter(WorldScaleSettingsState::getScale),
+            Codec.INT.optionalFieldOf("scale").forGetter(state -> Optional.of(state.getScale())),
             Codec.BOOL.optionalFieldOf("explicit_scale", false).forGetter(WorldScaleSettingsState::hasExplicitScale)
-    ).apply(instance, WorldScaleSettingsState::new));
+    ).apply(instance, (savedScale, hasExplicitScale) -> new WorldScaleSettingsState(
+            savedScale.orElse(WorldScaleManager.DEFAULT_SCALE),
+            hasExplicitScale
+    )));
 
     private int scale;
     private boolean explicitScale;

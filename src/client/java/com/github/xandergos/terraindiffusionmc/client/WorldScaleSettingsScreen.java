@@ -1,31 +1,22 @@
 package com.github.xandergos.terraindiffusionmc.client;
 
 import com.github.xandergos.terraindiffusionmc.world.WorldScaleManager;
+import com.github.xandergos.terraindiffusionmc.world.WorldScaleDimensionOptions;
 import com.github.xandergos.terraindiffusionmc.world.WorldScaleSelectionState;
 import net.minecraft.client.gui.screen.world.CreateWorldScreen;
 import net.minecraft.client.gui.screen.Screen;
 import net.minecraft.client.gui.widget.ButtonWidget;
 import net.minecraft.client.gui.widget.TextFieldWidget;
 import net.minecraft.client.gui.widget.TextWidget;
-import net.minecraft.registry.Registry;
 import net.minecraft.registry.RegistryKeys;
-import net.minecraft.registry.entry.RegistryEntry;
 import net.minecraft.text.MutableText;
 import net.minecraft.text.Text;
-import net.minecraft.util.Identifier;
 import net.minecraft.util.Formatting;
-import net.minecraft.world.dimension.DimensionOptions;
-import net.minecraft.world.dimension.DimensionOptionsRegistryHolder;
-import net.minecraft.world.dimension.DimensionType;
-
-import java.util.HashMap;
-import java.util.Map;
 
 /**
  * World creation settings screen for selecting the initial terrain scale of a world.
  */
 public final class WorldScaleSettingsScreen extends Screen {
-    private static final String MOD_ID = "terrain-diffusion-mc";
     private static final int TEXT_FIELD_WIDTH = 80;
     private static final int TEXT_FIELD_HEIGHT = 20;
     private static final int BUTTON_WIDTH = 80;
@@ -124,40 +115,11 @@ public final class WorldScaleSettingsScreen extends Screen {
         }
 
         createWorldScreen.getWorldCreator().applyModifier((registryManager, selectedDimensions) -> {
-            DimensionOptionsRegistryHolder updatedDimensions =
-                    updateOverworldDimensionType(registryManager.getOrThrow(RegistryKeys.DIMENSION_TYPE),
-                            selectedDimensions, selectedScale);
-            return updatedDimensions == null ? selectedDimensions : updatedDimensions;
+            return WorldScaleDimensionOptions.withScaleDimensionType(
+                    registryManager.getOrThrow(RegistryKeys.DIMENSION_TYPE),
+                    selectedDimensions,
+                    selectedScale
+            );
         });
-    }
-
-    /**
-     * Replaces only the overworld dimension type entry with the scale-specific pre-registered one.
-     */
-    private DimensionOptionsRegistryHolder updateOverworldDimensionType(
-            Registry<DimensionType> dimensionTypeRegistry,
-            DimensionOptionsRegistryHolder selectedDimensions,
-            int selectedScale
-    ) {
-        DimensionOptions overworldOptions = selectedDimensions.getOrEmpty(DimensionOptions.OVERWORLD).orElse(null);
-        if (overworldOptions == null) {
-            return null;
-        }
-
-        Identifier dimensionTypeId = Identifier.of(MOD_ID, "terrain_diffusion_scale_" + selectedScale);
-        RegistryEntry.Reference<DimensionType> selectedDimensionTypeEntry = dimensionTypeRegistry.getEntry(dimensionTypeId).orElse(null);
-        if (selectedDimensionTypeEntry == null) {
-            return null;
-        }
-
-        DimensionOptions updatedOverworldOptions = new DimensionOptions(
-                selectedDimensionTypeEntry,
-                overworldOptions.chunkGenerator()
-        );
-
-        Map<net.minecraft.registry.RegistryKey<DimensionOptions>, DimensionOptions> updatedDimensionMap =
-                new HashMap<>(selectedDimensions.dimensions());
-        updatedDimensionMap.put(DimensionOptions.OVERWORLD, updatedOverworldOptions);
-        return new DimensionOptionsRegistryHolder(updatedDimensionMap);
     }
 }

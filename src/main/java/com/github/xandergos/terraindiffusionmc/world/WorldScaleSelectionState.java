@@ -29,10 +29,10 @@ public final class WorldScaleSelectionState {
     }
 
     /**
-     * Returns the currently selected pending scale, or the default if none is set.
+     * Returns the currently selected pending scale, or the configured startup scale if none is set.
      */
     public static int getPendingScaleOrDefault() {
         Integer pendingScale = PENDING_SCALE.get();
-        return pendingScale != null ? pendingScale : WorldScaleManager.DEFAULT_SCALE;
+        return pendingScale != null ? pendingScale : WorldScaleManager.getStartupScale();
     }
 }

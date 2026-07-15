@@ -17,9 +17,7 @@ public final class WorldScaleManager {
     private static final String CURRENT_SCALE_ENVIRONMENT_VARIABLE = "TERRAIN_DIFFUSION_MC_CURRENT_SCALE";
 
     private static final Integer CONFIGURED_CURRENT_SCALE = resolveConfiguredCurrentScale();
-    private static volatile int currentScale = CONFIGURED_CURRENT_SCALE != null
-            ? CONFIGURED_CURRENT_SCALE
-            : DEFAULT_SCALE;
+    private static volatile int currentScale = getStartupScale();
 
     private WorldScaleManager() {
     }
@@ -39,7 +37,7 @@ public final class WorldScaleManager {
 
         if (!hasSavedScale) {
             Integer pendingScale = WorldScaleSelectionState.consumePendingScale();
-            int resolvedScale = CONFIGURED_CURRENT_SCALE != null ? CONFIGURED_CURRENT_SCALE : DEFAULT_SCALE;
+            int resolvedScale = getStartupScale();
             if (pendingScale != null) {
                 resolvedScale = pendingScale;
                 scaleSource = "world creation selection";
@@ -70,6 +68,13 @@ public final class WorldScaleManager {
      */
     public static int getCurrentScale() {
         return currentScale;
+    }
+
+    /**
+     * Returns the configured startup override, or the fixed default when none is configured.
+     */
+    static int getStartupScale() {
+        return CONFIGURED_CURRENT_SCALE != null ? CONFIGURED_CURRENT_SCALE : DEFAULT_SCALE;
     }
 
     /**

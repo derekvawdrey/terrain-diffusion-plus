@@ -2,11 +2,14 @@ package com.github.xandergos.terraindiffusionmc.world;
 
 import com.github.xandergos.terraindiffusionmc.config.TerrainDiffusionConfig;
 import net.minecraft.server.world.ServerWorld;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * Runtime access for world-scoped terrain scale.
  */
 public final class WorldScaleManager {
+    private static final Logger LOG = LoggerFactory.getLogger(WorldScaleManager.class);
     public static final int DEFAULT_SCALE = 2;
     private static final int MIN_SCALE = 1;
     public static final int MAX_SCALE = 6;
@@ -31,19 +34,35 @@ public final class WorldScaleManager {
     public static void initializeForWorld(ServerWorld serverWorld) {
         WorldScaleSettingsState worldScaleSettingsState = serverWorld.getPersistentStateManager()
                 .getOrCreate(WorldScaleSettingsState.TYPE);
+        boolean hasSavedScale = worldScaleSettingsState.hasExplicitScale();
+        String scaleSource;
 
-        if (!worldScaleSettingsState.hasExplicitScale()) {
+        if (!hasSavedScale) {
             Integer pendingScale = WorldScaleSelectionState.consumePendingScale();
             int resolvedScale = CONFIGURED_CURRENT_SCALE != null ? CONFIGURED_CURRENT_SCALE : DEFAULT_SCALE;
             if (pendingScale != null) {
                 resolvedScale = pendingScale;
+                scaleSource = "world creation selection";
+            } else if (CONFIGURED_CURRENT_SCALE != null) {
+                scaleSource = "startup override";
+            } else {
+                scaleSource = "default";
             }
             worldScaleSettingsState.setScale(resolvedScale);
         } else if (CONFIGURED_CURRENT_SCALE != null) {
             worldScaleSettingsState.setScale(CONFIGURED_CURRENT_SCALE);
+            scaleSource = "startup override";
+        } else {
+            scaleSource = "saved world";
         }
 
         currentScale = clampScale(worldScaleSettingsState.getScale());
+        LOG.info("{} {} world '{}' with terrain scale {} ({})",
+                hasSavedScale ? "Opened existing" : "Initialized new/unconfigured",
+                serverWorld.getServer().isDedicated() ? "dedicated-server" : "single-player",
+                serverWorld.getRegistryKey().getValue(),
+                currentScale,
+                scaleSource);
     }
 
     /**
@@ -62,6 +81,9 @@ public final class WorldScaleManager {
                 .getOrCreate(WorldScaleSettingsState.TYPE);
         worldScaleSettingsState.setScale(clampedScale);
         currentScale = clampedScale;
+        LOG.info("Changed terrain scale for world '{}' to {} (programmatic update)",
+                serverWorld.getRegistryKey().getValue(),
+                currentScale);
     }
 
     /**

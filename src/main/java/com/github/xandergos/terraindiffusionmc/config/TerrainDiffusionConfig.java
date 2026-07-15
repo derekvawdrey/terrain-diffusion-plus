@@ -6,6 +6,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Optional;
 import java.util.Properties;
 
 public final class TerrainDiffusionConfig {
@@ -48,6 +49,15 @@ public final class TerrainDiffusionConfig {
     /** TCP port for the local terrain explorer HTTP server. */
     public static int explorerPort() {
         return readInt("explorer.port", DEFAULT_EXPLORER_PORT);
+    }
+
+    /** Optional startup override for the currently active world scale. */
+    public static Optional<String> currentWorldScale() {
+        String value = PROPERTIES.getProperty("world.current_scale");
+        if (value == null || value.isBlank()) {
+            return Optional.empty();
+        }
+        return Optional.of(value.trim());
     }
 
     /** Whether to validate SHA-256 for pre-existing local model files before use. */

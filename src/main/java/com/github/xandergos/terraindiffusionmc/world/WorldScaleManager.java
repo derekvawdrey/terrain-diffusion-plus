@@ -24,20 +24,23 @@ public final class WorldScaleManager {
     /**
      * Loads or creates per-world scale settings and sets the active runtime value.
      *
-     * <p>A configured current-scale override takes precedence over persisted state.
-     * Without one, an existing world keeps its saved scale. A new world uses its pending
-     * world-creation selection when present, otherwise {@value #DEFAULT_SCALE}.
+     * <p>A new world's pending world-creation selection takes precedence over a configured
+     * current-scale override. For existing worlds, the configured override takes precedence
+     * over persisted state. Without either, new worlds use {@value #DEFAULT_SCALE}.
      */
     public static void initializeForWorld(ServerWorld serverWorld) {
         WorldScaleSettingsState worldScaleSettingsState = serverWorld.getPersistentStateManager()
                 .getOrCreate(WorldScaleSettingsState.TYPE);
 
-        if (CONFIGURED_CURRENT_SCALE != null) {
-            worldScaleSettingsState.setScale(CONFIGURED_CURRENT_SCALE);
-        } else if (!worldScaleSettingsState.hasExplicitScale()) {
+        if (!worldScaleSettingsState.hasExplicitScale()) {
             Integer pendingScale = WorldScaleSelectionState.consumePendingScale();
-            int resolvedScale = pendingScale != null ? pendingScale : DEFAULT_SCALE;
+            int resolvedScale = CONFIGURED_CURRENT_SCALE != null ? CONFIGURED_CURRENT_SCALE : DEFAULT_SCALE;
+            if (pendingScale != null) {
+                resolvedScale = pendingScale;
+            }
             worldScaleSettingsState.setScale(resolvedScale);
+        } else if (CONFIGURED_CURRENT_SCALE != null) {
+            worldScaleSettingsState.setScale(CONFIGURED_CURRENT_SCALE);
         }
 
         currentScale = clampScale(worldScaleSettingsState.getScale());

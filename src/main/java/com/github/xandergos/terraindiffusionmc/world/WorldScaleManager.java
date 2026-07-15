@@ -26,8 +26,8 @@ public final class WorldScaleManager {
      * Loads or creates per-world scale settings and sets the active runtime value.
      *
      * <p>A new world's pending world-creation selection takes precedence over a configured
-     * current-scale override. For existing worlds, the configured override takes precedence
-     * over persisted state. Without either, new worlds use {@value #DEFAULT_SCALE}.
+     * current-scale override. Every existing world keeps its persisted scale regardless of
+     * startup overrides. Without either, new worlds use {@value #DEFAULT_SCALE}.
      */
     public static void initializeForWorld(ServerWorld serverWorld) {
         WorldScaleSettingsState worldScaleSettingsState = serverWorld.getPersistentStateManager()
@@ -47,9 +47,6 @@ public final class WorldScaleManager {
                 scaleSource = "default";
             }
             worldScaleSettingsState.setScale(resolvedScale);
-        } else if (CONFIGURED_CURRENT_SCALE != null) {
-            worldScaleSettingsState.setScale(CONFIGURED_CURRENT_SCALE);
-            scaleSource = "startup override";
         } else {
             scaleSource = "saved world";
         }

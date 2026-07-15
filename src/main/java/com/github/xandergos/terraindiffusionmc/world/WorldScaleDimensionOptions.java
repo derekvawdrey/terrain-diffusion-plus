@@ -22,6 +22,16 @@ public final class WorldScaleDimensionOptions {
     }
 
     /**
+     * Returns whether the holder's overworld uses Terrain Diffusion generation.
+     */
+    public static boolean usesTerrainDiffusion(DimensionOptionsRegistryHolder dimensions) {
+        return dimensions.getOrEmpty(DimensionOptions.OVERWORLD)
+                .map(DimensionOptions::chunkGenerator)
+                .map(chunkGenerator -> chunkGenerator.getBiomeSource() instanceof TerrainDiffusionBiomeSource)
+                .orElse(false);
+    }
+
+    /**
      * Replaces only the overworld dimension type with the registered variant for the selected scale.
      */
     public static DimensionOptionsRegistryHolder withScaleDimensionType(

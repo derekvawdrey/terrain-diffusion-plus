@@ -5,7 +5,8 @@
   "compatibilityLevel": "JAVA_21",
   "mixins": [
     "BiomeMixin",
-    "MinecraftServerMixin"
+    "MinecraftServerMixin",
+    "ServerPropertiesHandlerMixin"
   ],
   "injectors": {
     "defaultRequire": 1

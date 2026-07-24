@@ -97,7 +97,7 @@ ext {
     }
 }
 
-def terrainDiffusionJavaVersion = (findProperty('java_version') ?: '21') as Integer
+def terrainDiffusionJavaVersion = (findProperty('java_version') ?: '17') as Integer
 
 def terrainDiffusionGradlewExecutable = providers.provider {
     String wrapperName = System.getProperty('os.name').toLowerCase().startsWith('windows') ? 'gradlew.bat' : 'gradlew'

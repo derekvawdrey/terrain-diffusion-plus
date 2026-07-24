@@ -20,10 +20,13 @@ import java.net.UnknownHostException;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.nio.channels.FileChannel;
+import java.nio.channels.FileLock;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
+import java.nio.file.StandardOpenOption;
 import java.security.DigestInputStream;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
@@ -34,15 +37,17 @@ import java.util.concurrent.atomic.AtomicBoolean;
 /**
  * Ensures model assets exist locally and match the expected SHA-256 hashes.
  *
- * <p>Assets are downloaded from a pinned Hugging Face commit into the game directory:
- * {@code .minecraft/terrain-diffusion-models}.
+ * <p>Assets are downloaded from a pinned Hugging Face commit into the configured shared model directory,
+ * or into {@code .minecraft/terrain-diffusion-models} in a normal production installation.</p>
  */
 public final class ModelAssetManager {
     private static final Logger LOG = LoggerFactory.getLogger(ModelAssetManager.class);
     private static final String MANIFEST_RESOURCE_PATH = "/model-assets-manifest.json";
+    private static final String MODEL_DIRECTORY_PROPERTY = "terrain-diffusion-mc.models-dir";
+    private static final String MODEL_DIRECTORY_ENVIRONMENT = "TERRAIN_DIFFUSION_MODELS_DIR";
     private static final long PROGRESS_LOG_THRESHOLD_BYTES = 100L * 1024L * 1024L;
-    private static final Path MODEL_DIRECTORY = PlatformPaths.gameDir()
-            .resolve("terrain-diffusion-models");
+    private static final Path MODEL_DIRECTORY = resolveModelDirectory();
+    private static final Path DOWNLOAD_LOCK_FILE = MODEL_DIRECTORY.resolve(".asset-download.lock");
     private static final AtomicBoolean READY = new AtomicBoolean(false);
     private static final Gson GSON = new Gson();
     private static final Type MANIFEST_TYPE = new TypeToken<ModelAssetManifest>() {}.getType();
@@ -63,15 +68,23 @@ public final class ModelAssetManager {
             }
             try {
                 Files.createDirectories(MODEL_DIRECTORY);
-                ModelAssetManifest manifest = loadManifest();
-                String offlineHelpUrl = buildOfflineHelpUrl(manifest);
-                boolean shouldValidatePreExistingModels = TerrainDiffusionConfig.validateModel();
-                LOG.info("Preparing terrain diffusion model assets in {}", MODEL_DIRECTORY);
-                for (Map.Entry<String, ManifestAsset> assetEntry : manifest.assets.entrySet()) {
-                    String fileName = assetEntry.getKey();
-                    ManifestAsset assetMetadata = assetEntry.getValue();
-                    Path localAssetPath = MODEL_DIRECTORY.resolve(fileName);
-                    ensureSingleAsset(localAssetPath, assetMetadata, manifest.revision, offlineHelpUrl, shouldValidatePreExistingModels);
+                // The development workspace points every version and loader at the same directory.
+                // A filesystem lock prevents two simultaneously launched clients from downloading
+                // the same multi-gigabyte model files into that directory at once.
+                try (FileChannel lockChannel = FileChannel.open(
+                        DOWNLOAD_LOCK_FILE, StandardOpenOption.CREATE, StandardOpenOption.WRITE);
+                     FileLock ignored = lockChannel.lock()) {
+                    ModelAssetManifest manifest = loadManifest();
+                    String offlineHelpUrl = buildOfflineHelpUrl(manifest);
+                    boolean shouldValidatePreExistingModels = TerrainDiffusionConfig.validateModel();
+                    LOG.info("Preparing terrain diffusion model assets in {}", MODEL_DIRECTORY);
+                    for (Map.Entry<String, ManifestAsset> assetEntry : manifest.assets.entrySet()) {
+                        String fileName = assetEntry.getKey();
+                        ManifestAsset assetMetadata = assetEntry.getValue();
+                        Path localAssetPath = MODEL_DIRECTORY.resolve(fileName);
+                        ensureSingleAsset(localAssetPath, assetMetadata, manifest.revision, offlineHelpUrl,
+                                shouldValidatePreExistingModels);
+                    }
                 }
                 LOG.info("Terrain diffusion model assets ready");
                 READY.set(true);
@@ -88,6 +101,17 @@ public final class ModelAssetManager {
      */
     public static Path resolveAssetPath(String fileName) {
         return MODEL_DIRECTORY.resolve(fileName);
+    }
+
+    private static Path resolveModelDirectory() {
+        String configuredDirectory = System.getProperty(MODEL_DIRECTORY_PROPERTY);
+        if (configuredDirectory == null || configuredDirectory.isBlank()) {
+            configuredDirectory = System.getenv(MODEL_DIRECTORY_ENVIRONMENT);
+        }
+        if (configuredDirectory != null && !configuredDirectory.isBlank()) {
+            return Path.of(configuredDirectory).toAbsolutePath().normalize();
+        }
+        return PlatformPaths.gameDir().resolve("terrain-diffusion-models").toAbsolutePath().normalize();
     }
 
     private static void ensureSingleAsset(

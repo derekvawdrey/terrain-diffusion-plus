@@ -25,6 +25,10 @@ legacyForge {
         mappingsVersion = parchment_version
     }
     runs {
+        configureEach {
+            systemProperty('terrain-diffusion-mc.models-dir',
+                    project.ext.terrainDiffusionDevModelsDirectory.absolutePath)
+        }
         client { client() }
         data {
             data()

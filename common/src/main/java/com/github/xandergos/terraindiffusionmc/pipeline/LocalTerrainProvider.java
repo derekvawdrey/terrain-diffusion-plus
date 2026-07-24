@@ -22,7 +22,7 @@ import java.util.concurrent.atomic.AtomicLong;
  *
  * <p>When scale=1 the pipeline is sampled at native model resolution directly.
  * When scale>1 the pipeline is sampled at native resolution and the result is
- * bilinearly upsampled, giving 1 block = nativeResolution/scale.
+ * bilinearly upsampled, giving 1 block = nativeResolution/scale.</p>
  */
 public final class LocalTerrainProvider {
     private static final Logger LOG = LoggerFactory.getLogger(LocalTerrainProvider.class);
@@ -44,20 +44,43 @@ public final class LocalTerrainProvider {
     }
 
     public static final class HeightmapData {
+        public static final short NO_WATER_SURFACE = Short.MIN_VALUE;
+        public static final int MIN_IN_GAME_WATER_MASK = 12;
+
         public final short[][] heightmap;
         public final short[][] biomeIndexes;
+        public final short[][] waterMask;
+        public final short[][] waterSurface;
+        public final short[][] waterDepth;
+        /**
+         * Compatibility alias for code written while this value was only exposed as a river mask.
+         */
+        @Deprecated
         public final short[][] riverWater;
         public final int width;
         public final int height;
 
         public HeightmapData(short[][] heightmap, short[][] biomeIndexes, int width, int height) {
-            this(heightmap, biomeIndexes, null, width, height);
+            this(heightmap, biomeIndexes, null, null, null, width, height);
         }
 
         public HeightmapData(short[][] heightmap, short[][] biomeIndexes, short[][] riverWater, int width, int height) {
+            this(heightmap, biomeIndexes, riverWater, null, null, width, height);
+        }
+
+        public HeightmapData(short[][] heightmap, short[][] biomeIndexes, short[][] waterMask,
+                             short[][] waterSurface, int width, int height) {
+            this(heightmap, biomeIndexes, waterMask, waterSurface, null, width, height);
+        }
+
+        public HeightmapData(short[][] heightmap, short[][] biomeIndexes, short[][] waterMask,
+                             short[][] waterSurface, short[][] waterDepth, int width, int height) {
             this.heightmap     = heightmap;
             this.biomeIndexes  = biomeIndexes;
-            this.riverWater    = riverWater;
+            this.waterMask     = waterMask;
+            this.waterSurface  = waterSurface;
+            this.waterDepth    = waterDepth;
+            this.riverWater    = waterMask;
             this.width     = width;
             this.height    = height;
         }
@@ -68,14 +91,19 @@ public final class LocalTerrainProvider {
         public final float[] climate;
         public final short[] biomeIndexes;
         public final byte[] waterMask;
+        public final float[] waterSurface;
+        public final byte[] waterDepth;
         public final int width;
         public final int height;
 
-        public RiverTerrainData(float[] elevation, float[] climate, short[] biomeIndexes, byte[] waterMask, int width, int height) {
+        public RiverTerrainData(float[] elevation, float[] climate, short[] biomeIndexes, byte[] waterMask,
+                                float[] waterSurface, byte[] waterDepth, int width, int height) {
             this.elevation = elevation;
             this.climate = climate;
             this.biomeIndexes = biomeIndexes;
             this.waterMask = waterMask;
+            this.waterSurface = waterSurface;
+            this.waterDepth = waterDepth;
             this.width = width;
             this.height = height;
         }
@@ -86,6 +114,8 @@ public final class LocalTerrainProvider {
 
     private static final int MAX_CACHE_ENTRIES = TerrainDiffusionConfig.terrainRegionCacheMaxEntries();
     private static final long MAX_CACHE_BYTES = TerrainDiffusionConfig.terrainRegionCacheMaxBytes();
+    private static final int MAX_HYDROLOGY_REGION_BLOCKS = 1024;
+    private static final int HYDROLOGY_TILES_PER_REGION = 4;
     private static final Map<CacheKey, CacheEntry> CACHE = new ConcurrentHashMap<>();
     private static final AtomicLong CACHE_CLOCK = new AtomicLong();
     private static final AtomicLong CACHE_BYTES = new AtomicLong();
@@ -101,11 +131,13 @@ public final class LocalTerrainProvider {
     private static long instanceSeed;
 
     private final WorldPipeline pipeline;
+    private final RegionalLakeLevelResolver regionalLakeLevels;
 
     private static final Object INIT_LOCK = new Object();
 
     private LocalTerrainProvider(long seed, PipelineModels models) {
         this.pipeline = new WorldPipeline(seed, models);
+        this.regionalLakeLevels = new RegionalLakeLevelResolver(this.pipeline);
     }
 
     /** Seed is 64-bit world seed. Creates provider once; later worlds only update seed and clear caches (lightweight). */
@@ -118,6 +150,7 @@ public final class LocalTerrainProvider {
             instanceSeed = seed;
         } else if (instanceSeed != seed) {
             INSTANCE.pipeline.setSeed(seed);
+            INSTANCE.regionalLakeLevels.clear();
             instanceSeed = seed;
             clearRegionCaches();
         }
@@ -143,6 +176,7 @@ public final class LocalTerrainProvider {
         LocalTerrainProvider provider = INSTANCE;
         if (provider != null) {
             provider.pipeline.clearCaches();
+            provider.regionalLakeLevels.clear();
         }
     }
 
@@ -189,6 +223,7 @@ public final class LocalTerrainProvider {
         submitToInferenceThread(() -> {
             LocalTerrainProvider provider = getInstance();
             provider.pipeline.setSeed(newSeed);
+            provider.regionalLakeLevels.clear();
             instanceSeed = newSeed;
             clearRegionCaches();
             return null;
@@ -220,7 +255,51 @@ public final class LocalTerrainProvider {
             return cached.data;
         }
 
-        return this.genHeightmap(key, i1, j1, i2, j2);
+        CacheKey hydrologyRegion = hydrologyRegionForTileRequest(i1, j1, i2, j2);
+        if (hydrologyRegion == null || hydrologyRegion.equals(key)) {
+            return this.genHeightmap(key, i1, j1, i2, j2);
+        }
+
+        CacheEntry cachedRegion = CACHE.get(hydrologyRegion);
+        HeightmapData regionalData;
+        if (cachedRegion != null) {
+            cachedRegion.lastAccessed.set(CACHE_CLOCK.incrementAndGet());
+            regionalData = cachedRegion.data;
+        } else {
+            regionalData = this.genHeightmap(
+                    hydrologyRegion,
+                    hydrologyRegion.i1,
+                    hydrologyRegion.j1,
+                    hydrologyRegion.i2,
+                    hydrologyRegion.j2
+            );
+        }
+        HeightmapData tileData = cropHeightmapData(
+                regionalData,
+                i1 - hydrologyRegion.i1,
+                j1 - hydrologyRegion.j1,
+                i2 - i1,
+                j2 - j1
+        );
+        cacheHeightmap(key, tileData);
+        return tileData;
+    }
+
+    /**
+     * Adjacent generation tiles share one fixed fluvial solve. This prevents the
+     * same drainage line from being rebuilt with a different upstream window on
+     * every tile while keeping one-off 1x1 explorer/spawn requests lightweight.
+     */
+    private static CacheKey hydrologyRegionForTileRequest(int i1, int j1, int i2, int j2) {
+        int tileSize = TerrainDiffusionConfig.tileSize();
+        if (i2 - i1 != tileSize || j2 - j1 != tileSize || tileSize >= MAX_HYDROLOGY_REGION_BLOCKS) {
+            return null;
+        }
+        int regionSize = Math.min(
+                MAX_HYDROLOGY_REGION_BLOCKS, tileSize * HYDROLOGY_TILES_PER_REGION);
+        int regionI1 = Math.floorDiv(i1, regionSize) * regionSize;
+        int regionJ1 = Math.floorDiv(j1, regionSize) * regionSize;
+        return new CacheKey(regionI1, regionJ1, regionI1 + regionSize, regionJ1 + regionSize);
     }
 
     private HeightmapData genHeightmap(CacheKey key, int i1, int j1, int i2, int j2) {
@@ -299,7 +378,9 @@ public final class LocalTerrainProvider {
         if (data == null) return 0L;
         return estimateShortMatrixBytes(data.heightmap)
                 + estimateShortMatrixBytes(data.biomeIndexes)
-                + estimateShortMatrixBytes(data.riverWater)
+                + estimateShortMatrixBytes(data.waterMask)
+                + estimateShortMatrixBytes(data.waterSurface)
+                + estimateShortMatrixBytes(data.waterDepth)
                 + 64L;
     }
 
@@ -314,13 +395,39 @@ public final class LocalTerrainProvider {
         return bytes;
     }
 
+    private static HeightmapData cropHeightmapData(
+            HeightmapData source, int row0, int col0, int height, int width) {
+        return new HeightmapData(
+                cropShortMatrix(source.heightmap, row0, col0, height, width),
+                cropShortMatrix(source.biomeIndexes, row0, col0, height, width),
+                cropShortMatrix(source.waterMask, row0, col0, height, width),
+                cropShortMatrix(source.waterSurface, row0, col0, height, width),
+                cropShortMatrix(source.waterDepth, row0, col0, height, width),
+                width,
+                height
+        );
+    }
+
+    private static short[][] cropShortMatrix(
+            short[][] source, int row0, int col0, int height, int width) {
+        if (source == null) {
+            return null;
+        }
+        short[][] result = new short[height][width];
+        for (int r = 0; r < height; r++) {
+            System.arraycopy(source[row0 + r], col0, result[r], 0, width);
+        }
+        return result;
+    }
+
     // =========================================================================
     // Scale == 1: block coords == native pixel coords
     // =========================================================================
 
     private HeightmapData handle1x(int i1, int j1, int i2, int j2) {
         RiverTerrainData riverData = buildNativeRiverTerrainData(i1, j1, i2, j2, true);
-        return buildHeightmapData(riverData.elevation, riverData.biomeIndexes, riverData.waterMask, riverData.height, riverData.width);
+        return buildHeightmapData(riverData.elevation, riverData.biomeIndexes, riverData.waterMask,
+                riverData.waterSurface, riverData.waterDepth, riverData.height, riverData.width);
     }
 
     // =========================================================================
@@ -329,7 +436,8 @@ public final class LocalTerrainProvider {
 
     private HeightmapData handleUpsampled(int i1, int j1, int i2, int j2, int scale) {
         RiverTerrainData riverData = buildUpsampledRiverTerrainData(i1, j1, i2, j2, scale, true);
-        return buildHeightmapData(riverData.elevation, riverData.biomeIndexes, riverData.waterMask, riverData.height, riverData.width);
+        return buildHeightmapData(riverData.elevation, riverData.biomeIndexes, riverData.waterMask,
+                riverData.waterSurface, riverData.waterDepth, riverData.height, riverData.width);
     }
 
     private RiverTerrainData buildUpsampledRiverTerrainData(int i1, int j1, int i2, int j2, int scale, boolean withBiomes) {
@@ -368,7 +476,14 @@ public final class LocalTerrainProvider {
         float[] climatePadded = upsampleClimate(climateNativeFlat, nH, nW, cropI1, cropJ1, pH, pW, scale, nH * scale, nW * scale);
 
         float[] elevNoisyPadded = addElevationNoise(elevSmoothPadded, elevSlopePadded, pi1, pj1, pH, pW, pixelSizeM);
-        FluvialRiverNetwork.RiverResult riversPadded = FluvialRiverNetwork.build(pi1, pj1, elevNoisyPadded, climatePadded, pH, pW, pixelSizeM);
+        RegionalLakeLevelResolver.RegionalHydrologySample regionalHydrology =
+                regionalLakeLevels.sampleBlockGrid(pi1, pj1, pH, pW, scale);
+        FluvialRiverNetwork.RiverResult riversPadded = FluvialRiverNetwork.build(
+                pi1, pj1, elevNoisyPadded, climatePadded,
+                regionalHydrology.lakeSurface(), regionalHydrology.lakeOutflowDirection(),
+                regionalHydrology.flowAccumulation(), regionalHydrology.coarseCellToken(),
+                regionalHydrology.coarseCellSpanBlocks(),
+                pH, pW, pixelSizeM);
         FluvialRiverNetwork.RiverResult rivers = riversPadded.crop(hydroPad, hydroPad, H, W);
         float[] elevation = rivers.adjustedElevation();
         float[] climate = cropClimate(climatePadded, pH, pW, hydroPad, hydroPad, H, W);
@@ -379,7 +494,9 @@ public final class LocalTerrainProvider {
             biomes = BiomeClassifier.classify(elevation, climate, i1, j1, classifierElevation, H, W, pixelSizeM);
             FluvialRiverNetwork.applyRiverBiomes(biomes, climate, rivers, H, W);
         }
-        return new RiverTerrainData(elevation, climate, biomes, rivers.waterMaskBytes(), W, H);
+        return new RiverTerrainData(
+                elevation, climate, biomes, rivers.waterMaskBytes(), rivers.waterSurface(),
+                rivers.waterDepthBlocks(), W, H);
     }
 
     private RiverTerrainData buildNativeRiverTerrainData(int i1, int j1, int i2, int j2, boolean withBiomes) {
@@ -391,8 +508,14 @@ public final class LocalTerrainProvider {
         float[][] raw = pipeline.get(pi1, pj1, pi2, pj2, true);
         float[] elevPaddedWindow = raw[0];
         float[] climatePaddedWindow = raw[1];
-        FluvialRiverNetwork.RiverResult riversPadded = FluvialRiverNetwork.build(pi1, pj1,
-                elevPaddedWindow, climatePaddedWindow, pH, pW, NATIVE_RESOLUTION);
+        RegionalLakeLevelResolver.RegionalHydrologySample regionalHydrology =
+                regionalLakeLevels.sampleBlockGrid(pi1, pj1, pH, pW, 1);
+        FluvialRiverNetwork.RiverResult riversPadded = FluvialRiverNetwork.build(
+                pi1, pj1, elevPaddedWindow, climatePaddedWindow,
+                regionalHydrology.lakeSurface(), regionalHydrology.lakeOutflowDirection(),
+                regionalHydrology.flowAccumulation(), regionalHydrology.coarseCellToken(),
+                regionalHydrology.coarseCellSpanBlocks(),
+                pH, pW, NATIVE_RESOLUTION);
         FluvialRiverNetwork.RiverResult rivers = riversPadded.crop(pad, pad, H, W);
         float[] elevation = rivers.adjustedElevation();
         float[] climate = cropClimate(climatePaddedWindow, pH, pW, pad, pad, H, W);
@@ -403,7 +526,9 @@ public final class LocalTerrainProvider {
             biomes = BiomeClassifier.classify(elevation, climate, i1, j1, elevForClassifier, H, W, NATIVE_RESOLUTION);
             FluvialRiverNetwork.applyRiverBiomes(biomes, climate, rivers, H, W);
         }
-        return new RiverTerrainData(elevation, climate, biomes, rivers.waterMaskBytes(), W, H);
+        return new RiverTerrainData(
+                elevation, climate, biomes, rivers.waterMaskBytes(), rivers.waterSurface(),
+                rivers.waterDepthBlocks(), W, H);
     }
 
     // =========================================================================
@@ -520,21 +645,48 @@ public final class LocalTerrainProvider {
     }
 
     private static HeightmapData buildHeightmapData(float[] elevFlat, short[] biomeFlat, int H, int W) {
-        return buildHeightmapData(elevFlat, biomeFlat, null, H, W);
+        return buildHeightmapData(elevFlat, biomeFlat, null, null, null, H, W);
     }
 
-    private static HeightmapData buildHeightmapData(float[] elevFlat, short[] biomeFlat, byte[] waterMask, int H, int W) {
+    private static HeightmapData buildHeightmapData(float[] elevFlat, short[] biomeFlat, byte[] waterMask,
+                                                    float[] waterSurfaceFlat, byte[] waterDepthBlocks,
+                                                    int H, int W) {
         short[][] heightmap = new short[H][W];
         short[][] biomeIndexes  = new short[H][W];
-        short[][] riverWater = waterMask != null ? new short[H][W] : null;
+        short[][] waterMaskData = waterMask != null ? new short[H][W] : null;
+        short[][] waterSurface = waterSurfaceFlat != null ? new short[H][W] : null;
+        short[][] waterDepth = waterDepthBlocks != null ? new short[H][W] : null;
+        float metersPerBlock = NATIVE_RESOLUTION / WorldScaleManager.getCurrentScale();
         for (int r = 0; r < H; r++)
             for (int c = 0; c < W; c++) {
                 int idx = r * W + c;
                 float e = elevFlat[idx];
+                int mask = waterMask != null ? waterMask[idx] & 0xFF : 0;
+                int depthBlocks = waterDepthBlocks != null ? waterDepthBlocks[idx] & 0xFF : 0;
+                float surface = waterSurfaceFlat != null ? waterSurfaceFlat[idx] : Float.NaN;
+                if (mask >= HeightmapData.MIN_IN_GAME_WATER_MASK && Float.isFinite(surface)) {
+                    // The hydrology model works in metres while Minecraft needs discrete,
+                    // playable channels. Preserve the depth band selected from the smooth
+                    // river cross-section, even when one block represents 30 metres. The
+                    // converted terrain height is the first air/water block, so N water
+                    // blocks need a vertical difference of N-1 below the inclusive surface.
+                    e = Math.min(e, surface - Math.max(0, depthBlocks - 1) * metersPerBlock);
+                }
                 heightmap[r][c] = (short) Math.max(-32768, Math.min(32767, (int) Math.floor(e)));
                 biomeIndexes[r][c]  = biomeFlat != null ? biomeFlat[idx] : 0;
-                if (riverWater != null) riverWater[r][c] = (short) (waterMask[idx] & 0xFF);
+                if (waterMaskData != null) {
+                    waterMaskData[r][c] = (short) mask;
+                }
+                if (waterSurface != null) {
+                    waterSurface[r][c] = Float.isFinite(surface)
+                            ? (short) Math.max(Short.MIN_VALUE + 1,
+                                    Math.min(Short.MAX_VALUE, (int) Math.floor(surface)))
+                            : HeightmapData.NO_WATER_SURFACE;
+                }
+                if (waterDepth != null) {
+                    waterDepth[r][c] = (short) depthBlocks;
+                }
             }
-        return new HeightmapData(heightmap, biomeIndexes, riverWater, W, H);
+        return new HeightmapData(heightmap, biomeIndexes, waterMaskData, waterSurface, waterDepth, W, H);
     }
 }

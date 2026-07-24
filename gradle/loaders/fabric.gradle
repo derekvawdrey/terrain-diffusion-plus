@@ -41,7 +41,6 @@ loom {
                     "-Xmx${terrainDiffusionMinecraftRunXmx}",
                     '-XX:+UseG1GC',
                     '-XX:MaxGCPauseMillis=200',
-                    "-Dterrain-diffusion-mc.models-dir=${project.ext.terrainDiffusionDevModelsDirectory.absolutePath}",
                     terrainDiffusionMinecraftRunHeapDump
                             ? '-XX:+HeapDumpOnOutOfMemoryError'
                             : '-XX:-HeapDumpOnOutOfMemoryError'

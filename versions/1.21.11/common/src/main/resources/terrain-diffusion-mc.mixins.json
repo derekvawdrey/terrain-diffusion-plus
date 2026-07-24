@@ -6,8 +6,7 @@
   "compatibilityLevel": "JAVA_21",
   "mixins": [
     "BiomeMixin",
-    "MinecraftServerMixin",
-    "NoiseBasedChunkGeneratorMixin"
+    "MinecraftServerMixin"
   ],
   "client": [],
   "server": [],

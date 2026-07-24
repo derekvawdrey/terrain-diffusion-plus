@@ -37,17 +37,6 @@ def terrainDiffusionBuildVariant = {
             : rootProject.ext.terrainDiffusionBuildVariant(project)
 }
 
-// All development runs, across every Minecraft version and loader, reuse one
-// model directory at the multiversion root. Production jars do not set this
-// property and continue to use the active game directory.
-project.ext.terrainDiffusionDevModelsDirectory =
-        new File(terrainDiffusionMultiversionRoot(), '.gradle/terrain-diffusion-models').canonicalFile
-
-tasks.withType(JavaExec).configureEach {
-    systemProperty 'terrain-diffusion-mc.models-dir',
-            project.ext.terrainDiffusionDevModelsDirectory.absolutePath
-}
-
 def modelRepositorySlug = 'xandergos/terrain-diffusion-30m-onnx'
 def modelRepositoryRevision = 'ad2df557eca5645f588766101cf3bc3682455c3e'
 def generatedManifestFile = layout.buildDirectory.file('generated/model-assets/model-assets-manifest.json')

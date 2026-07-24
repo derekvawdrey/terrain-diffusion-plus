@@ -100,6 +100,11 @@ ext {
 }
 
 def terrainDiffusionJavaVersion = (findProperty('java_version') ?: '21') as Integer
+if (terrainDiffusionJavaVersion != 21) {
+    throw new GradleException(
+            "Minecraft 1.21.11 must compile with Java 21; configured java_version=${terrainDiffusionJavaVersion}"
+    )
+}
 
 def terrainDiffusionGradlewExecutable = providers.provider {
     String wrapperName = System.getProperty('os.name').toLowerCase().startsWith('windows') ? 'gradlew.bat' : 'gradlew'

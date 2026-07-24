@@ -14,6 +14,8 @@ def terrainDiffusionMinecraftRunXmx = (findProperty('minecraft_run_xmx')
 def terrainDiffusionMinecraftRunHeapDump = (findProperty('minecraft_run_heap_dump')
         ?: rootProject.findProperty('minecraft_run_heap_dump')
         ?: 'false').toString().equalsIgnoreCase('true')
+def terrainDiffusionDevModelJvmArg = '-DterrainDiffusion.devModelDirectory=' +
+        project.ext.terrainDiffusionDevModelDirectory.absolutePath
 
 loom {
     def aw = terrainDiffusionCommonFile("src/main/resources/${mod_id}.accesswidener")
@@ -43,7 +45,8 @@ loom {
                     '-XX:MaxGCPauseMillis=200',
                     terrainDiffusionMinecraftRunHeapDump
                             ? '-XX:+HeapDumpOnOutOfMemoryError'
-                            : '-XX:-HeapDumpOnOutOfMemoryError'
+                            : '-XX:-HeapDumpOnOutOfMemoryError',
+                    terrainDiffusionDevModelJvmArg
         }
         client {
             client()

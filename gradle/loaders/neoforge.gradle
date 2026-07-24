@@ -11,6 +11,10 @@ neoForge {
     runs {
         configureEach {
             systemProperty('neoforge.enabledGameTestNamespaces', fml_mod_id)
+            systemProperty(
+                    'terrainDiffusion.devModelDirectory',
+                    project.ext.terrainDiffusionDevModelDirectory.absolutePath
+            )
             ideName = "NeoForge ${it.name.capitalize()} (${project.path})" // Unify the run config names with fabric
         }
         client {

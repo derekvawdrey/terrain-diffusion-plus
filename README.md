@@ -118,12 +118,15 @@ loaders/fabric/          Shared Fabric loader code and metadata
 loaders/neoforge/        Shared NeoForge loader code and metadata for 1.21.x
 libs/                    Shared local runtime jars, including onnxruntime-dml.jar
 gradle/conventions/      Shared Gradle convention scripts
+terrain-diffusion-models/ Shared model assets created automatically by development runs
 versions/1.20.1/         Minecraft 1.20.1: common + fabric + forge
 versions/1.21.1/         Minecraft 1.21.1: common + fabric + neoforge
 versions/1.21.11/        Minecraft 1.21.11: common + fabric + neoforge
 ```
 
 Minecraft API-sensitive files live under `versions/<minecraft-version>/common`. This is intentional. Mixins, worldgen JSON, dimension types, biome source registration, and client world-creation screens are not stable enough to stay in the root `common` folder.
+
+All Gradle development runs share `terrain-diffusion-models/` at the repository root, so switching Minecraft versions or loaders does not download another copy of the model assets. Distribution jars do not receive the development override and continue to use `<gameDir>/terrain-diffusion-models` in production.
 
 ### Java versions
 

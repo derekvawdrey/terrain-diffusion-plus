@@ -34,15 +34,14 @@ import java.util.concurrent.atomic.AtomicBoolean;
 /**
  * Ensures model assets exist locally and match the expected SHA-256 hashes.
  *
- * <p>Assets are downloaded from a pinned Hugging Face commit into the game directory:
- * {@code .minecraft/terrain-diffusion-models}.
+ * <p>Assets are downloaded from a pinned Hugging Face commit into the directory
+ * resolved by {@link PlatformPaths#modelDir()}. Production uses the game directory;
+ * Gradle development runs may supply the shared repository-root override.
  */
 public final class ModelAssetManager {
     private static final Logger LOG = LoggerFactory.getLogger(ModelAssetManager.class);
     private static final String MANIFEST_RESOURCE_PATH = "/model-assets-manifest.json";
     private static final long PROGRESS_LOG_THRESHOLD_BYTES = 100L * 1024L * 1024L;
-    private static final Path MODEL_DIRECTORY = PlatformPaths.gameDir()
-            .resolve("terrain-diffusion-models");
     private static final AtomicBoolean READY = new AtomicBoolean(false);
     private static final Gson GSON = new Gson();
     private static final Type MANIFEST_TYPE = new TypeToken<ModelAssetManifest>() {}.getType();
@@ -62,15 +61,16 @@ public final class ModelAssetManager {
                 return;
             }
             try {
-                Files.createDirectories(MODEL_DIRECTORY);
+                Path modelDirectory = PlatformPaths.modelDir();
+                Files.createDirectories(modelDirectory);
                 ModelAssetManifest manifest = loadManifest();
                 String offlineHelpUrl = buildOfflineHelpUrl(manifest);
                 boolean shouldValidatePreExistingModels = TerrainDiffusionConfig.validateModel();
-                LOG.info("Preparing terrain diffusion model assets in {}", MODEL_DIRECTORY);
+                LOG.info("Preparing terrain diffusion model assets in {}", modelDirectory);
                 for (Map.Entry<String, ManifestAsset> assetEntry : manifest.assets.entrySet()) {
                     String fileName = assetEntry.getKey();
                     ManifestAsset assetMetadata = assetEntry.getValue();
-                    Path localAssetPath = MODEL_DIRECTORY.resolve(fileName);
+                    Path localAssetPath = modelDirectory.resolve(fileName);
                     ensureSingleAsset(localAssetPath, assetMetadata, manifest.revision, offlineHelpUrl, shouldValidatePreExistingModels);
                 }
                 LOG.info("Terrain diffusion model assets ready");
@@ -87,7 +87,7 @@ public final class ModelAssetManager {
      * Returns the local path for an asset in the model directory.
      */
     public static Path resolveAssetPath(String fileName) {
-        return MODEL_DIRECTORY.resolve(fileName);
+        return PlatformPaths.modelDir().resolve(fileName);
     }
 
     private static void ensureSingleAsset(

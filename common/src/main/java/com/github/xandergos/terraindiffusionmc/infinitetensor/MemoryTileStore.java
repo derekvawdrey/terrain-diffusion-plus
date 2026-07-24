@@ -1,25 +1,29 @@
 package com.github.xandergos.terraindiffusionmc.infinitetensor;
 
-import java.util.*;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.Iterator;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
 import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * In-memory factory and LRU cache for {@link InfiniteTensor} window outputs.
  *
- * <p>Each tensor registered with this store maintains its own ordered map of
- * window index → FloatTensor, with LRU eviction governed by the per-tensor
- * cache limit supplied at creation time.
+ * <p>Each registered tensor owns an access-ordered cache. Cache entries can be
+ * temporarily pinned by a {@link WindowLease} while a slice is assembled. LRU
+ * eviction never removes pinned entries, so a cache limit smaller than the
+ * requested slice can only cause temporary over-commit, never a partial result.
  */
-public class MemoryTileStore {
+public final class MemoryTileStore {
 
-    /** Window cache per tensor id: access-order LinkedHashMap for LRU. */
-    private final Map<String, LinkedHashMap<List<Integer>, FloatTensor>> windowCaches = new HashMap<>();
-
-    /** Tracked byte count per tensor id. */
-    private final Map<String, long[]> cacheSizes = new HashMap<>();
+    /** Cache state per tensor id. Access to each state is synchronized on the state itself. */
+    private final Map<String, CacheState> cacheStates = new HashMap<>();
 
     /** All registered tensor instances, by id. */
     private final Map<String, InfiniteTensor> tensors = new HashMap<>();
+
     /** Monotonic count of newly computed/cached windows across all tensors. */
     private final AtomicLong totalComputedWindowCount = new AtomicLong(0L);
 
@@ -30,16 +34,8 @@ public class MemoryTileStore {
     /**
      * Creates a non-batched InfiniteTensor, or returns the existing one if already
      * registered under {@code id}.
-     *
-     * @param id            unique name for this tensor
-     * @param shape         per-dimension size; {@code null} = unbounded
-     * @param function      window compute function
-     * @param outputWindow  sliding window specification for outputs
-     * @param deps          upstream dependency tensors (may be empty)
-     * @param depWindows    how to slice each dependency for a window index
-     * @param cacheLimitBytes soft LRU limit; {@code Long.MAX_VALUE} = unlimited
      */
-    public InfiniteTensor getOrCreate(
+    public synchronized InfiniteTensor getOrCreate(
             String id,
             Integer[] shape,
             TensorFunction function,
@@ -48,7 +44,10 @@ public class MemoryTileStore {
             TensorWindow[] depWindows,
             long cacheLimitBytes) {
 
-        if (tensors.containsKey(id)) return tensors.get(id);
+        InfiniteTensor existing = tensors.get(id);
+        if (existing != null) {
+            return existing;
+        }
 
         InfiniteTensor tensor = new InfiniteTensor(
                 id, shape, outputWindow, function, null, 0,
@@ -62,7 +61,7 @@ public class MemoryTileStore {
      *
      * @param batchSize maximum windows per {@link BatchTensorFunction} call
      */
-    public InfiniteTensor getOrCreateBatched(
+    public synchronized InfiniteTensor getOrCreateBatched(
             String id,
             Integer[] shape,
             BatchTensorFunction batchFunction,
@@ -72,7 +71,10 @@ public class MemoryTileStore {
             long cacheLimitBytes,
             int batchSize) {
 
-        if (tensors.containsKey(id)) return tensors.get(id);
+        InfiniteTensor existing = tensors.get(id);
+        if (existing != null) {
+            return existing;
+        }
 
         InfiniteTensor tensor = new InfiniteTensor(
                 id, shape, outputWindow, null, batchFunction, batchSize,
@@ -83,9 +85,7 @@ public class MemoryTileStore {
 
     private void register(String id, InfiniteTensor tensor) {
         tensors.put(id, tensor);
-        // access-order LinkedHashMap for LRU eviction
-        windowCaches.put(id, new LinkedHashMap<>(16, 0.75f, true));
-        cacheSizes.put(id, new long[]{0L});
+        cacheStates.put(id, new CacheState());
     }
 
     // -------------------------------------------------------------------------
@@ -93,19 +93,20 @@ public class MemoryTileStore {
     // -------------------------------------------------------------------------
 
     void cacheWindow(String id, int[] windowIndex, FloatTensor output) {
+        CacheState state = requireState(id);
         List<Integer> key = toKey(windowIndex);
-        LinkedHashMap<List<Integer>, FloatTensor> cache = windowCaches.get(id);
-        long[] size = cacheSizes.get(id);
 
-        if (cache.containsKey(key)) {
-            // Already present; move to end (most-recent).
-            cache.get(key); // triggers access-order promotion
-            return;
+        synchronized (state) {
+            CacheEntry existing = state.windows.get(key);
+            if (existing != null) {
+                // Access-order promotion. The computed duplicate is discarded.
+                return;
+            }
+
+            state.windows.put(key, new CacheEntry(output));
+            state.sizeBytes += output.byteSize();
+            totalComputedWindowCount.incrementAndGet();
         }
-
-        cache.put(key, output);
-        size[0] += output.byteSize();
-        totalComputedWindowCount.incrementAndGet();
     }
 
     /** Returns how many windows have been newly computed and cached. */
@@ -113,54 +114,173 @@ public class MemoryTileStore {
         return totalComputedWindowCount.get();
     }
 
-    void evictIfNeeded(String id, long limitBytes) {
-        if (limitBytes == Long.MAX_VALUE) return;
-        LinkedHashMap<List<Integer>, FloatTensor> cache = windowCaches.get(id);
-        long[] size = cacheSizes.get(id);
-        if (cache == null) return;
+    /**
+     * Pins every requested window and returns a stable view of their tensors.
+     * Returns {@code null} if at least one window is not currently cached.
+     */
+    WindowLease leaseWindows(String id, List<int[]> windowIndices) {
+        CacheState state = requireState(id);
+        LinkedHashMap<List<Integer>, FloatTensor> leased = new LinkedHashMap<>();
+        List<CacheEntry> pinnedEntries = new ArrayList<>(windowIndices.size());
 
-        // Keep at least one entry even if it exceeds the limit.
-        Iterator<Map.Entry<List<Integer>, FloatTensor>> it = cache.entrySet().iterator();
-        while (size[0] > limitBytes && cache.size() > 1 && it.hasNext()) {
-            Map.Entry<List<Integer>, FloatTensor> entry = it.next();
-            size[0] -= entry.getValue().byteSize();
-            it.remove();
+        synchronized (state) {
+            for (int[] windowIndex : windowIndices) {
+                List<Integer> key = toKey(windowIndex);
+                CacheEntry entry = state.windows.get(key);
+                if (entry == null) {
+                    for (CacheEntry pinnedEntry : pinnedEntries) {
+                        pinnedEntry.pinCount--;
+                    }
+                    return null;
+                }
+                entry.pinCount++;
+                pinnedEntries.add(entry);
+                leased.put(key, entry.tensor);
+            }
+        }
+
+        return new WindowLease(id, state, leased, pinnedEntries);
+    }
+
+    void evictIfNeeded(String id, long limitBytes) {
+        if (limitBytes == Long.MAX_VALUE) {
+            return;
+        }
+
+        CacheState state = requireState(id);
+        synchronized (state) {
+            evictIfNeededLocked(state, limitBytes);
         }
     }
 
-    FloatTensor getCachedWindow(String id, int[] windowIndex) {
-        LinkedHashMap<List<Integer>, FloatTensor> cache = windowCaches.get(id);
-        if (cache == null) return null;
-        return cache.get(toKey(windowIndex));
-    }
-
     boolean isWindowCached(String id, int[] windowIndex) {
-        LinkedHashMap<List<Integer>, FloatTensor> cache = windowCaches.get(id);
-        return cache != null && cache.containsKey(toKey(windowIndex));
+        CacheState state = requireState(id);
+        synchronized (state) {
+            return state.windows.containsKey(toKey(windowIndex));
+        }
     }
 
     /** Remove all cached window outputs for every registered tensor. */
     public void clearAllCaches() {
-        for (Map.Entry<String, LinkedHashMap<List<Integer>, FloatTensor>> e : windowCaches.entrySet()) {
-            e.getValue().clear();
-            cacheSizes.get(e.getKey())[0] = 0L;
+        List<CacheState> states;
+        synchronized (this) {
+            states = new ArrayList<>(cacheStates.values());
+        }
+
+        for (CacheState state : states) {
+            synchronized (state) {
+                // Active leases retain direct references to their tensors, so clearing the
+                // lookup map cannot invalidate an already assembling slice.
+                state.windows.clear();
+                state.sizeBytes = 0L;
+            }
         }
     }
 
     /** Remove a single tensor and all its cached state. */
-    public void removeTensor(String id) {
+    public synchronized void removeTensor(String id) {
         tensors.remove(id);
-        windowCaches.remove(id);
-        cacheSizes.remove(id);
+        CacheState state = cacheStates.remove(id);
+        if (state == null) {
+            return;
+        }
+        synchronized (state) {
+            state.windows.clear();
+            state.sizeBytes = 0L;
+        }
     }
 
     // -------------------------------------------------------------------------
     // Helpers
     // -------------------------------------------------------------------------
 
+    private synchronized CacheState requireState(String id) {
+        CacheState state = cacheStates.get(id);
+        if (state == null) {
+            throw new IllegalStateException("Unknown tensor cache id: " + id);
+        }
+        return state;
+    }
+
+    private static void evictIfNeededLocked(CacheState state, long limitBytes) {
+        if (state.sizeBytes <= limitBytes || state.windows.size() <= 1) {
+            return;
+        }
+
+        Iterator<Map.Entry<List<Integer>, CacheEntry>> iterator = state.windows.entrySet().iterator();
+        while (state.sizeBytes > limitBytes && state.windows.size() > 1 && iterator.hasNext()) {
+            CacheEntry entry = iterator.next().getValue();
+            if (entry.pinCount != 0) {
+                continue;
+            }
+            state.sizeBytes -= entry.tensor.byteSize();
+            iterator.remove();
+        }
+    }
+
     private static List<Integer> toKey(int[] windowIndex) {
         List<Integer> key = new ArrayList<>(windowIndex.length);
-        for (int v : windowIndex) key.add(v);
+        for (int value : windowIndex) {
+            key.add(value);
+        }
         return key;
+    }
+
+    private static final class CacheState {
+        private final LinkedHashMap<List<Integer>, CacheEntry> windows =
+                new LinkedHashMap<>(16, 0.75f, true);
+        private long sizeBytes;
+    }
+
+    private static final class CacheEntry {
+        private final FloatTensor tensor;
+        private int pinCount;
+        private CacheEntry(FloatTensor tensor) {
+            this.tensor = tensor;
+        }
+    }
+
+    /** Stable set of pinned window values used while one slice is assembled. */
+    final class WindowLease implements AutoCloseable {
+        private final String tensorId;
+        private final CacheState state;
+        private final Map<List<Integer>, FloatTensor> windows;
+        private final List<CacheEntry> pinnedEntries;
+        private boolean closed;
+
+        private WindowLease(
+                String tensorId,
+                CacheState state,
+                Map<List<Integer>, FloatTensor> windows,
+                List<CacheEntry> pinnedEntries) {
+            this.tensorId = tensorId;
+            this.state = state;
+            this.windows = windows;
+            this.pinnedEntries = pinnedEntries;
+        }
+
+        FloatTensor get(int[] windowIndex) {
+            FloatTensor tensor = windows.get(toKey(windowIndex));
+            if (tensor == null) {
+                throw new IllegalStateException(
+                        "Window " + toKey(windowIndex) + " is not part of the active lease for tensor '" + tensorId + "'");
+            }
+            return tensor;
+        }
+
+        @Override
+        public void close() {
+            synchronized (state) {
+                if (closed) {
+                    return;
+                }
+                closed = true;
+
+                for (CacheEntry entry : pinnedEntries) {
+                    entry.pinCount--;
+                }
+
+            }
+        }
     }
 }

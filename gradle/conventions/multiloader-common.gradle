@@ -116,9 +116,17 @@ base {
 def terrainDiffusionJavaVersion = (findProperty('java_version') ?: rootProject.findProperty('java_version') ?: '21') as Integer
 
 extensions.configure(org.gradle.api.plugins.JavaPluginExtension) { org.gradle.api.plugins.JavaPluginExtension javaExtension ->
+    def javaTarget = org.gradle.api.JavaVersion.toVersion(terrainDiffusionJavaVersion)
+    javaExtension.sourceCompatibility = javaTarget
+    javaExtension.targetCompatibility = javaTarget
     javaExtension.toolchain.languageVersion.set(org.gradle.jvm.toolchain.JavaLanguageVersion.of(terrainDiffusionJavaVersion))
     javaExtension.withSourcesJar()
     javaExtension.withJavadocJar()
+}
+
+tasks.withType(JavaCompile).configureEach { JavaCompile compileTask ->
+    compileTask.options.encoding = 'UTF-8'
+    compileTask.options.release.set(terrainDiffusionJavaVersion)
 }
 
 repositories {

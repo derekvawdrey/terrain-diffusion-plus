@@ -618,7 +618,6 @@
         <button id="mode-elevation">Elevation</button>
         <button id="mode-temperature">Temperature</button>
         <button id="mode-biome">Biome</button>
-        <button id="mode-river">Rivers</button>
         <span class="panel-info" id="detail-info">click coarse map to load</span>
       </div>
       <div class="nav-grid">
@@ -902,14 +901,6 @@
     buf[idx + 3] = 255;
   }
 
-  function blendWater(buf, idx, amount) {
-    const a = clamp(0.22 + amount * 0.70, 0, 0.92);
-    buf[idx]     = Math.round(lerp(buf[idx],     12,  a));
-    buf[idx + 1] = Math.round(lerp(buf[idx + 1], 92,  a));
-    buf[idx + 2] = Math.round(lerp(buf[idx + 2], 224, a));
-    buf[idx + 3] = 255;
-  }
-
   function lerp(a, b, t) { return a + (b - a) * clamp(t, 0, 1); }
 
   function lerpColor(c1, c2, t) {
@@ -961,7 +952,7 @@
   function renderDetailFromRaw() {
     const raw = state.detailRaw;
     if (!raw) return;
-    const { elev, temp, biome, river, h, w } = raw;
+    const { elev, temp, biome, h, w } = raw;
     const ctx = detailImg.getContext('2d', { alpha: false });
     if (detailImg.width !== w) detailImg.width = w;
     if (detailImg.height !== h) detailImg.height = h;
@@ -969,12 +960,7 @@
     const data = image.data;
     const mode = state.detailMode;
 
-    if (mode === 'river' && river) {
-      for (let i = 0; i < h * w; i++) {
-        const v = river[i] / 255;
-        writeRGB(data, i * 4, lerpColor(0x061018, 0x1E8CFF, v));
-      }
-    } else if (mode === 'biome' && biome) {
+    if (mode === 'biome' && biome) {
       for (let i = 0; i < h * w; i++) writeRGB(data, i * 4, biomeColor(biome[i]));
     } else if (mode === 'temperature' && temp) {
       const [vmin, vmax] = arrayMinMax(temp);
@@ -995,13 +981,6 @@
           const shade = clamp(0.86 - dx * 0.24 - dy * 0.34, 0.42, 1.22);
           writeRGB(data, idx * 4, terrainBaseColor(elev[idx]), shade);
         }
-      }
-    }
-
-    if (mode !== 'river' && river) {
-      for (let i = 0; i < h * w; i++) {
-        const v = river[i] / 255;
-        if (v > 0) blendWater(data, i * 4, v);
       }
     }
 
@@ -1143,17 +1122,14 @@
       if (!Number.isFinite(h) || !Number.isFinite(w) || h <= 0 || w <= 0) return;
       const hasTemp = res.headers.get('X-Has-Temp') === '1';
       const hasBiome = res.headers.get('X-Has-Biome') === '1';
-      const hasRiver = res.headers.get('X-Has-River') === '1';
       const buf = await res.arrayBuffer();
       if (req !== detailRequestSeq || activeDetailRawController !== controller) return;
       const tempOffset = h * w * 2;
       const biomeOffset = tempOffset + (hasTemp ? h * w * 4 : 0);
-      const riverOffset = biomeOffset + (hasBiome ? h * w * 2 : 0);
       state.detailRaw = {
         elev: new Int16Array(buf, 0, h * w),
         temp: hasTemp ? new Float32Array(buf, tempOffset, h * w) : null,
         biome: hasBiome ? new Int16Array(buf, biomeOffset, h * w) : null,
-        river: hasRiver ? new Uint8Array(buf, riverOffset, h * w) : null,
         h, w,
       };
       renderDetailFromRaw();
@@ -1314,7 +1290,7 @@
   // ── Detail hover ──
   detailImg.addEventListener('mousemove', (e) => {
     if (!state.detailRaw) return;
-    const { elev, temp, biome, river, h, w } = state.detailRaw;
+    const { elev, temp, biome, h, w } = state.detailRaw;
     const rect = detailImg.getBoundingClientRect();
     const col = Math.floor((e.clientX - rect.left) / rect.width  * w);
     const row = Math.floor((e.clientY - rect.top)  / rect.height * h);
@@ -1325,9 +1301,6 @@
     if (biome) {
       const biomeKey = state.biomes[String(biome[idx])] || `#${biome[idx]}`;
       html += `<div class="ht-row"><span class="ht-label">Biome</span><span class="ht-val">${biomeKey}</span></div>`;
-    }
-    if (river && river[idx] > 0) {
-      html += `<div class="ht-row"><span class="ht-label">Water</span><span class="ht-val">${river[idx]}</span></div>`;
     }
     showTooltip(e, html);
   });
@@ -1360,10 +1333,10 @@
   }
 
   // ── Detail mode ──
-  ['relief', 'elevation', 'temperature', 'biome', 'river'].forEach(mode => {
+  ['relief', 'elevation', 'temperature', 'biome'].forEach(mode => {
     document.getElementById(`mode-${mode}`).addEventListener('click', () => {
       state.detailMode = mode;
-      ['relief','elevation','temperature','biome','river'].forEach(m =>
+      ['relief','elevation','temperature','biome'].forEach(m =>
         document.getElementById(`mode-${m}`).classList.toggle('active', m === mode));
       if (state.detailRaw) renderDetailFromRaw();
       else loadDetail();

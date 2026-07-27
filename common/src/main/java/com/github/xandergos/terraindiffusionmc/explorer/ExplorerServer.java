@@ -344,21 +344,19 @@ public final class ExplorerServer {
 
             int H = detailSize, W = detailSize;
 
-            LocalTerrainProvider.RiverTerrainData riverData = LocalTerrainProvider.getRiverTerrainData(
-                    centerI - half, centerJ - half, centerI + half, centerJ + half, true);
-            float[] elevFlat = riverData.elevation;
-            float[] climate = riverData.climate;
+            LocalTerrainProvider.ExplorerDetailData detailData = LocalTerrainProvider.getExplorerDetailData(
+                    centerI - half, centerJ - half, centerI + half, centerJ + half);
+            float[] elevFlat = shortsToFloats(detailData.elevation);
 
             float[][] rgba;
-            if (mode.equals("biome") && riverData.biomeIndexes != null) {
-                rgba = applyBiomeColors(riverData.biomeIndexes, H, W);
+            if (mode.equals("biome") && detailData.biomeIndexes != null) {
+                rgba = applyBiomeColors(detailData.biomeIndexes, H, W);
             } else if (mode.equals("elevation")) {
                 float vmin = nanMin(elevFlat), vmax = nanMax(elevFlat);
                 if (vmax == vmin) vmax = vmin + 1f;
                 rgba = applyColormap1D(elevFlat, H, W, vmin, vmax, "terrain");
-            } else if (mode.equals("temperature") && climate != null) {
-                // climate[0] = temperature channel (H*W floats)
-                float[] temp = Arrays.copyOfRange(climate, 0, H * W);
+            } else if (mode.equals("temperature") && detailData.temperatureCentiC != null) {
+                float[] temp = centiDegreesToFloats(detailData.temperatureCentiC);
                 float vmin = nanMin(temp), vmax = nanMax(temp);
                 if (vmax == vmin) vmax = vmin + 1f;
                 rgba = applyColormap1D(temp, H, W, vmin, vmax, "rdbu_r");
@@ -388,8 +386,8 @@ public final class ExplorerServer {
 
     /**
      * GET /api/detail_raw — port of detail_raw().
-     * Binary: int16-LE elevation + optional float32-LE temperature + int16-LE biome.
-     * Headers: X-Height, X-Width, X-Has-Temp, X-Has-Biome.
+     * Binary: int16-LE elevation + optional int16-LE temperature in 0.01 C + int16-LE biome.
+     * Headers: X-Height, X-Width, X-Has-Temp, X-Has-Biome, X-Temp-Encoding.
      */
     private static void handleDetailRaw(HttpExchange ex) throws IOException {
         if (!ex.getRequestMethod().equalsIgnoreCase("GET")) { send405(ex); return; }
@@ -406,40 +404,24 @@ public final class ExplorerServer {
             int half    = detailSize / 2;
             int H = detailSize, W = detailSize;
 
-            LocalTerrainProvider.RiverTerrainData riverData = LocalTerrainProvider.getRiverTerrainData(
-                    centerI - half, centerJ - half, centerI + half, centerJ + half, true);
-            float[] elevFlat = riverData.elevation;
-            float[] climate  = riverData.climate;
-            short[] biomeIndexes = riverData.biomeIndexes;
+            LocalTerrainProvider.ExplorerDetailData detailData = LocalTerrainProvider.getExplorerDetailData(
+                    centerI - half, centerJ - half, centerI + half, centerJ + half);
+            short[] elevation = detailData.elevation;
+            short[] temperature = detailData.temperatureCentiC;
+            short[] biomeIndexes = detailData.biomeIndexes;
 
-            // Elevation → int16 LE (matching Python: clip(floor(elev), -32768, 32767).astype('<i2'))
-            ByteBuffer elevBuf = ByteBuffer.allocate(H * W * 2).order(ByteOrder.LITTLE_ENDIAN);
-            for (float e : elevFlat) {
-                short s = (short) Math.max(-32768, Math.min(32767, (int) Math.floor(e)));
-                elevBuf.putShort(s);
-            }
-
-            boolean hasTemp = climate != null;
-            ByteBuffer tempBuf = null;
+            boolean hasTemp = temperature != null;
+            int cells = Math.multiplyExact(H, W);
+            int payloadSize = cells * (hasTemp ? 6 : 4);
+            ByteBuffer payloadBuffer = ByteBuffer.allocate(payloadSize).order(ByteOrder.LITTLE_ENDIAN);
+            for (short value : elevation) payloadBuffer.putShort(value);
             if (hasTemp) {
-                // Temperature = climate[0..H*W] as float32 LE
-                tempBuf = ByteBuffer.allocate(H * W * 4).order(ByteOrder.LITTLE_ENDIAN);
-                for (int i = 0; i < H * W; i++) tempBuf.putFloat(climate[i]);
+                for (short value : temperature) payloadBuffer.putShort(value);
             }
-
-            ByteBuffer biomeBuf = ByteBuffer.allocate(H * W * 2).order(ByteOrder.LITTLE_ENDIAN);
-            for (int i = 0; i < H * W; i++) biomeBuf.putShort(biomeIndexes != null ? biomeIndexes[i] : 0);
-
-            int payloadSize = elevBuf.capacity() + (tempBuf != null ? tempBuf.capacity() : 0) + biomeBuf.capacity();
-            byte[] payload = new byte[payloadSize];
-            int offset = 0;
-            System.arraycopy(elevBuf.array(), 0, payload, offset, elevBuf.capacity());
-            offset += elevBuf.capacity();
-            if (tempBuf != null) {
-                System.arraycopy(tempBuf.array(), 0, payload, offset, tempBuf.capacity());
-                offset += tempBuf.capacity();
+            for (int index = 0; index < cells; index++) {
+                payloadBuffer.putShort(biomeIndexes != null ? biomeIndexes[index] : 0);
             }
-            System.arraycopy(biomeBuf.array(), 0, payload, offset, biomeBuf.capacity());
+            byte[] payload = payloadBuffer.array();
 
             ex.getResponseHeaders().set("Content-Type", "application/octet-stream");
             setNoStoreHeaders(ex);
@@ -447,7 +429,9 @@ public final class ExplorerServer {
             ex.getResponseHeaders().set("X-Width", String.valueOf(W));
             ex.getResponseHeaders().set("X-Has-Temp", hasTemp ? "1" : "0");
             ex.getResponseHeaders().set("X-Has-Biome", "1");
-            ex.getResponseHeaders().set("Access-Control-Expose-Headers", "X-Height, X-Width, X-Has-Temp, X-Has-Biome");
+            ex.getResponseHeaders().set("X-Temp-Encoding", "int16-centi-celsius");
+            ex.getResponseHeaders().set("Access-Control-Expose-Headers",
+                    "X-Height, X-Width, X-Has-Temp, X-Has-Biome, X-Temp-Encoding");
             ex.sendResponseHeaders(200, payload.length);
             ex.getResponseBody().write(payload);
         } catch (Exception e) {
@@ -456,6 +440,18 @@ public final class ExplorerServer {
         } finally {
             ex.close();
         }
+    }
+
+    private static float[] shortsToFloats(short[] values) {
+        float[] result = new float[values.length];
+        for (int index = 0; index < values.length; index++) result[index] = values[index];
+        return result;
+    }
+
+    private static float[] centiDegreesToFloats(short[] values) {
+        float[] result = new float[values.length];
+        for (int index = 0; index < values.length; index++) result[index] = values[index] / 100.0f;
+        return result;
     }
 
     // =========================================================================

@@ -3,7 +3,6 @@ package com.github.xandergos.terraindiffusionmc.pipeline;
 import com.github.xandergos.terraindiffusionmc.biome.TerrainBiomeCatalog;
 
 import java.util.Arrays;
-import java.util.PriorityQueue;
 
 /**
  * Deterministic fluvial post-process driven directly by the generated pipeline DEM and climate channels.
@@ -67,17 +66,40 @@ public final class FluvialRiverNetwork {
     }
 
     public static void applyRiverBiomes(short[] biomes, float[] climate, RiverResult rivers, int height, int width) {
-        int n = height * width;
+        applyRiverBiomesFromWindow(biomes, climate, rivers, 0, 0, height, width);
+    }
+
+    /** Apply river/lake biomes to a crop without materialising cropped river/lake arrays. */
+    public static void applyRiverBiomesFromWindow(short[] biomes, float[] climate, RiverResult rivers,
+                                                   int row0, int col0, int height, int width) {
+        int n = Math.multiplyExact(height, width);
         if (biomes == null || biomes.length != n || rivers == null) return;
+        if (row0 < 0 || col0 < 0 || row0 + height > rivers.height() || col0 + width > rivers.width()) {
+            throw new IllegalArgumentException("River biome crop is outside the source window");
+        }
         float[] river = rivers.riverStrength();
         float[] lake = rivers.lakeDepth();
-        for (int idx = 0; idx < n; idx++) {
-            if (river[idx] < 0.22f && lake[idx] < LAKE_MIN_DEPTH_M) continue;
-            short current = biomes[idx];
-            if (isOceanOrShore(current)) continue;
-            float temp = climate != null && climate.length >= n ? climate[idx] : 8.0f;
-            biomes[idx] = temp < -1.0f ? TerrainBiomeCatalog.FROZEN_RIVER : TerrainBiomeCatalog.RIVER;
+        int sourceWidth = rivers.width();
+        for (int r = 0; r < height; r++) {
+            int sourceOffset = (row0 + r) * sourceWidth + col0;
+            int targetOffset = r * width;
+            for (int c = 0; c < width; c++) {
+                int targetIndex = targetOffset + c;
+                int sourceIndex = sourceOffset + c;
+                if (river[sourceIndex] < 0.22f && lake[sourceIndex] < LAKE_MIN_DEPTH_M) continue;
+                short current = biomes[targetIndex];
+                if (isOceanOrShore(current)) continue;
+                float temp = climate != null && climate.length >= n ? climate[targetIndex] : 8.0f;
+                biomes[targetIndex] = temp < -1.0f ? TerrainBiomeCatalog.FROZEN_RIVER : TerrainBiomeCatalog.RIVER;
+            }
         }
+    }
+
+    /** Compact uint8 water intensity used by cached hydrology tiles. */
+    public static byte encodeWaterMask(float riverStrength, float lakeDepth) {
+        float riverValue = clamp01(riverStrength) * 255.0f;
+        float lakeValue = clamp01(lakeDepth / 24.0f) * 255.0f;
+        return (byte) Math.max(0, Math.min(255, Math.round(Math.max(riverValue, lakeValue))));
     }
 
     private static boolean isOceanOrShore(short biome) {
@@ -102,7 +124,7 @@ public final class FluvialRiverNetwork {
         int[] downstream = new int[n];
         int[] order = new int[n];
         Arrays.fill(downstream, -1);
-        PriorityQueue<Node> queue = new PriorityQueue<>();
+        IntMinHeap queue = new IntMinHeap(filled, n, height, width);
 
         for (int r = 0; r < height; r++) {
             for (int c = 0; c < width; c++) {
@@ -113,14 +135,13 @@ public final class FluvialRiverNetwork {
                 if (visited[idx]) continue;
                 visited[idx] = true;
                 filled[idx] = elevation[idx];
-                queue.add(new Node(idx, filled[idx], i0 + r, j0 + c));
+                queue.add(idx);
             }
         }
 
         int orderSize = 0;
         while (!queue.isEmpty()) {
-            Node node = queue.poll();
-            int idx = node.index;
+            int idx = queue.poll();
             order[orderSize++] = idx;
             int r = idx / width;
             int c = idx - r * width;
@@ -133,7 +154,7 @@ public final class FluvialRiverNetwork {
                 visited[ni] = true;
                 downstream[ni] = idx;
                 filled[ni] = Math.max(elevation[ni], filled[idx]);
-                queue.add(new Node(ni, filled[ni], i0 + nr, j0 + nc));
+                queue.add(ni);
             }
         }
 
@@ -279,14 +300,71 @@ public final class FluvialRiverNetwork {
         return v;
     }
 
-    private record Node(int index, float priority, int globalI, int globalJ) implements Comparable<Node> {
-        @Override
-        public int compareTo(Node other) {
-            int byPriority = Float.compare(this.priority, other.priority);
+    /** Primitive min-heap: avoids allocating one Node object per hydrology cell. */
+    private static final class IntMinHeap {
+        private final float[] priorities;
+        private final int maximumSize;
+        private int[] heap;
+        private int size;
+
+        IntMinHeap(float[] priorities, int maximumSize, int height, int width) {
+            this.priorities = priorities;
+            this.maximumSize = maximumSize;
+            int perimeterEstimate = Math.max(1024, 4 * (height + width));
+            this.heap = new int[Math.min(maximumSize, perimeterEstimate)];
+        }
+
+        boolean isEmpty() {
+            return size == 0;
+        }
+
+        void add(int index) {
+            ensureCapacity(size + 1);
+            int position = size++;
+            while (position > 0) {
+                int parent = (position - 1) >>> 1;
+                int parentIndex = heap[parent];
+                if (compare(parentIndex, index) <= 0) break;
+                heap[position] = parentIndex;
+                position = parent;
+            }
+            heap[position] = index;
+        }
+
+        int poll() {
+            if (size == 0) throw new IllegalStateException("Cannot poll an empty heap");
+            int result = heap[0];
+            int replacement = heap[--size];
+            if (size == 0) return result;
+
+            int position = 0;
+            int half = size >>> 1;
+            while (position < half) {
+                int left = (position << 1) + 1;
+                int right = left + 1;
+                int child = left;
+                if (right < size && compare(heap[right], heap[left]) < 0) child = right;
+                if (compare(replacement, heap[child]) <= 0) break;
+                heap[position] = heap[child];
+                position = child;
+            }
+            heap[position] = replacement;
+            return result;
+        }
+
+        private int compare(int first, int second) {
+            int byPriority = Float.compare(priorities[first], priorities[second]);
             if (byPriority != 0) return byPriority;
-            int byI = Integer.compare(this.globalI, other.globalI);
-            if (byI != 0) return byI;
-            return Integer.compare(this.globalJ, other.globalJ);
+            // Row-major index ordering is identical to global-I/global-J ordering inside one fixed window.
+            return Integer.compare(first, second);
+        }
+
+        private void ensureCapacity(int required) {
+            if (required <= heap.length) return;
+            if (required > maximumSize) throw new IllegalStateException("Hydrology heap exceeded grid size");
+            int grown = heap.length + Math.max(1024, heap.length >>> 1);
+            int newLength = Math.min(maximumSize, Math.max(required, grown));
+            heap = Arrays.copyOf(heap, newLength);
         }
     }
 
@@ -301,26 +379,9 @@ public final class FluvialRiverNetwork {
             return new RiverResult(elevation.clone(), new float[n], new float[n], water, height, width);
         }
 
-        public RiverResult crop(int row0, int col0, int cropHeight, int cropWidth) {
-            return new RiverResult(
-                    cropArray(adjustedElevation, width, row0, col0, cropHeight, cropWidth),
-                    cropArray(riverStrength, width, row0, col0, cropHeight, cropWidth),
-                    cropArray(lakeDepth, width, row0, col0, cropHeight, cropWidth),
-                    cropArray(waterSurface, width, row0, col0, cropHeight, cropWidth),
-                    cropHeight,
-                    cropWidth
-            );
-        }
-
-        public byte[] waterMaskBytes() {
-            int n = height * width;
-            byte[] out = new byte[n];
-            for (int i = 0; i < n; i++) {
-                float riverValue = clamp01(riverStrength[i]) * 255.0f;
-                float lakeValue = clamp01(lakeDepth[i] / 24.0f) * 255.0f;
-                out[i] = (byte) Math.max(0, Math.min(255, Math.round(Math.max(riverValue, lakeValue))));
-            }
-            return out;
+        /** Crop only final elevation. River/lake/water arrays remain in the analysis window. */
+        public float[] cropAdjustedElevation(int row0, int col0, int cropHeight, int cropWidth) {
+            return cropArray(adjustedElevation, width, row0, col0, cropHeight, cropWidth);
         }
 
         private static float[] cropArray(float[] src, int srcWidth, int row0, int col0, int cropHeight, int cropWidth) {

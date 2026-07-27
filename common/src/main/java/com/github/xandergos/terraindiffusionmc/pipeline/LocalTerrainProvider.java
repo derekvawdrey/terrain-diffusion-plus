@@ -102,6 +102,24 @@ public final class LocalTerrainProvider {
         }
     }
 
+    /** Compact data sent by the explorer detail endpoint. Temperature is encoded in centi-degrees Celsius. */
+    public static final class ExplorerDetailData {
+        public final short[] elevation;
+        public final short[] temperatureCentiC;
+        public final short[] biomeIndexes;
+        public final int width;
+        public final int height;
+
+        public ExplorerDetailData(short[] elevation, short[] temperatureCentiC, short[] biomeIndexes,
+                                  int width, int height) {
+            this.elevation = elevation;
+            this.temperatureCentiC = temperatureCentiC;
+            this.biomeIndexes = biomeIndexes;
+            this.width = width;
+            this.height = height;
+        }
+    }
+
     private static record CacheKey(long seed, int scale, int i1, int j1, int i2, int j2) {}
     private static record CacheEntry(HeightmapData data, AtomicLong lastAccessed, long bytes) {}
 
@@ -204,6 +222,11 @@ public final class LocalTerrainProvider {
      */
     public static RiverTerrainData getRiverTerrainData(int i1, int j1, int i2, int j2, boolean withBiomes) throws Exception {
         return submitToInferenceThread(() -> getInstance().buildRiverTerrainData(i1, j1, i2, j2, 1, withBiomes));
+    }
+
+    /** Explorer detail fast path: no river-strength, lake-depth, water-mask, or water-surface region copies. */
+    public static ExplorerDetailData getExplorerDetailData(int i1, int j1, int i2, int j2) throws Exception {
+        return submitToInferenceThread(() -> getInstance().buildExplorerDetailData(i1, j1, i2, j2));
     }
 
     /**
@@ -347,35 +370,49 @@ public final class LocalTerrainProvider {
     // =========================================================================
 
     private HeightmapData handle1x(int i1, int j1, int i2, int j2) {
-        RiverTerrainData riverData = buildRiverTerrainData(i1, j1, i2, j2, 1, true);
-        return buildHeightmapData(riverData.elevation, riverData.biomeIndexes, riverData.waterMask,
-                riverData.waterSurface, riverData.height, riverData.width);
+        HydrologyProvider.HydrologyRegion hydrology = hydrologyProvider.getRegion(
+                instanceSeed, i1, j1, i2, j2, 1, true);
+        return buildHeightmapData(hydrology.adjustedElevation(), hydrology.biomeIndexes(),
+                hydrology.waterMask(), hydrology.waterSurface(), hydrology.height(), hydrology.width());
     }
 
     private HeightmapData handleUpsampled(int i1, int j1, int i2, int j2, int scale) {
-        RiverTerrainData riverData = buildRiverTerrainData(i1, j1, i2, j2, scale, true);
-        return buildHeightmapData(riverData.elevation, riverData.biomeIndexes, riverData.waterMask,
-                riverData.waterSurface, riverData.height, riverData.width);
+        HydrologyProvider.HydrologyRegion hydrology = hydrologyProvider.getRegion(
+                instanceSeed, i1, j1, i2, j2, scale, true);
+        return buildHeightmapData(hydrology.adjustedElevation(), hydrology.biomeIndexes(),
+                hydrology.waterMask(), hydrology.waterSurface(), hydrology.height(), hydrology.width());
     }
 
-    /**
-     * Assemble stable fluvial output from canonical tiles. Climate is sampled for the exact requested
-     * region because it is already spatially deterministic and does not need a second large tile cache.
-     */
+    /** Compatibility/full-data path. World generation and detail_raw use compact specialised paths instead. */
     private RiverTerrainData buildRiverTerrainData(int i1, int j1, int i2, int j2, int scale, boolean withBiomes) {
         HydrologyProvider.HydrologyRegion hydrology = hydrologyProvider.getRegion(
                 instanceSeed, i1, j1, i2, j2, scale, withBiomes);
         float[] climate = sampleClimate(i1, j1, i2, j2, scale);
-        short[] biomes = withBiomes ? hydrology.biomeIndexes() : null;
         return new RiverTerrainData(
-                hydrology.adjustedElevation(),
+                shortsToFloats(hydrology.adjustedElevation()),
                 climate,
-                biomes,
-                hydrology.waterMaskBytes(),
-                hydrology.waterSurface(),
+                withBiomes ? hydrology.biomeIndexes() : null,
+                hydrology.waterMask(),
+                decodeWaterSurface(hydrology.waterSurface()),
                 hydrology.width(),
                 hydrology.height()
         );
+    }
+
+    private ExplorerDetailData buildExplorerDetailData(int i1, int j1, int i2, int j2) {
+        HydrologyProvider.ExplorerRegion hydrology = hydrologyProvider.getExplorerRegion(
+                instanceSeed, i1, j1, i2, j2, 1);
+        float[] climate = sampleClimate(i1, j1, i2, j2, 1);
+        short[] temperature = null;
+        if (climate != null) {
+            int n = Math.multiplyExact(hydrology.height(), hydrology.width());
+            temperature = new short[n];
+            for (int index = 0; index < n; index++) {
+                temperature[index] = clampTemperatureCentiToShort(climate[index]);
+            }
+        }
+        return new ExplorerDetailData(hydrology.adjustedElevation(), temperature,
+                hydrology.biomeIndexes(), hydrology.width(), hydrology.height());
     }
 
     /** Generate exactly one fixed hydrology tile, including its fixed analysis halo. */
@@ -405,24 +442,48 @@ public final class LocalTerrainProvider {
 
         FluvialRiverNetwork.RiverResult padded = FluvialRiverNetwork.build(
                 analysisI0, analysisJ0, elevation, climate, analysisHeight, analysisWidth, pixelSizeM);
-        FluvialRiverNetwork.RiverResult core = padded.crop(halo, halo, coreSize, coreSize);
+        float[] coreElevation = padded.cropAdjustedElevation(halo, halo, coreSize, coreSize);
         float[] coreClimate = cropClimate(climate, analysisHeight, analysisWidth,
                 halo, halo, coreSize, coreSize);
-        float[] classifierElevation = padded.crop(
-                halo - 1, halo - 1, coreSize + 2, coreSize + 2).adjustedElevation();
-        short[] biomes = BiomeClassifier.classify(core.adjustedElevation(), coreClimate,
+        float[] classifierElevation = padded.cropAdjustedElevation(
+                halo - 1, halo - 1, coreSize + 2, coreSize + 2);
+        short[] biomes = BiomeClassifier.classify(coreElevation, coreClimate,
                 coreI0, coreJ0, classifierElevation, coreSize, coreSize, pixelSizeM);
-        FluvialRiverNetwork.applyRiverBiomes(biomes, coreClimate, core, coreSize, coreSize);
+        FluvialRiverNetwork.applyRiverBiomesFromWindow(
+                biomes, coreClimate, padded, halo, halo, coreSize, coreSize);
 
-        LOG.info("Generated canonical hydrology tile at ({}, {}) size {} scale {} with halo {}",
-                coreJ0, coreI0, coreSize, scale, halo);
+        int cells = Math.multiplyExact(coreSize, coreSize);
+        short[] compactElevation = new short[cells];
+        byte[] compactWaterMask = new byte[cells];
+        short[] compactWaterSurface = new short[cells];
+        float[] riverStrength = padded.riverStrength();
+        float[] lakeDepth = padded.lakeDepth();
+        float[] waterSurface = padded.waterSurface();
+        for (int row = 0; row < coreSize; row++) {
+            int sourceOffset = (halo + row) * analysisWidth + halo;
+            int targetOffset = row * coreSize;
+            for (int col = 0; col < coreSize; col++) {
+                int sourceIndex = sourceOffset + col;
+                int targetIndex = targetOffset + col;
+                compactElevation[targetIndex] = clampTerrainElevationToShort(coreElevation[targetIndex]);
+                compactWaterMask[targetIndex] = FluvialRiverNetwork.encodeWaterMask(
+                        riverStrength[sourceIndex], lakeDepth[sourceIndex]);
+                float surface = waterSurface[sourceIndex];
+                compactWaterSurface[targetIndex] = Float.isFinite(surface)
+                        ? clampWaterElevationToShort(surface)
+                        : HeightmapData.NO_FLUVIAL_WATER;
+            }
+        }
+
+        LOG.info("Generated canonical hydrology tile at ({}, {}) size {} scale {} with halo {} ({} MiB compact)",
+                coreJ0, coreI0, coreSize, scale, halo,
+                (compactElevation.length * 7L) / (1024L * 1024L));
         return new HydrologyProvider.HydrologyTile(
                 coreI0,
                 coreJ0,
-                core.adjustedElevation(),
-                core.riverStrength(),
-                core.lakeDepth(),
-                core.waterSurface(),
+                compactElevation,
+                compactWaterMask,
+                compactWaterSurface,
                 biomes,
                 coreSize,
                 coreSize
@@ -591,6 +652,41 @@ public final class LocalTerrainProvider {
         return out;
     }
 
+    private static HeightmapData buildHeightmapData(short[] elevFlat, short[] biomeFlat, byte[] waterMask,
+                                                     short[] waterSurface, int H, int W) {
+        short[][] heightmap = new short[H][W];
+        short[][] biomeIndexes = new short[H][W];
+        short[][] riverWater = waterMask != null ? new short[H][W] : null;
+        short[][] riverWaterSurface = waterSurface != null ? new short[H][W] : null;
+        for (int row = 0; row < H; row++) {
+            int offset = row * W;
+            System.arraycopy(elevFlat, offset, heightmap[row], 0, W);
+            if (biomeFlat != null) System.arraycopy(biomeFlat, offset, biomeIndexes[row], 0, W);
+            for (int col = 0; col < W; col++) {
+                int index = offset + col;
+                if (riverWater != null) riverWater[row][col] = (short) (waterMask[index] & 0xFF);
+                if (riverWaterSurface != null) riverWaterSurface[row][col] = waterSurface[index];
+            }
+        }
+        return new HeightmapData(heightmap, biomeIndexes, riverWater, riverWaterSurface, W, H);
+    }
+
+    private static float[] shortsToFloats(short[] values) {
+        float[] out = new float[values.length];
+        for (int index = 0; index < values.length; index++) out[index] = values[index];
+        return out;
+    }
+
+    private static float[] decodeWaterSurface(short[] values) {
+        if (values == null) return null;
+        float[] out = new float[values.length];
+        for (int index = 0; index < values.length; index++) {
+            short value = values[index];
+            out[index] = value == HeightmapData.NO_FLUVIAL_WATER ? Float.NaN : value;
+        }
+        return out;
+    }
+
     private static HeightmapData buildHeightmapData(float[] elevFlat, short[] biomeFlat, int H, int W) {
         return buildHeightmapData(elevFlat, biomeFlat, null, null, H, W);
     }
@@ -619,6 +715,11 @@ public final class LocalTerrainProvider {
             }
         }
         return new HeightmapData(heightmap, biomeIndexes, riverWater, riverWaterSurface, W, H);
+    }
+
+    private static short clampTemperatureCentiToShort(float temperatureC) {
+        return (short) Math.max(Short.MIN_VALUE,
+                Math.min(Short.MAX_VALUE, Math.round(temperatureC * 100.0f)));
     }
 
     private static short clampTerrainElevationToShort(float elevation) {

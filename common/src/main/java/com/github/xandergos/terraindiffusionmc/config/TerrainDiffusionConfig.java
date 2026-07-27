@@ -20,10 +20,11 @@ public final class TerrainDiffusionConfig {
     private static final int DEFAULT_TERRAIN_REGION_CACHE_MAX_MIB = 64;
     private static final int DEFAULT_TERRAIN_REGION_CACHE_MAX_ENTRIES = 32;
     private static final int DEFAULT_PIPELINE_TENSOR_CACHE_MAX_MIB = 64;
-    private static final int DEFAULT_HYDROLOGY_TILE_SIZE = 1024;
+    private static final int DEFAULT_HYDROLOGY_TILE_SIZE = 2048;
     private static final int DEFAULT_HYDROLOGY_ANALYSIS_HALO = 128;
-    private static final int DEFAULT_HYDROLOGY_CACHE_MAX_MIB = 96;
-    private static final int DEFAULT_HYDROLOGY_CACHE_MAX_ENTRIES = 8;
+    private static final int DEFAULT_HYDROLOGY_CACHE_MAX_MIB = 160;
+    private static final int DEFAULT_HYDROLOGY_CACHE_MAX_ENTRIES = 5;
+    private static final boolean DEFAULT_HYDROLOGY_DISK_CACHE_ENABLED = true;
 
     static {
         loadDefaults();
@@ -130,6 +131,16 @@ public final class TerrainDiffusionConfig {
         return readPositiveInt("hydrology.cache.max_entries", DEFAULT_HYDROLOGY_CACHE_MAX_ENTRIES);
     }
 
+    /** Whether compact canonical hydrology tiles are persisted under the game cache directory. */
+    public static boolean hydrologyDiskCacheEnabled() {
+        return readBoolean("hydrology.disk_cache.enabled", DEFAULT_HYDROLOGY_DISK_CACHE_ENABLED);
+    }
+
+    /** Namespace used to invalidate disk tiles when custom terrain models are replaced. */
+    public static String hydrologyDiskCacheNamespace() {
+        return readString("hydrology.disk_cache.namespace", "default");
+    }
+
     private static void loadDefaults() {
         boolean loadedFromResource = false;
         try (InputStream in = TerrainDiffusionConfig.class.getResourceAsStream(RESOURCE_PATH)) {
@@ -152,6 +163,8 @@ public final class TerrainDiffusionConfig {
             PROPERTIES.setProperty("hydrology.analysis_halo", String.valueOf(DEFAULT_HYDROLOGY_ANALYSIS_HALO));
             PROPERTIES.setProperty("hydrology.cache.max_mib", String.valueOf(DEFAULT_HYDROLOGY_CACHE_MAX_MIB));
             PROPERTIES.setProperty("hydrology.cache.max_entries", String.valueOf(DEFAULT_HYDROLOGY_CACHE_MAX_ENTRIES));
+            PROPERTIES.setProperty("hydrology.disk_cache.enabled", String.valueOf(DEFAULT_HYDROLOGY_DISK_CACHE_ENABLED));
+            PROPERTIES.setProperty("hydrology.disk_cache.namespace", "default");
         }
     }
 

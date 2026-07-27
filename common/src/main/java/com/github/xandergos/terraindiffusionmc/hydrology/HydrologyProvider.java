@@ -1,4 +1,4 @@
-package com.github.xandergos.terraindiffusionmc.pipeline;
+package com.github.xandergos.terraindiffusionmc.hydrology;
 
 import com.github.xandergos.terraindiffusionmc.config.TerrainDiffusionConfig;
 import com.github.xandergos.terraindiffusionmc.platform.PlatformPaths;

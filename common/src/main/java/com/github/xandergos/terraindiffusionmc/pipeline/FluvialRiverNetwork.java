@@ -48,7 +48,7 @@ public final class FluvialRiverNetwork {
             return RiverResult.empty(elevation, height, width);
         }
 
-        PriorityFlood flood = runPriorityFlood(elevation, height, width);
+        PriorityFlood flood = runPriorityFlood(i0, j0, elevation, height, width);
         float[] accumulation = accumulateRunoff(elevation, climate, flood.downstream, flood.order, flood.orderSize,
                 height, width, pixelSizeM);
 
@@ -95,7 +95,7 @@ public final class FluvialRiverNetwork {
                 || biome == TerrainBiomeCatalog.STONY_SHORE;
     }
 
-    private static PriorityFlood runPriorityFlood(float[] elevation, int height, int width) {
+    private static PriorityFlood runPriorityFlood(int i0, int j0, float[] elevation, int height, int width) {
         int n = height * width;
         boolean[] visited = new boolean[n];
         float[] filled = new float[n];
@@ -113,7 +113,7 @@ public final class FluvialRiverNetwork {
                 if (visited[idx]) continue;
                 visited[idx] = true;
                 filled[idx] = elevation[idx];
-                queue.add(new Node(idx, filled[idx]));
+                queue.add(new Node(idx, filled[idx], i0 + r, j0 + c));
             }
         }
 
@@ -133,7 +133,7 @@ public final class FluvialRiverNetwork {
                 visited[ni] = true;
                 downstream[ni] = idx;
                 filled[ni] = Math.max(elevation[ni], filled[idx]);
-                queue.add(new Node(ni, filled[ni]));
+                queue.add(new Node(ni, filled[ni], i0 + nr, j0 + nc));
             }
         }
 
@@ -279,10 +279,14 @@ public final class FluvialRiverNetwork {
         return v;
     }
 
-    private record Node(int index, float priority) implements Comparable<Node> {
+    private record Node(int index, float priority, int globalI, int globalJ) implements Comparable<Node> {
         @Override
         public int compareTo(Node other) {
-            return Float.compare(this.priority, other.priority);
+            int byPriority = Float.compare(this.priority, other.priority);
+            if (byPriority != 0) return byPriority;
+            int byI = Integer.compare(this.globalI, other.globalI);
+            if (byI != 0) return byI;
+            return Integer.compare(this.globalJ, other.globalJ);
         }
     }
 

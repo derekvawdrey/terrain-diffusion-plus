@@ -5,18 +5,21 @@ import java.util.Collections;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.concurrent.locks.ReentrantLock;
 import java.util.stream.Collectors;
 
 /**
  * A lazy, sliding-window "infinite" tensor backed by a {@link MemoryTileStore}.
  *
  * <p>Only the <em>direct</em> cache strategy is implemented: each computed window
- * output is stored in an LRU cache keyed by window index.  Overlapping windows
+ * output is stored in an LRU cache keyed by window index. Overlapping windows
  * are summed to produce the final slice.
  *
  * <p>Create instances exclusively through {@link MemoryTileStore#getOrCreate}.
  */
-public class InfiniteTensor {
+public final class InfiniteTensor {
+
+    private static final int CACHE_LEASE_RETRY_COUNT = 3;
 
     final String id;
 
@@ -41,14 +44,17 @@ public class InfiniteTensor {
     /** How to slice each dependency for a given window index. */
     final TensorWindow[] depWindows;
 
-    /** Owning store — used for cache reads/writes and dependency resolution. */
+    /** Owning store, used for cache reads/writes and dependency resolution. */
     final MemoryTileStore store;
 
     /**
-     * Soft limit on cached window bytes.  {@code Long.MAX_VALUE} = unlimited.
-     * Eviction occurs after a new window is written.
+     * Soft limit on cached window bytes. {@code Long.MAX_VALUE} = unlimited.
+     * Eviction occurs only after a complete slice has been assembled.
      */
     final long cacheLimitBytes;
+
+    /** Serializes cache-miss discovery and computation for this tensor. */
+    private final ReentrantLock computeLock = new ReentrantLock();
 
     InfiniteTensor(
             String id,
@@ -81,88 +87,117 @@ public class InfiniteTensor {
      * @return the accumulated FloatTensor
      */
     public FloatTensor getSlice(int[] start, int[] end) {
-        int n = shape.length;
+        validateSliceBounds(start, end);
         int[][] pixelRange = buildRange(start, end);
+        List<int[]> requiredWindows = collectIntersectingWindows(pixelRange);
 
-        ensureComputed(pixelRange);
-
-        // Accumulate contributions from all intersecting windows.
-        int[] outShape = new int[n];
-        for (int d = 0; d < n; d++) outShape[d] = end[d] - start[d];
-        FloatTensor output = new FloatTensor(outShape);
-
-        int[] lo = outputWindow.getLowestIntersection(pixelRange);
-        int[] hi = outputWindow.getHighestIntersection(pixelRange);
-
-        iterateWindows(lo, hi, windowIndex -> {
-            FloatTensor cached = store.getCachedWindow(id, windowIndex);
-            if (cached == null) return;
-
-            int[][] wBounds = outputWindow.getBounds(windowIndex);
-
-            // Intersection of the window bounds with the requested pixel range.
-            int[][] isect = new int[n][2];
-            for (int d = 0; d < n; d++) {
-                isect[d][0] = Math.max(pixelRange[d][0], wBounds[d][0]);
-                isect[d][1] = Math.min(pixelRange[d][1], wBounds[d][1]);
-                if (isect[d][0] >= isect[d][1]) return; // no overlap
+        MemoryTileStore.WindowLease lease = null;
+        computeLock.lock();
+        try {
+            for (int attempt = 0; attempt < CACHE_LEASE_RETRY_COUNT && lease == null; attempt++) {
+                ensureComputedRangesLocked(Collections.singletonList(pixelRange));
+                lease = store.leaseWindows(id, requiredWindows);
             }
+        } finally {
+            computeLock.unlock();
+        }
 
-            int[][] srcRegion = new int[n][2];
-            int[][] dstRegion = new int[n][2];
+        if (lease == null) {
+            throw new IllegalStateException(
+                    "Tensor '" + id + "' lost required cache windows while preparing a slice");
+        }
+
+        try (MemoryTileStore.WindowLease activeLease = lease) {
+            int n = shape.length;
+            int[] outShape = new int[n];
             for (int d = 0; d < n; d++) {
-                srcRegion[d][0] = isect[d][0] - wBounds[d][0];
-                srcRegion[d][1] = isect[d][1] - wBounds[d][0];
-                dstRegion[d][0] = isect[d][0] - pixelRange[d][0];
-                dstRegion[d][1] = isect[d][1] - pixelRange[d][0];
+                outShape[d] = end[d] - start[d];
             }
+            FloatTensor output = new FloatTensor(outShape);
 
-            output.addFrom(cached, dstRegion, srcRegion);
-        });
+            for (int[] windowIndex : requiredWindows) {
+                FloatTensor cached = activeLease.get(windowIndex);
+                int[][] windowBounds = outputWindow.getBounds(windowIndex);
 
-        store.evictIfNeeded(id, cacheLimitBytes);
-        return output;
+                int[][] intersection = new int[n][2];
+                boolean overlaps = true;
+                for (int d = 0; d < n; d++) {
+                    intersection[d][0] = Math.max(pixelRange[d][0], windowBounds[d][0]);
+                    intersection[d][1] = Math.min(pixelRange[d][1], windowBounds[d][1]);
+                    if (intersection[d][0] >= intersection[d][1]) {
+                        overlaps = false;
+                        break;
+                    }
+                }
+                if (!overlaps) {
+                    continue;
+                }
+
+                int[][] sourceRegion = new int[n][2];
+                int[][] destinationRegion = new int[n][2];
+                for (int d = 0; d < n; d++) {
+                    sourceRegion[d][0] = intersection[d][0] - windowBounds[d][0];
+                    sourceRegion[d][1] = intersection[d][1] - windowBounds[d][0];
+                    destinationRegion[d][0] = intersection[d][0] - pixelRange[d][0];
+                    destinationRegion[d][1] = intersection[d][1] - pixelRange[d][0];
+                }
+
+                output.addFrom(cached, destinationRegion, sourceRegion);
+            }
+            return output;
+        } finally {
+            store.evictIfNeeded(id, cacheLimitBytes);
+        }
     }
 
-    /**
-     * Ensures every window intersecting {@code pixelRange} is present in the cache.
-     * Recursively ensures upstream dependencies are computed first.
-     */
+    /** Ensures every window intersecting {@code pixelRange} is present in the cache. */
     void ensureComputed(int[][] pixelRange) {
         ensureComputedRanges(Collections.singletonList(pixelRange));
     }
 
     /**
-     * Ensures every window that intersects any of the given pixel ranges is present.
-     * Matches Python _apply_f_range: each range is expanded to window indices, then
-     * deduped (no bounding-box union, so we only request windows that actually intersect
-     * at least one range).
+     * Ensures every window that intersects any supplied pixel range is present.
+     * Each range is expanded independently, then deduplicated.
      */
     void ensureComputedRanges(List<int[][]> pixelRanges) {
+        computeLock.lock();
+        try {
+            ensureComputedRangesLocked(pixelRanges);
+        } finally {
+            computeLock.unlock();
+        }
+    }
+
+    private void ensureComputedRangesLocked(List<int[][]> pixelRanges) {
         Set<List<Integer>> pendingSet = new LinkedHashSet<>();
         for (int[][] range : pixelRanges) {
-            int[] lo = outputWindow.getLowestIntersection(range);
-            int[] hi = outputWindow.getHighestIntersection(range);
-            iterateWindows(lo, hi, wi -> {
-                if (!store.isWindowCached(id, wi)) {
-                    List<Integer> key = new ArrayList<>(wi.length);
-                    for (int v : wi) key.add(v);
+            int[] lowest = outputWindow.getLowestIntersection(range);
+            int[] highest = outputWindow.getHighestIntersection(range);
+            iterateWindows(lowest, highest, windowIndex -> {
+                if (!store.isWindowCached(id, windowIndex)) {
+                    List<Integer> key = new ArrayList<>(windowIndex.length);
+                    for (int value : windowIndex) {
+                        key.add(value);
+                    }
                     pendingSet.add(key);
                 }
             });
         }
-        List<int[]> pending = pendingSet.stream()
-                .map(k -> k.stream().mapToInt(Integer::intValue).toArray())
-                .collect(Collectors.toList());
-        if (pending.isEmpty()) return;
 
-        // Dependencies get the exact list of pixel ranges (one per our pending window), not a union.
-        for (int i = 0; i < deps.length; i++) {
-            List<int[][]> depRanges = new ArrayList<>(pending.size());
-            for (int[] wi : pending) {
-                depRanges.add(depWindows[i].getBounds(wi));
+        List<int[]> pending = pendingSet.stream()
+                .map(key -> key.stream().mapToInt(Integer::intValue).toArray())
+                .collect(Collectors.toList());
+        if (pending.isEmpty()) {
+            return;
+        }
+
+        // Dependencies receive the exact list of ranges, not a bounding-box union.
+        for (int dependencyIndex = 0; dependencyIndex < deps.length; dependencyIndex++) {
+            List<int[][]> dependencyRanges = new ArrayList<>(pending.size());
+            for (int[] windowIndex : pending) {
+                dependencyRanges.add(depWindows[dependencyIndex].getBounds(windowIndex));
             }
-            deps[i].ensureComputedRanges(depRanges);
+            deps[dependencyIndex].ensureComputedRanges(dependencyRanges);
         }
 
         if (batchSize > 0 && batchFunction != null) {
@@ -175,19 +210,14 @@ public class InfiniteTensor {
     }
 
     private void computeSingle(int[] windowIndex) {
-        List<FloatTensor> args = new ArrayList<>(deps.length);
-        for (int i = 0; i < deps.length; i++) {
-            int[][] bounds = depWindows[i].getBounds(windowIndex);
-            int[] depStart = new int[bounds.length];
-            int[] depEnd   = new int[bounds.length];
-            for (int d = 0; d < bounds.length; d++) {
-                depStart[d] = bounds[d][0];
-                depEnd[d]   = bounds[d][1];
-            }
-            args.add(deps[i].getSlice(depStart, depEnd));
+        List<FloatTensor> arguments = new ArrayList<>(deps.length);
+        for (int dependencyIndex = 0; dependencyIndex < deps.length; dependencyIndex++) {
+            int[][] bounds = depWindows[dependencyIndex].getBounds(windowIndex);
+            arguments.add(deps[dependencyIndex].getSlice(starts(bounds), ends(bounds)));
         }
-        FloatTensor result = function.apply(windowIndex, args);
-        validateOutputShape(result, windowIndex);
+
+        FloatTensor result = function.apply(windowIndex, arguments);
+        validateOutputShape(result);
         store.cacheWindow(id, windowIndex, result);
     }
 
@@ -197,28 +227,29 @@ public class InfiniteTensor {
             int to = Math.min(from + batchSize, windowIndices.size());
             List<int[]> batch = windowIndices.subList(from, to);
 
-            // args.get(depIdx) → list of tensors for that dep, one per window
-            List<List<FloatTensor>> args = new ArrayList<>(deps.length);
-            for (int i = 0; i < deps.length; i++) {
-                List<FloatTensor> depArgs = new ArrayList<>(batch.size());
+            // arguments.get(depIdx) -> one tensor per window in the batch.
+            List<List<FloatTensor>> arguments = new ArrayList<>(deps.length);
+            for (int dependencyIndex = 0; dependencyIndex < deps.length; dependencyIndex++) {
+                List<FloatTensor> dependencyArguments = new ArrayList<>(batch.size());
                 for (int[] windowIndex : batch) {
-                    int[][] bounds = depWindows[i].getBounds(windowIndex);
-                    int[] depStart = new int[bounds.length];
-                    int[] depEnd   = new int[bounds.length];
-                    for (int d = 0; d < bounds.length; d++) {
-                        depStart[d] = bounds[d][0];
-                        depEnd[d]   = bounds[d][1];
-                    }
-                    depArgs.add(deps[i].getSlice(depStart, depEnd));
+                    int[][] bounds = depWindows[dependencyIndex].getBounds(windowIndex);
+                    dependencyArguments.add(deps[dependencyIndex].getSlice(starts(bounds), ends(bounds)));
                 }
-                args.add(depArgs);
+                arguments.add(dependencyArguments);
             }
 
-            List<FloatTensor> outputs = batchFunction.apply(batch, args);
-            for (int k = 0; k < batch.size(); k++) {
-                FloatTensor result = outputs.get(k);
-                int[] windowIndex = batch.get(k);
-                validateOutputShape(result, windowIndex);
+            List<FloatTensor> outputs = batchFunction.apply(batch, arguments);
+            if (outputs == null || outputs.size() != batch.size()) {
+                throw new IllegalStateException(
+                        "Batch function for tensor '" + id + "' returned "
+                                + (outputs == null ? "null" : outputs.size() + " outputs")
+                                + ", expected " + batch.size());
+            }
+
+            for (int batchIndex = 0; batchIndex < batch.size(); batchIndex++) {
+                FloatTensor result = outputs.get(batchIndex);
+                int[] windowIndex = batch.get(batchIndex);
+                validateOutputShape(result);
                 store.cacheWindow(id, windowIndex, result);
             }
 
@@ -226,20 +257,66 @@ public class InfiniteTensor {
         }
     }
 
-    private void validateOutputShape(FloatTensor result, int[] windowIndex) {
-        int n = outputWindow.size.length;
-        if (result.shape.length != n) {
-            throw new IllegalStateException(
-                    "Function for tensor '" + id + "' returned shape with " +
-                    result.shape.length + " dims, expected " + n);
+    private void validateOutputShape(FloatTensor result) {
+        if (result == null) {
+            throw new IllegalStateException("Function for tensor '" + id + "' returned null");
         }
-        for (int d = 0; d < n; d++) {
-            if (result.shape[d] != outputWindow.size[d]) {
+
+        int dimensions = outputWindow.size.length;
+        if (result.shape.length != dimensions) {
+            throw new IllegalStateException(
+                    "Function for tensor '" + id + "' returned shape with "
+                            + result.shape.length + " dims, expected " + dimensions);
+        }
+        for (int dimension = 0; dimension < dimensions; dimension++) {
+            if (result.shape[dimension] != outputWindow.size[dimension]) {
                 throw new IllegalStateException(
-                        "Function for tensor '" + id + "' returned shape[" + d + "]=" +
-                        result.shape[d] + ", expected " + outputWindow.size[d]);
+                        "Function for tensor '" + id + "' returned shape[" + dimension + "]="
+                                + result.shape[dimension] + ", expected " + outputWindow.size[dimension]);
             }
         }
+    }
+
+    private void validateSliceBounds(int[] start, int[] end) {
+        if (start == null || end == null || start.length != shape.length || end.length != shape.length) {
+            throw new IllegalArgumentException(
+                    "Tensor '" + id + "' requires " + shape.length + " start/end dimensions");
+        }
+        for (int dimension = 0; dimension < shape.length; dimension++) {
+            if (end[dimension] <= start[dimension]) {
+                throw new IllegalArgumentException(
+                        "Tensor '" + id + "' has an empty or inverted slice in dimension " + dimension);
+            }
+            Integer dimensionSize = shape[dimension];
+            if (dimensionSize != null && (start[dimension] < 0 || end[dimension] > dimensionSize)) {
+                throw new IndexOutOfBoundsException(
+                        "Tensor '" + id + "' slice exceeds bounded dimension " + dimension);
+            }
+        }
+    }
+
+    private List<int[]> collectIntersectingWindows(int[][] pixelRange) {
+        List<int[]> windows = new ArrayList<>();
+        int[] lowest = outputWindow.getLowestIntersection(pixelRange);
+        int[] highest = outputWindow.getHighestIntersection(pixelRange);
+        iterateWindows(lowest, highest, windows::add);
+        return windows;
+    }
+
+    private static int[] starts(int[][] bounds) {
+        int[] starts = new int[bounds.length];
+        for (int dimension = 0; dimension < bounds.length; dimension++) {
+            starts[dimension] = bounds[dimension][0];
+        }
+        return starts;
+    }
+
+    private static int[] ends(int[][] bounds) {
+        int[] ends = new int[bounds.length];
+        for (int dimension = 0; dimension < bounds.length; dimension++) {
+            ends[dimension] = bounds[dimension][1];
+        }
+        return ends;
     }
 
     // -------------------------------------------------------------------------
@@ -247,35 +324,39 @@ public class InfiniteTensor {
     // -------------------------------------------------------------------------
 
     static int[][] buildRange(int[] start, int[] end) {
-        int n = start.length;
-        int[][] range = new int[n][2];
-        for (int d = 0; d < n; d++) {
-            range[d][0] = start[d];
-            range[d][1] = end[d];
+        int dimensions = start.length;
+        int[][] range = new int[dimensions][2];
+        for (int dimension = 0; dimension < dimensions; dimension++) {
+            range[dimension][0] = start[dimension];
+            range[dimension][1] = end[dimension];
         }
         return range;
     }
 
-    /**
-     * Iterate over all window index combinations in the inclusive range [lo, hi].
-     */
+    /** Iterate over all window index combinations in the inclusive range [lo, hi]. */
     static void iterateWindows(int[] lo, int[] hi, WindowConsumer action) {
-        int n = lo.length;
-        for (int d = 0; d < n; d++) {
-            if (lo[d] > hi[d]) return;
+        int dimensions = lo.length;
+        for (int dimension = 0; dimension < dimensions; dimension++) {
+            if (lo[dimension] > hi[dimension]) {
+                return;
+            }
         }
-        int[] current = lo.clone();
 
+        int[] current = lo.clone();
         outer:
         while (true) {
             action.accept(current.clone());
 
-            // Increment like a mixed-radix counter (last dim first).
-            for (int d = n - 1; d >= 0; d--) {
-                current[d]++;
-                if (current[d] <= hi[d]) break;
-                current[d] = lo[d];
-                if (d == 0) break outer;
+            // Increment like a mixed-radix counter, last dimension first.
+            for (int dimension = dimensions - 1; dimension >= 0; dimension--) {
+                current[dimension]++;
+                if (current[dimension] <= hi[dimension]) {
+                    break;
+                }
+                current[dimension] = lo[dimension];
+                if (dimension == 0) {
+                    break outer;
+                }
             }
         }
     }

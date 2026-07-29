@@ -1,0 +1,90 @@
+pluginManagement {
+    repositories {
+        gradlePluginPortal()
+        mavenCentral()
+        exclusiveContent {
+            forRepository {
+                maven {
+                    name = 'Fabric'
+                    url = uri('https://maven.fabricmc.net')
+                }
+            }
+            filter {
+                includeGroup('net.fabricmc')
+                includeGroup('net.fabricmc.unpick')
+                includeGroup('fabric-loom')
+            }
+        }
+        exclusiveContent {
+            forRepository {
+                maven {
+                    name = 'Sponge'
+                    url = uri('https://repo.spongepowered.org/repository/maven-public')
+                }
+            }
+            filter {
+                includeGroupAndSubgroups('org.spongepowered')
+            }
+        }
+        exclusiveContent {
+            forRepository {
+                maven {
+                    name = 'NeoForge'
+                    url = uri('https://maven.neoforged.net/releases')
+                }
+            }
+            filter {
+                includeGroupAndSubgroups('net.neoforged')
+            }
+        }
+    }
+}
+
+plugins {
+    id 'org.gradle.toolchains.foojay-resolver-convention' version '0.8.0'
+}
+
+rootProject.name = 'terrain-diffusion-mc-1.21.1'
+
+import java.util.Locale
+
+// Include only the loader projects needed by the requested task.
+// This keeps Forge/NeoForge-only builds from configuring Fabric Loom.
+def tdmcRequestedTaskNames = gradle.startParameter.taskNames.collect { String taskName ->
+    String normalized = taskName.toLowerCase(Locale.ROOT)
+    while (normalized.startsWith(':')) {
+        normalized = normalized.substring(1)
+    }
+    return normalized
+}
+
+def tdmcAllLoaderTasks = [
+        'build',
+        'assemble',
+        'check',
+        'clean',
+        'classes',
+        'jar',
+        'buildall',
+        'buildallvariants',
+        'buildcpu',
+        'buildcuda',
+        'buildwindows',
+        'builddml',
+        'runclient',
+        'runserver'
+] as Set
+
+def tdmcRequestsAllLoaders = tdmcRequestedTaskNames.isEmpty() || tdmcRequestedTaskNames.any { String taskName ->
+    tdmcAllLoaderTasks.contains(taskName)
+}
+
+def tdmcRequestsLoader = { String loaderName ->
+    tdmcRequestedTaskNames.any { String taskName ->
+        taskName == loaderName || taskName.startsWith("${loaderName}:") || taskName.contains(loaderName)
+    }
+}
+
+include('common')
+if (tdmcRequestsAllLoaders || tdmcRequestsLoader('fabric')) include('fabric')
+if (tdmcRequestsAllLoaders || tdmcRequestsLoader('neoforge')) include('neoforge')

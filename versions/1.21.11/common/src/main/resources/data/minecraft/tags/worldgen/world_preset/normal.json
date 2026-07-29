@@ -1,0 +1,9 @@
+{
+  "replace": false,
+  "values": [
+    {
+      "id": "terrain-diffusion-mc:terrain_diffusion",
+      "required": true
+    }
+  ]
+}

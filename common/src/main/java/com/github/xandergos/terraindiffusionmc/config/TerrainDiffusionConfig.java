@@ -17,6 +17,14 @@ public final class TerrainDiffusionConfig {
     private static final boolean DEFAULT_VALIDATE_MODEL = true;
     private static final int DEFAULT_EXPLORER_PORT = 19801;
     private static final int DEFAULT_TILE_SIZE = 256;
+    private static final int DEFAULT_TERRAIN_REGION_CACHE_MAX_MIB = 64;
+    private static final int DEFAULT_TERRAIN_REGION_CACHE_MAX_ENTRIES = 32;
+    private static final int DEFAULT_PIPELINE_TENSOR_CACHE_MAX_MIB = 64;
+    private static final int DEFAULT_HYDROLOGY_TILE_SIZE = 2048;
+    private static final int DEFAULT_HYDROLOGY_ANALYSIS_HALO = 128;
+    private static final int DEFAULT_HYDROLOGY_CACHE_MAX_MIB = 160;
+    private static final int DEFAULT_HYDROLOGY_CACHE_MAX_ENTRIES = 5;
+    private static final boolean DEFAULT_HYDROLOGY_DISK_CACHE_ENABLED = true;
 
     static {
         loadDefaults();
@@ -75,6 +83,64 @@ public final class TerrainDiffusionConfig {
         return configuredTileSize;
     }
 
+    /** Maximum retained generated heightmap/biome regions, in bytes. */
+    public static long terrainRegionCacheMaxBytes() {
+        return positiveMibToBytes("terrain_cache.max_mib", DEFAULT_TERRAIN_REGION_CACHE_MAX_MIB);
+    }
+
+    /** Maximum retained generated heightmap/biome regions, by entry count. */
+    public static int terrainRegionCacheMaxEntries() {
+        return readPositiveInt("terrain_cache.max_entries", DEFAULT_TERRAIN_REGION_CACHE_MAX_ENTRIES);
+    }
+
+    /** Per-tensor cache limit for pipeline windows, in bytes. */
+    public static long pipelineTensorCacheMaxBytes() {
+        return positiveMibToBytes("pipeline_cache.tensor_max_mib", DEFAULT_PIPELINE_TENSOR_CACHE_MAX_MIB);
+    }
+
+    /** Side length of a canonical hydrology tile in output pixels/blocks. */
+    public static int hydrologyTileSize() {
+        int configured = readInt("hydrology.tile_size", DEFAULT_HYDROLOGY_TILE_SIZE);
+        if (configured < 256 || configured > 4096 || !isPowerOfTwo(configured)) {
+            System.err.println("Invalid hydrology.tile_size: " + configured
+                    + ", using default " + DEFAULT_HYDROLOGY_TILE_SIZE);
+            return DEFAULT_HYDROLOGY_TILE_SIZE;
+        }
+        return configured;
+    }
+
+    /** Fixed analysis halo around each canonical hydrology tile. */
+    public static int hydrologyAnalysisHalo() {
+        int configured = readPositiveInt("hydrology.analysis_halo", DEFAULT_HYDROLOGY_ANALYSIS_HALO);
+        int max = Math.max(1, hydrologyTileSize() / 2);
+        if (configured > max) {
+            System.err.println("Invalid hydrology.analysis_halo: " + configured
+                    + ", clamping to " + max);
+            return max;
+        }
+        return configured;
+    }
+
+    /** Maximum retained canonical hydrology tiles, in bytes. */
+    public static long hydrologyCacheMaxBytes() {
+        return positiveMibToBytes("hydrology.cache.max_mib", DEFAULT_HYDROLOGY_CACHE_MAX_MIB);
+    }
+
+    /** Maximum retained canonical hydrology tiles, by entry count. */
+    public static int hydrologyCacheMaxEntries() {
+        return readPositiveInt("hydrology.cache.max_entries", DEFAULT_HYDROLOGY_CACHE_MAX_ENTRIES);
+    }
+
+    /** Whether compact canonical hydrology tiles are persisted under the game cache directory. */
+    public static boolean hydrologyDiskCacheEnabled() {
+        return readBoolean("hydrology.disk_cache.enabled", DEFAULT_HYDROLOGY_DISK_CACHE_ENABLED);
+    }
+
+    /** Namespace used to invalidate disk tiles when custom terrain models are replaced. */
+    public static String hydrologyDiskCacheNamespace() {
+        return readString("hydrology.disk_cache.namespace", "default");
+    }
+
     private static void loadDefaults() {
         boolean loadedFromResource = false;
         try (InputStream in = TerrainDiffusionConfig.class.getResourceAsStream(RESOURCE_PATH)) {
@@ -90,6 +156,15 @@ public final class TerrainDiffusionConfig {
             PROPERTIES.setProperty("inference.device", "gpu");
             PROPERTIES.setProperty("validate_model", String.valueOf(DEFAULT_VALIDATE_MODEL));
             PROPERTIES.setProperty("tile_size", String.valueOf(DEFAULT_TILE_SIZE));
+            PROPERTIES.setProperty("terrain_cache.max_mib", String.valueOf(DEFAULT_TERRAIN_REGION_CACHE_MAX_MIB));
+            PROPERTIES.setProperty("terrain_cache.max_entries", String.valueOf(DEFAULT_TERRAIN_REGION_CACHE_MAX_ENTRIES));
+            PROPERTIES.setProperty("pipeline_cache.tensor_max_mib", String.valueOf(DEFAULT_PIPELINE_TENSOR_CACHE_MAX_MIB));
+            PROPERTIES.setProperty("hydrology.tile_size", String.valueOf(DEFAULT_HYDROLOGY_TILE_SIZE));
+            PROPERTIES.setProperty("hydrology.analysis_halo", String.valueOf(DEFAULT_HYDROLOGY_ANALYSIS_HALO));
+            PROPERTIES.setProperty("hydrology.cache.max_mib", String.valueOf(DEFAULT_HYDROLOGY_CACHE_MAX_MIB));
+            PROPERTIES.setProperty("hydrology.cache.max_entries", String.valueOf(DEFAULT_HYDROLOGY_CACHE_MAX_ENTRIES));
+            PROPERTIES.setProperty("hydrology.disk_cache.enabled", String.valueOf(DEFAULT_HYDROLOGY_DISK_CACHE_ENABLED));
+            PROPERTIES.setProperty("hydrology.disk_cache.namespace", "default");
         }
     }
 
@@ -150,6 +225,20 @@ public final class TerrainDiffusionConfig {
             System.err.println("Invalid int for " + key + ": " + value + ", using default " + defaultValue);
             return defaultValue;
         }
+    }
+
+    private static int readPositiveInt(String key, int defaultValue) {
+        int value = readInt(key, defaultValue);
+        if (value <= 0) {
+            System.err.println("Invalid positive int for " + key + ": " + value + ", using default " + defaultValue);
+            return defaultValue;
+        }
+        return value;
+    }
+
+    private static long positiveMibToBytes(String key, int defaultMib) {
+        int mib = readPositiveInt(key, defaultMib);
+        return (long) mib * 1024L * 1024L;
     }
 
     private static boolean isPowerOfTwo(int value) {

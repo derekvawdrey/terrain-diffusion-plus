@@ -7,20 +7,26 @@ import com.mojang.serialization.MapCodec;
 import net.minecraft.util.KeyDispatchDataCodec;
 import net.minecraft.world.level.levelgen.DensityFunction;
 
-
 public class TerrainDiffusionDensityFunction implements DensityFunction {
-
+    /**
+     * Vertical density falloff around the generated terrain surface.
+     *
+     * <p>Do not return a hard +/-1 step: vanilla structure terrain adaptation
+     * (beardifier) needs a signed-distance-like density near the surface so it
+     * can fill small gaps under structures instead of leaving villages hanging
+     * in the air.</p>
+     */
+    private static final double SURFACE_DENSITY_FALLOFF_BLOCKS = 16.0;
     public static final MapCodec<TerrainDiffusionDensityFunction> CODEC =
             MapCodec.unit(TerrainDiffusionDensityFunction::new);
 
-    public static final TerrainDiffusionDensityFunction INSTANCE =
-            new TerrainDiffusionDensityFunction();
+    public static final KeyDispatchDataCodec<TerrainDiffusionDensityFunction> CODEC_HOLDER = KeyDispatchDataCodec.of(CODEC);
 
     @Override
-    public double compute(DensityFunction.FunctionContext pos) {
-        int x = pos.blockX();
-        int z = pos.blockZ();
-        int y = pos.blockY();
+    public double compute(DensityFunction.FunctionContext context) {
+        int x = context.blockX();
+        int z = context.blockZ();
+        int y = context.blockY();
 
         int tileSize = TerrainDiffusionConfig.tileSize();
         int tileShift = Integer.numberOfTrailingZeros(tileSize);
@@ -30,25 +36,27 @@ public class TerrainDiffusionDensityFunction implements DensityFunction {
 
         int blockStartX = tileX << tileShift;
         int blockStartZ = tileZ << tileShift;
-
         int blockEndX = blockStartX + tileSize;
         int blockEndZ = blockStartZ + tileSize;
 
-        HeightmapData data = LocalTerrainProvider.getInstance()
-                .fetchHeightmap(blockStartZ, blockStartX, blockEndZ, blockEndX);
-
+        HeightmapData data = LocalTerrainProvider.getInstance().fetchHeightmap(blockStartZ, blockStartX, blockEndZ, blockEndX);
         if (data == null || data.heightmap == null) {
-            return 0.0;
+            return 1.0;
         }
 
-        int localX = Math.max(0, Math.min(data.width - 1, x - blockStartX));
+        int localX = Math.max(0, Math.min(data.width  - 1, x - blockStartX));
         int localZ = Math.max(0, Math.min(data.height - 1, z - blockStartZ));
 
-        int targetHeight = HeightConverter.convertToMinecraftHeight(
-                data.heightmap[localZ][localX]
-        );
+        int targetHeight = HeightConverter.convertToMinecraftHeight(data.heightmap[localZ][localX]);
+        return terrainSignedDensity(targetHeight, y);
+    }
 
-        return targetHeight - y;
+    private static double terrainSignedDensity(int targetHeight, int y) {
+        double distanceToSurface = targetHeight - y - 0.5;
+        double density = distanceToSurface / SURFACE_DENSITY_FALLOFF_BLOCKS;
+        if (density < -1.0) return -1.0;
+        if (density > 1.0) return 1.0;
+        return density;
     }
 
     private static final class FillContext {
@@ -97,7 +105,7 @@ public class TerrainDiffusionDensityFunction implements DensityFunction {
 
             HeightmapData data = ctx.data;
             if (data == null || data.heightmap == null) {
-                densities[i] = -y;
+                densities[i] = 1.0;
                 continue;
             }
 
@@ -106,7 +114,7 @@ public class TerrainDiffusionDensityFunction implements DensityFunction {
 
             int targetHeight = HeightConverter
                 .convertToMinecraftHeight(data.heightmap[localZ][localX]);
-            densities[i] = targetHeight - y;
+            densities[i] = terrainSignedDensity(targetHeight, y);
         }
     }
 
@@ -117,16 +125,16 @@ public class TerrainDiffusionDensityFunction implements DensityFunction {
 
     @Override
     public double minValue() {
-        return -64;
+        return -1;
     }
 
     @Override
     public double maxValue() {
-        return 1024;
+        return 1;
     }
 
     @Override
     public KeyDispatchDataCodec<? extends DensityFunction> codec() {
-        return KeyDispatchDataCodec.of(CODEC);
+        return CODEC_HOLDER;
     }
 }

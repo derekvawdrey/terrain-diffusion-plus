@@ -2,13 +2,13 @@
 
 #### UPDATE: The research behind this mod has been accepted to SIGGRAPH 2026, the world's premier graphics conference! That means the research was officially peer reviewed and recognized as a significant contribution to the field. Enjoy the mod!
 
-This is a Minecraft multiplateform mod integrating [Terrain Diffusion](https://github.com/xandergos/terrain-diffusion).
+This is a Minecraft multiplatform mod integrating [Terrain Diffusion](https://github.com/xandergos/terrain-diffusion).
 
 ## Which version should I use?
 
-Three builds are available on the [Releases](https://github.com/xandergos/terrain-diffusion-mc/releases) page:
+Three runtime builds are available on the [Releases](https://github.com/xandergos/terrain-diffusion-mc/releases) page.
 
-**The CPU build is slow unless you are on MacOS.**
+**The CPU build is slow unless you are on macOS.**
 
 | Build                     | Supports                    | Setup required                          |
 |---------------------------| --------------------------- | --------------------------------------- |
@@ -18,49 +18,60 @@ Three builds are available on the [Releases](https://github.com/xandergos/terrai
 
 > **Mac users:** the CPU build automatically uses CoreML for hardware acceleration on Apple Silicon. No extra setup is needed.
 
-Use the `-cuda` build only if you are on Linux, or have an NVIDIA GPU and prefer CUDA (may improve performance).
+Use the `-cuda` build only if you are on Linux, or have an NVIDIA GPU and prefer CUDA.
+
+## Supported Minecraft versions and loaders
+
+| Minecraft   | Java version | Fabric | Forge | NeoForge |
+|-------------| ------------ | ------ | ----- | -------- |
+| **1.20.1**  | Java 17      | yes    | yes   | no       |
+| **1.21.1**  | Java 21      | yes    | no    | yes      |
+| **1.21.11** | Java 21      | yes    | no    | yes      |
 
 ## Requirements
 
-- Windows with a GPU OR Linux with an NVIDIA GPU is strongly recommended. CPU inference works but is very slow.
-- VRAM (GPU RAM) needed: 1.5GB
-- RAM needed: 2.5GB (May need to increase Minecraft's RAM allocation)
+- Windows with a GPU or Linux with an NVIDIA GPU is strongly recommended. CPU inference works but is very slow.
+- VRAM (GPU RAM) needed: roughly 1.5 GB.
+- RAM needed: roughly 2.5 GB. You may need to increase Minecraft's RAM allocation.
 
 One of the following:
-- Minecraft with [Fabric](https://fabricmc.net/) and the [Fabric API Mod](https://modrinth.com/mod/fabric-api) installed
-- Minecraft with [NeoForge](https://neoforged.net/) installed
+
+- Minecraft with [Fabric](https://fabricmc.net/) and the [Fabric API Mod](https://modrinth.com/mod/fabric-api) installed.
+- Minecraft with [Forge](https://files.minecraftforge.net/) installed, for Minecraft 1.20.1 only.
+- Minecraft with [NeoForge](https://neoforged.net/) installed, for Minecraft 1.21.x and later versions only.
 
 ## Usage
 
-**If using CUDA build:** First see [CUDA_INSTALL.md](CUDA_INSTALL.md).
+**If using the CUDA build:** first see [CUDA_INSTALL.md](CUDA_INSTALL.md).
 
-1. Download the mod jar from [Releases](https://github.com/xandergos/terrain-diffusion-mc/releases) for your Minecraft version and place it in your Minecraft `mods/` folder. Make sure the Minecraft version matches.
-2. Launch Minecraft, at least once online to download the models (~2.5GB).
-3. Create a world, and select the **Terrain Diffusion** world type. Click **Customize** to set the `World Scale` (see [Per-world settings](#per-world-settings) below).
-4. The mod will search for a land spawn point near the world origin automatically. If the area around (0, 0) is entirely ocean, it may take a moment to find land. Use `/td-explore` (see below) to scout the world further.
+1. Download the mod jar from [Releases](https://github.com/xandergos/terrain-diffusion-mc/releases) for your Minecraft version and loader, then place it in your Minecraft `mods/` folder. Make sure the Minecraft version matches.
+2. Launch Minecraft at least once online to download the Terrain Diffusion models. The first model download is large, around 2.5 GB total.
+3. Create a world and select the **Terrain Diffusion** world type. Click **Customize** to set the `World Scale`.
+4. The mod searches for a land spawn point near the world origin automatically. If the area around `(0, 0)` is entirely ocean, it may take a moment to find land.
+5. Use `/td-explore` to scout the generated world from a browser.
 
-## Exploring the World
+## Exploring the world
 
-The mod includes a built-in terrain explorer web UI. Run the `/td-explore` command in-game; it will print a clickable link (e.g. `http://localhost:19801`) that opens an interactive map in your browser. Click the map on the left to open a "detailed view". Click the detailed view to get coordinates in the bottom left. You can also filter for certain climates.
+The mod includes a built-in terrain explorer web UI. Run the `/td-explore` command in-game; it prints a clickable link, for example `http://localhost:19801`, which opens an interactive map in your browser.
 
-Use the explorer to scout continents, mountains, islands, and other interesting terrain before venturing out in Minecraft.
+Click the map on the left to open a detailed view. Click the detailed view to get coordinates in the bottom left. You can also filter for certain climates.
 
 ## Configuration
 
-Edit `config/terrain-diffusion-mc.properties` (created automatically on first launch):
+Edit `config/terrain-diffusion-mc.properties`, created automatically on first launch:
 
-```
+```properties
 # Terrain Diffusion MC configuration
 
-# Inference device: "cpu", "gpu", or "auto" (try GPU first then fall back to CPU).
-# "gpu" uses DirectML on the -windows build, or CUDA on the -cuda build.
+# Inference device: "cpu", "gpu", or "auto".
+# "gpu" uses DirectML on the Windows build, or CUDA on the CUDA build.
 # GPU builds default to "gpu" so startup fails loudly if no GPU is detected.
 # CPU build defaults to "auto": uses CoreML on macOS, otherwise CPU.
 inference.device=gpu
 
 # Offload inactive models from VRAM between pipeline stages.
-# Keeps peak VRAM to ~1.5-2 GB. Set to false if you have ~2.5+ GB free for slightly
-# faster generation.
+# Keeps peak VRAM to roughly 1.5-2 GB. Set to false if you have roughly 2.5+ GB free
+# for slightly faster generation.
 inference.offload_models=true
 
 # Validate SHA-256 for pre-existing files in .minecraft/terrain-diffusion-models.
@@ -72,7 +83,7 @@ explorer.port=19801
 
 # Spawn search: coarse-pixel region sizes for finding a land spawn near (0, 0).
 # Starts at initial_size x initial_size and expands by 8 each step up to max_size x max_size.
-# Each coarse pixel covers a large area (hundreds of blocks), so 16–128 is typically sufficient.
+# Each coarse pixel covers a large area, so 16-128 is typically sufficient.
 spawn_search.initial_size=16
 spawn_search.max_size=128
 ```
@@ -81,92 +92,212 @@ spawn_search.max_size=128
 
 For Terrain Diffusion worlds, click **Customize** in world creation and set:
 
-- `World Scale` (integer `1..6`)
+- `World Scale`, integer `1..6`.
 
 This value is saved with the world save and affects:
 
-- how many real-world meters each block represents (`scale=1` => `30m/block`, `scale=2` => `15m/block`, etc.)
-- world max height for newly created worlds (assumes tallest point is 10000 real-world meters)
-- 2 is recommended for a good balance of scale and playability. Use 1 for smaller, more compressed worlds.
-- Lower values put more stress on the GPU (Terrain Diffusion runs more often), while higher values put more stress on the CPU (larger world height). Most modern GPUs will be bottlenecked by the CPU around scale 2 or 3.
+- how many real-world meters each block represents (`scale=1` => `30m/block`, `scale=2` => `15m/block`, etc.);
+- world max height for newly created worlds;
+- performance balance between GPU inference and CPU chunk generation.
 
-## Common Issues
+`2` is recommended for a good balance of scale and playability. Use `1` for smaller, more compressed worlds. Lower values put more stress on the GPU because Terrain Diffusion runs more often. Higher values put more stress on the CPU because the world height is larger.
+
+## Building from source
+
+An internet connection is required during the build to fetch Minecraft, loader dependencies, and the pinned model manifest metadata from Hugging Face.
+
+The Windows/DirectML build requires `libs/onnxruntime-dml.jar`, which is provided as part of this repository. See [Building onnxruntime with DirectML](#building-onnxruntime-with-directml) to build it from source.
+
+### Workspace layout
+
+This repository is a multi-version Gradle workspace.
+
+```text
+common/                  Shared Java code that is stable across Minecraft versions
+loaders/fabric/          Shared Fabric loader code and metadata
+loaders/neoforge/        Shared NeoForge loader code and metadata for 1.21.x
+libs/                    Shared local runtime jars, including onnxruntime-dml.jar
+gradle/conventions/      Shared Gradle convention scripts
+terrain-diffusion-models/ Shared model assets created automatically by development runs
+versions/1.20.1/         Minecraft 1.20.1: common + fabric + forge
+versions/1.21.1/         Minecraft 1.21.1: common + fabric + neoforge
+versions/1.21.11/        Minecraft 1.21.11: common + fabric + neoforge
+```
+
+Minecraft API-sensitive files live under `versions/<minecraft-version>/common`. This is intentional. Mixins, worldgen JSON, dimension types, biome source registration, and client world-creation screens are not stable enough to stay in the root `common` folder.
+
+All Gradle development runs share `terrain-diffusion-models/` at the repository root, so switching Minecraft versions or loaders does not download another copy of the model assets. Distribution jars do not receive the development override and continue to use `<gameDir>/terrain-diffusion-models` in production.
+
+### Java versions
+
+Use the Java version matching the target Minecraft version.
+
+| Minecraft   | Required Java |
+|-------------| ------------- |
+| **1.20.1**  | Java 17       |
+| **1.21.1**  | Java 21       |
+| **1.21.11** | Java 21       |
+
+The per-version `gradle.properties` files set `java_version`, but your installed JDK/toolchain still needs to be available to Gradle.
+
+#### Minecraft 1.20.1
+
+```powershell
+cd .\versions\1.20.1
+..\..\gradlew.bat :fabric:runClient
+..\..\gradlew.bat :forge:runClient
+```
+
+Clean run commands:
+
+```powershell
+cd .\versions\1.20.1
+..\..\gradlew.bat :common:clean :fabric:clean :fabric:runClient
+..\..\gradlew.bat :common:clean :forge:clean :forge:runClient
+```
+
+#### Minecraft 1.21.1
+
+```powershell
+cd .\versions\1.21.1
+..\..\gradlew.bat :fabric:runClient
+..\..\gradlew.bat :neoforge:runClient
+```
+
+Clean run commands:
+
+```powershell
+cd .\versions\1.21.1
+..\..\gradlew.bat :common:clean :fabric:clean :fabric:runClient
+..\..\gradlew.bat :common:clean :neoforge:clean :neoforge:runClient
+```
+
+#### Minecraft 1.21.11
+
+```powershell
+cd .\versions\1.21.11
+..\..\gradlew.bat :fabric:runClient
+..\..\gradlew.bat :neoforge:runClient
+```
+
+Clean run commands:
+
+```powershell
+cd .\versions\1.21.11
+..\..\gradlew.bat :common:clean :fabric:clean :fabric:runClient
+..\..\gradlew.bat :common:clean :neoforge:clean :neoforge:runClient
+```
+
+### Build one Minecraft version
+
+From the repository root, these tasks build every configured loader and runtime variant for one Minecraft version:
+
+```powershell
+.\gradlew.bat buildMc1201
+.\gradlew.bat buildMc1211
+.\gradlew.bat buildMc12111
+```
+
+### Build one Minecraft version by runtime variant
+
+From the repository root, these tasks build every configured loader for one Minecraft version and one runtime variant.
+
+#### Windows / DirectML
+
+```powershell
+.\gradlew.bat buildMc1201Windows
+.\gradlew.bat buildMc1211Windows
+.\gradlew.bat buildMc12111Windows
+```
+
+#### CUDA
+
+```powershell
+.\gradlew.bat buildMc1201Cuda
+.\gradlew.bat buildMc1211Cuda
+.\gradlew.bat buildMc12111Cuda
+```
+
+#### CPU / CoreML
+
+```powershell
+.\gradlew.bat buildMc1201Cpu
+.\gradlew.bat buildMc1211Cpu
+.\gradlew.bat buildMc12111Cpu
+```
+
+### Build inside a version folder
+
+From a version folder, use the version's own Gradle tasks.
+
+#### 1.20.1: Fabric + Forge
+
+```powershell
+cd .\versions\1.20.1
+..\..\gradlew.bat buildAllVariants
+..\..\gradlew.bat buildWindows
+..\..\gradlew.bat buildCuda
+..\..\gradlew.bat buildCpu
+..\..\gradlew.bat buildFabricWindows
+..\..\gradlew.bat buildFabricCuda
+..\..\gradlew.bat buildFabricCpu
+..\..\gradlew.bat buildForgeWindows
+..\..\gradlew.bat buildForgeCuda
+..\..\gradlew.bat buildForgeCpu
+```
+
+#### 1.21.1 and 1.21.11: Fabric + NeoForge
+
+```powershell
+cd .\versions\1.21.1
+..\..\gradlew.bat buildAllVariants
+..\..\gradlew.bat buildWindows
+..\..\gradlew.bat buildCuda
+..\..\gradlew.bat buildCpu
+..\..\gradlew.bat buildFabricWindows
+..\..\gradlew.bat buildFabricCuda
+..\..\gradlew.bat buildFabricCpu
+..\..\gradlew.bat buildNeoForgeWindows
+..\..\gradlew.bat buildNeoForgeCuda
+..\..\gradlew.bat buildNeoForgeCpu
+```
+
+```powershell
+cd .\versions\1.21.11
+..\..\gradlew.bat buildAllVariants
+..\..\gradlew.bat buildWindows
+..\..\gradlew.bat buildCuda
+..\..\gradlew.bat buildCpu
+..\..\gradlew.bat buildFabricWindows
+..\..\gradlew.bat buildFabricCuda
+..\..\gradlew.bat buildFabricCpu
+..\..\gradlew.bat buildNeoForgeWindows
+..\..\gradlew.bat buildNeoForgeCuda
+..\..\gradlew.bat buildNeoForgeCpu
+```
+
+## Common issues
 
 **A dynamic link library (DLL) initialization routine failed**
 
-This can happen for some older Java versions. Please update to the most recent version of Java 21 or higher. The [latest Microsoft OpenJDK 21](https://learn.microsoft.com/en-us/java/openjdk/download) version is known to work.
+This can happen for some older Java versions. Use the Java version required by your Minecraft target:
 
-**LoadLibrary failed with error 126** *(CUDA build only)*
+- Java 17 for Minecraft 1.20.1.
+- Java 21 for Minecraft 1.21.x.
+
+The [latest Microsoft OpenJDK 17 and 21](https://learn.microsoft.com/en-us/java/openjdk/download) version is known to work.
+
+**LoadLibrary failed with error 126** *CUDA build only*
 
 This is typically due to an improper CUDA or cuDNN installation. See [CUDA_INSTALL.md](CUDA_INSTALL.md) for troubleshooting steps.
 
 **java.lang.IllegalStateException: Failed to load terrain-diffusion models**
 
-This typically indicates an "out of memory" error (the logs should show this as well).
-Terrain Diffusion's models take up about 2.5GB of RAM, so make sure to allocate enough RAM to account for this.
+This typically indicates an out-of-memory error, or that the ONNX Runtime dependency was not visible to the loader at runtime. Terrain Diffusion's models take about 2.5 GB of RAM, so make sure to allocate enough RAM.
 
 **If your issue is still not resolved, please [raise it here](https://github.com/xandergos/terrain-diffusion-mc/issues/new).**
 
-## Building from Source
-
-An internet connection is required during the build to fetch the pinned model manifest metadata from Hugging Face.
-
-The `-windows` build requires `libs/onnxruntime-dml.jar`, which is provided as part of the repo. See [Building onnxruntime with DirectML](#building-onnxruntime-with-directml) to build from source.
-
-### Build task layout
-
-Use `Windows` in commands when you want the DirectML build. The old `Dml` task names still work as aliases, but the readable names are preferred.
-
-| What you want | Command |
-|---------------|---------|
-| Fabric + NeoForge, Windows/DirectML | `./gradlew buildWindows` |
-| Fabric + NeoForge, CUDA | `./gradlew buildCuda` |
-| Fabric + NeoForge, CPU/CoreML | `./gradlew buildCpu` |
-| Every loader and every variant | `./gradlew buildRelease` |
-| Every loader/variant, copied into `build/release/` | `./gradlew collectReleaseJars` |
-| Fabric only, Windows/DirectML | `./gradlew buildFabricWindows` |
-| Fabric only, CUDA | `./gradlew buildFabricCuda` |
-| Fabric only, CPU/CoreML | `./gradlew buildFabricCpu` |
-| Every Fabric variant | `./gradlew buildFabricAll` |
-| NeoForge only, Windows/DirectML | `./gradlew buildNeoForgeWindows` |
-| NeoForge only, CUDA | `./gradlew buildNeoForgeCuda` |
-| NeoForge only, CPU/CoreML | `./gradlew buildNeoForgeCpu` |
-| Every NeoForge variant | `./gradlew buildNeoForgeAll` |
-
-Equivalent direct Gradle property calls still work:
-
-```
-./gradlew build -PuseDml=true
-./gradlew build -PuseCuda=true
-./gradlew build -PuseCpu=true
-./gradlew :fabric:build -PuseDml=true
-./gradlew :neoforge:build -PuseDml=true
-```
-
-Compatibility aliases kept for existing scripts:
-
-```
-./gradlew buildDml
-./gradlew buildFabricDml
-./gradlew buildNeoForgeDml
-./gradlew buildAll
-```
-
-Final jars are written under each loader module:
-
-```
-fabric/build/libs/
-neoforge/build/libs/
-```
-
-For release packaging, use `./gradlew collectReleaseJars`. It copies the distributable jars into:
-
-```
-build/release/fabric/
-build/release/neoforge/
-```
-
-### Building onnxruntime with DirectML
+## Building onnxruntime with DirectML
 
 **Requirements**
 
@@ -182,7 +313,11 @@ Keep both VS toolchains up to date. Full details at the [ONNX Runtime build docs
 
 Run all commands from the **Developer Command Prompt for VS 2022**.
 
-```
+**Steps**
+
+Run all commands from the **Developer Command Prompt for VS 2022**.
+
+```powershell
 git clone --recursive https://github.com/Microsoft/onnxruntime.git
 cd onnxruntime
 .\build.bat --config RelWithDebInfo --build_shared_lib --parallel --compile_no_warning_as_error --skip_submodule_sync --use_dml --build_java --build

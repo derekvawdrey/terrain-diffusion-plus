@@ -1,0 +1,86 @@
+plugins {
+    id 'net.neoforged.moddev.legacyforge'
+}
+
+
+apply from: new File(rootProject.rootDir.parentFile.parentFile, 'gradle/conventions/multiloader-loader.gradle')
+
+mixin {
+    add(sourceSets.main, "${mod_id}.refmap.json")
+    config("${mod_id}.mixins.json")
+    config("${mod_id}.client.mixins.json")
+    config("${mod_id}.forge.mixins.json")
+}
+
+legacyForge {
+    version = "${minecraft_version}-${forge_version}"
+    validateAccessTransformers = true
+
+    def at = terrainDiffusionCommonFile('src/main/resources/META-INF/accesstransformer.cfg')
+    if (at.exists()) {
+        accessTransformers = [at.absolutePath]
+    }
+    parchment {
+        minecraftVersion = parchment_minecraft
+        mappingsVersion = parchment_version
+    }
+    runs {
+        configureEach {
+            systemProperty(
+                    'terrainDiffusion.devModelDirectory',
+                    project.ext.terrainDiffusionDevModelDirectory.absolutePath
+            )
+        }
+        client { client() }
+        data {
+            data()
+            programArguments.addAll '--mod', project.fml_mod_id, '--all', '--output', file('src/generated/resources/').getAbsolutePath(), '--existing', file('src/main/resources/').getAbsolutePath()
+        }
+        server { server() }
+    }
+    mods {
+        "${fml_mod_id}" {
+            sourceSet sourceSets.main
+        }
+    }
+}
+
+sourceSets.main.resources.srcDir 'src/generated/resources'
+
+dependencies {
+    annotationProcessor("org.spongepowered:mixin:0.8.5-SNAPSHOT:processor")
+}
+
+jar {
+    finalizedBy('reobfJar')
+    manifest.attributes([
+            'MixinConfigs': "${mod_id}.mixins.json,${mod_id}.client.mixins.json,${mod_id}.forge.mixins.json"
+    ])
+}
+
+tasks.withType(JavaExec).configureEach {
+    systemProperty 'log4j2.configurationFile', terrainDiffusionRootFile('log4j2-dev.xml').absolutePath
+}
+
+tasks.register('pipelineTest', JavaExec) {
+    dependsOn compileJava
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass = 'com.github.xandergos.terraindiffusionmc.pipeline.PipelineTest'
+    jvmArgs '-Xmx8g'
+}
+
+def loaderAttribute = Attribute.of('io.github.mcgradleconventions.loader', String)
+['apiElements', 'runtimeElements', 'sourcesElements', 'javadocElements'].each { variant ->
+    configurations.named("$variant") {
+        attributes { attribute(loaderAttribute, 'forge') }
+    }
+}
+sourceSets.configureEach {
+    [it.compileClasspathConfigurationName, it.runtimeClasspathConfigurationName].each { variant ->
+        configurations.named("$variant") {
+            attributes { attribute(loaderAttribute, 'forge') }
+        }
+    }
+}
+
+

@@ -86,9 +86,33 @@ public final class PipelineModels implements AutoCloseable {
 
     private PipelineModels() {
         ModelAssetManager.ensureAssetsReady();
-        this.coarseModel = new OnnxModel(ModelAssetManager.resolveAssetPath(COARSE_FILE_NAME), "coarse");
-        this.baseModel = new OnnxModel(ModelAssetManager.resolveAssetPath(BASE_FILE_NAME), "base");
-        this.decoderModel = new OnnxModel(ModelAssetManager.resolveAssetPath(DECODER_FILE_NAME), "decoder");
+        OnnxModel loadedCoarseModel = null;
+        OnnxModel loadedBaseModel = null;
+        OnnxModel loadedDecoderModel = null;
+        try {
+            loadedCoarseModel = new OnnxModel(ModelAssetManager.resolveAssetPath(COARSE_FILE_NAME), "coarse");
+            loadedBaseModel = new OnnxModel(ModelAssetManager.resolveAssetPath(BASE_FILE_NAME), "base");
+            loadedDecoderModel = new OnnxModel(ModelAssetManager.resolveAssetPath(DECODER_FILE_NAME), "decoder");
+            this.coarseModel = loadedCoarseModel;
+            this.baseModel = loadedBaseModel;
+            this.decoderModel = loadedDecoderModel;
+        } catch (RuntimeException | Error loadFailure) {
+            closeQuietly(loadedDecoderModel);
+            closeQuietly(loadedBaseModel);
+            closeQuietly(loadedCoarseModel);
+            throw loadFailure;
+        }
+    }
+
+    private static void closeQuietly(OnnxModel model) {
+        if (model == null) {
+            return;
+        }
+        try {
+            model.close();
+        } catch (RuntimeException closeFailure) {
+            LOG.warn("Failed to close partially loaded ONNX model: {}", closeFailure.getMessage());
+        }
     }
 
     public OnnxModel getCoarseModel() { return coarseModel; }
@@ -100,9 +124,9 @@ public final class PipelineModels implements AutoCloseable {
         if (INSTANCE != this) return;
         LOG.info("Closing terrain-diffusion ML models");
         try {
-            coarseModel.close();
-            baseModel.close();
-            decoderModel.close();
+            closeQuietly(decoderModel);
+            closeQuietly(baseModel);
+            closeQuietly(coarseModel);
         } finally {
             INSTANCE = null;
             loadStarted = false;

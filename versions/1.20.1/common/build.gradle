@@ -1,0 +1,82 @@
+plugins {
+    id 'net.neoforged.moddev.legacyforge'
+}
+
+
+apply from: new File(rootProject.rootDir.parentFile.parentFile, 'gradle/conventions/multiloader-common.gradle')
+
+legacyForge {
+    mcpVersion = minecraft_version
+    def at = terrainDiffusionCommonFile('src/main/resources/META-INF/accesstransformer.cfg')
+    if (at.exists()) {
+        accessTransformers = [at.absolutePath]
+    }
+    parchment {
+        minecraftVersion = parchment_minecraft
+        mappingsVersion = parchment_version
+    }
+}
+
+repositories {
+    maven { name = 'TerrainDiffusionLocalDml'; url = uri(rootProject.ext.terrainDiffusionLocalDmlMavenUrl()) }
+    mavenCentral()
+}
+
+dependencies {
+    compileOnly group: 'org.spongepowered', name: 'mixin', version: '0.8.5'
+    compileOnly group: 'io.github.llamalad7', name: 'mixinextras-common', version: '0.3.5'
+    annotationProcessor group: 'io.github.llamalad7', name: 'mixinextras-common', version: '0.3.5'
+    compileOnly "com.microsoft.onnxruntime:onnxruntime:${rootProject.ext.terrainDiffusionOnnxRuntimeVersion}"
+    compileOnly "com.microsoft.onnxruntime:onnxruntime_gpu:${rootProject.ext.terrainDiffusionOnnxRuntimeVersion}"
+    compileOnly rootProject.ext.terrainDiffusionOnnxNotation('windows')
+    implementation group: 'com.google.code.findbugs', name: 'jsr305', version: '3.0.1'
+}
+
+sourceSets {
+    main {
+        java {
+            setSrcDirs([])
+            terrainDiffusionAddCommonOverlay(delegate, 'main', 'java')
+        }
+        resources {
+            setSrcDirs([])
+            terrainDiffusionAddVersionOnlyCommonResources(delegate, 'main')
+        }
+    }
+    client {
+        java {
+            setSrcDirs([])
+            terrainDiffusionAddCommonOverlay(delegate, 'client', 'java')
+        }
+        resources {
+            setSrcDirs([])
+            terrainDiffusionAddVersionOnlyCommonResources(delegate, 'client')
+        }
+        compileClasspath += sourceSets.main.output + sourceSets.main.compileClasspath
+        runtimeClasspath += output + compileClasspath
+    }
+}
+
+configurations {
+    commonJava { canBeResolved = false; canBeConsumed = true }
+    commonClientJava { canBeResolved = false; canBeConsumed = true }
+    commonResources { canBeResolved = false; canBeConsumed = true }
+}
+
+// commonJava/commonClientJava/commonResources are kept for template compatibility.
+// Source wiring is now done through the overlay-aware sourceSets above, because a
+// shared root common plus per-version override folders is not a single source directory.
+
+def loaderAttribute = Attribute.of('io.github.mcgradleconventions.loader', String)
+['apiElements', 'runtimeElements', 'sourcesElements', 'javadocElements'].each { variant ->
+    configurations.named("$variant") {
+        attributes { attribute(loaderAttribute, 'common') }
+    }
+}
+sourceSets.configureEach {
+    [it.compileClasspathConfigurationName, it.runtimeClasspathConfigurationName].each { variant ->
+        configurations.named("$variant") {
+            attributes { attribute(loaderAttribute, 'common') }
+        }
+    }
+}

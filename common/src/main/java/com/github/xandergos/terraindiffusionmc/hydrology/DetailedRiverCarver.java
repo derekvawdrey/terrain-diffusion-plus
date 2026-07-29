@@ -4,10 +4,15 @@ import java.util.Arrays;
 
 /** Carves the hydrology topology directly into the final high-resolution terrain. */
 public final class DetailedRiverCarver {
-    private static final int SMOOTHING_PASSES = 3;
+    private static final int BED_SMOOTHING_PASSES = 2;
+    private static final int BANK_SOFTENING_PASSES = 2;
     private static final float LAKE_MIN_DEPTH_M = 0.75f;
     private static final int[] DR = {-1,-1,-1,0,0,1,1,1};
     private static final int[] DC = {-1,0,1,-1,1,-1,0,1};
+    private static final float[] DIST = {
+            1.41421356f, 1.0f, 1.41421356f, 1.0f,
+            1.0f, 1.41421356f, 1.0f, 1.41421356f
+    };
 
     private DetailedRiverCarver() {}
 
@@ -32,16 +37,31 @@ public final class DetailedRiverCarver {
                 depthBlocks = Math.min(8.0f, 2.0f + lakeDepth / Math.max(1.0f, metresPerBlock));
             } else if (profile > 0.0f) {
                 float load = clamp01(topology.channelLoad()[idx]);
-                // One-block shelves at the edge, a load-dependent thalweg up to six blocks.
-                float centreDepth = 2.0f + 4.0f * (float) Math.sqrt(load);
-                depthBlocks = 0.65f + (centreDepth - 0.65f) * (float) Math.pow(profile, 1.65);
+                float slope = channelSurfaceSlope(topology.waterSurface(), topology.channelProfile(),
+                        idx, height, width, metresPerBlock);
+                float steepness = smoothUnit(clamp01((slope - 0.035f) / 0.18f));
+                // Both width and depth now grow continuously with downstream accumulation.
+                float centreDepth = 1.20f + 4.65f * (float) Math.pow(load, 0.58f);
+                centreDepth = 1.0f + (centreDepth - 1.0f) * (1.0f - 0.70f * steepness);
+                float roundedProfile = smoothUnit(smoothUnit(profile));
+                float edgeDepth = 0.28f + 0.12f * (1.0f - steepness);
+                depthBlocks = edgeDepth + (centreDepth - edgeDepth) * roundedProfile;
+
+                // A curved footprint may touch a high side-slope. Limit local excavation there
+                // instead of cutting a trench merely to force the full nominal width through.
+                float maximumCutBlocks = (1.0f + 1.5f * (float) Math.sqrt(load)
+                        + 3.5f * roundedProfile) * (1.0f - 0.35f * steepness);
+                float target = surface - depthBlocks * metresPerBlock;
+                bedTarget[idx] = Math.max(target,
+                        detailedElevation[idx] - maximumCutBlocks * metresPerBlock);
+                continue;
             } else {
                 continue;
             }
             bedTarget[idx] = surface - depthBlocks * metresPerBlock;
         }
 
-        for (int pass = 0; pass < SMOOTHING_PASSES; pass++) {
+        for (int pass = 0; pass < BED_SMOOTHING_PASSES; pass++) {
             float[] source = bedTarget.clone();
             for (int r = 1; r < height - 1; r++) {
                 for (int c = 1; c < width - 1; c++) {
@@ -56,8 +76,9 @@ public final class DetailedRiverCarver {
                         weight += 1.0f;
                     }
                     float smoothed = sum / weight;
-                    // Never lift the thalweg; smoothing only rounds abrupt section changes.
-                    bedTarget[idx] = Math.min(source[idx] + metresPerBlock * 0.35f, smoothed);
+                    // Smoothing may lift an over-cut step, but must never deepen it into a canyon.
+                    bedTarget[idx] = Math.max(source[idx],
+                            Math.min(source[idx] + metresPerBlock * 0.30f, smoothed));
                 }
             }
         }
@@ -65,7 +86,64 @@ public final class DetailedRiverCarver {
         for (int idx = 0; idx < n; idx++) {
             if (Float.isFinite(bedTarget[idx])) adjusted[idx] = Math.min(adjusted[idx], bedTarget[idx]);
         }
+        softenChannelBanks(adjusted, detailedElevation, topology.channelProfile(), height, width);
         return new CarvedTerrain(adjusted, bedTarget);
+    }
+
+    /**
+     * Lift only the over-cut edge of the wet cross-section toward its natural neighbours. This
+     * rounds native-grid steps without expanding the water mask or creating another channel.
+     */
+    private static void softenChannelBanks(float[] adjusted, float[] naturalElevation,
+                                           float[] profile, int height, int width) {
+        for (int pass = 0; pass < BANK_SOFTENING_PASSES; pass++) {
+            float[] source = adjusted.clone();
+            for (int r = 1; r < height - 1; r++) {
+                for (int c = 1; c < width - 1; c++) {
+                    int idx = r * width + c;
+                    float bankPosition = clamp01(profile[idx] / 0.34f);
+                    if (bankPosition <= 0.0f || bankPosition >= 1.0f) continue;
+
+                    float sum = 0.0f;
+                    float weight = 0.0f;
+                    for (int k = 0; k < 8; k++) {
+                        int ni = (r + DR[k]) * width + c + DC[k];
+                        float neighbourWeight = 1.0f / DIST[k];
+                        sum += source[ni] * neighbourWeight;
+                        weight += neighbourWeight;
+                    }
+                    float average = sum / weight;
+                    if (average <= source[idx]) continue;
+                    float bankBand = 4.0f * bankPosition * (1.0f - bankPosition);
+                    float softened = source[idx] + (average - source[idx]) * (0.13f * bankBand);
+                    adjusted[idx] = Math.min(naturalElevation[idx], softened);
+                }
+            }
+        }
+    }
+
+    private static float smoothUnit(float value) {
+        value = clamp01(value);
+        return value * value * (3.0f - 2.0f * value);
+    }
+
+    private static float channelSurfaceSlope(float[] waterSurface, float[] profile, int idx,
+                                             int height, int width, float metresPerBlock) {
+        int r = idx / width;
+        int c = idx - r * width;
+        float centre = waterSurface[idx];
+        float maximum = 0.0f;
+        for (int k = 0; k < 8; k++) {
+            int nr = r + DR[k];
+            int nc = c + DC[k];
+            if (nr < 0 || nr >= height || nc < 0 || nc >= width) continue;
+            int neighbour = nr * width + nc;
+            if (profile[neighbour] <= 0.0f || !Float.isFinite(waterSurface[neighbour])) continue;
+            float distanceM = DIST[k] * Math.max(1.0f, metresPerBlock);
+            maximum = Math.max(maximum,
+                    Math.abs(centre - waterSurface[neighbour]) / distanceM);
+        }
+        return maximum;
     }
 
     private static float clamp01(float value) {

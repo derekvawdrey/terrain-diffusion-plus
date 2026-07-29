@@ -17,12 +17,18 @@ public final class FluvialRiverNetwork {
     private static final float MIN_VISIBLE_FLOW = 0.18f;
     private static final float RILL_FLOW = 0.08f;
     private static final float LAKE_MIN_DEPTH_M = 0.75f;
-    private static final float MAX_CHANNEL_RADIUS_PX = 18.0f;
+    private static final float MIN_CHANNEL_RADIUS_PX = 0.26f;
+    private static final float MAX_CHANNEL_RADIUS_PX = 16.0f;
+    private static final float MAX_CENTERLINE_DISPLACEMENT_PX = 0.48f;
     private static final float EPS = 1e-5f;
-    private static final int DIRECTION_SMOOTHING_PASSES = 3;
+    private static final float CHANNEL_SAMPLE_STEP_PX = 0.20f;
     private static final int RIVER_BIOME_DILATION_BLOCKS = 2;
     private static final int[] DR = {-1,-1,-1, 0,0, 1,1,1};
     private static final int[] DC = {-1, 0, 1,-1,1,-1,0,1};
+    private static final float[] DISTANCE_PIXELS = {
+            1.41421356f, 1.0f, 1.41421356f, 1.0f,
+            1.0f, 1.41421356f, 1.0f, 1.41421356f
+    };
 
     private FluvialRiverNetwork() {}
 
@@ -56,9 +62,8 @@ public final class FluvialRiverNetwork {
         Arrays.fill(waterSurface, Float.NaN);
 
         rasterizeLakes(elevation, flood.filledSurface, accumulation, lake, load, waterSurface);
-        rasterizeHermiteChannels(seed, i0, j0, flood.filledSurface, flood.downstream, accumulation,
+        rasterizeHermiteChannels(seed, i0, j0, elevation, flood.filledSurface, flood.downstream, accumulation,
                 visible, profile, load, waterSurface, height, width, pixelSizeM);
-        smoothTopology(profile, load, waterSurface, height, width, 2);
 
         return new RiverTopology(profile, load, lake, waterSurface, height, width);
     }
@@ -177,182 +182,254 @@ public final class FluvialRiverNetwork {
         }
     }
 
-    private static void rasterizeHermiteChannels(long seed, int i0, int j0, float[] surface, int[] downstream,
+    private static void rasterizeHermiteChannels(long seed, int i0, int j0,
+                                                  float[] elevation, float[] surface, int[] downstream,
                                                   float[] accumulation, boolean[] visible,
                                                   float[] profile, float[] load, float[] waterSurface,
                                                   int height, int width, float pixelSizeM) {
         int n = height * width;
-        float[] directionR = new float[n];
-        float[] directionC = new float[n];
+        float[] radius = new float[n];
         for (int idx = 0; idx < n; idx++) {
             if (!visible[idx]) continue;
-            int down = downstream[idx];
-            if (down < 0 || !visible[down]) continue;
-            int r = idx / width;
-            int c = idx - r * width;
-            int dr = down / width - r;
-            int dc = down % width - c;
-            float inv = invLength(dr, dc);
-            directionR[idx] = dr * inv;
-            directionC[idx] = dc * inv;
+            radius[idx] = radiusPixels(accumulation[idx], elevation[idx]);
         }
-        smoothDirections(directionR, directionC, visible, height, width);
+        CenterlineGeometry geometry = smoothCenterlineGeometry(
+                seed, i0, j0, surface, downstream, accumulation, visible,
+                height, width, pixelSizeM);
 
         for (int idx = 0; idx < n; idx++) {
             if (!visible[idx]) continue;
             int down = downstream[idx];
             if (down < 0 || !visible[down]) {
-                stampChannelPoint(seed, i0, j0, idx / width + 0.5f, idx % width + 0.5f,
-                        surface[idx], accumulation[idx], 1.0f, profile, load, waterSurface,
-                        height, width, pixelSizeM);
+                stampChannelPoint(geometry.row()[idx], geometry.col()[idx],
+                        surface[idx], accumulation[idx], radius[idx],
+                        profile, load, waterSurface, height, width);
                 continue;
             }
 
-            int r0 = idx / width;
-            int c0 = idx - r0 * width;
-            int r1 = down / width;
-            int c1 = down - r1 * width;
             float flow0 = accumulation[idx];
             float flow1 = accumulation[down];
-            float normalized = clamp01((flow0 - RILL_FLOW) / (MIN_VISIBLE_FLOW * 18.0f));
-            float meanderAmplitude = 0.10f + 0.95f * (1.0f - normalized);
-            meanderAmplitude = Math.min(meanderAmplitude, 0.45f + radiusPixels(flow0, surface, idx, down,
-                    width, pixelSizeM) * 0.22f);
-
-            float off0 = coherentMeander(seed, i0 + r0, j0 + c0) * meanderAmplitude;
-            float off1 = coherentMeander(seed, i0 + r1, j0 + c1) * meanderAmplitude;
-            float p0r = r0 + 0.5f - directionC[idx] * off0;
-            float p0c = c0 + 0.5f + directionR[idx] * off0;
-            float p1r = r1 + 0.5f - directionC[down] * off1;
-            float p1c = c1 + 0.5f + directionR[down] * off1;
-
-            float segmentLength = (float) Math.hypot(p1r - p0r, p1c - p0c);
-            float tangentLength = Math.max(0.55f, segmentLength * 0.85f);
-            float m0r = directionR[idx] * tangentLength;
-            float m0c = directionC[idx] * tangentLength;
-            float m1r = directionR[down] * tangentLength;
-            float m1c = directionC[down] * tangentLength;
-            int samples = Math.max(5, (int) Math.ceil(segmentLength * 7.0f));
+            float downstreamSurface = Math.min(surface[idx], surface[down]);
+            float distance = (float) Math.hypot(
+                    geometry.row()[down] - geometry.row()[idx],
+                    geometry.col()[down] - geometry.col()[idx]);
+            int samples = Math.max(1, (int) Math.ceil(distance / CHANNEL_SAMPLE_STEP_PX));
             for (int sample = 0; sample <= samples; sample++) {
                 float t = sample / (float) samples;
-                float t2 = t * t;
-                float t3 = t2 * t;
-                float h00 = 2 * t3 - 3 * t2 + 1;
-                float h10 = t3 - 2 * t2 + t;
-                float h01 = -2 * t3 + 3 * t2;
-                float h11 = t3 - t2;
-                float rr = h00 * p0r + h10 * m0r + h01 * p1r + h11 * m1r;
-                float cc = h00 * p0c + h10 * m0c + h01 * p1c + h11 * m1c;
+                float rr = hermite(geometry.row()[idx], geometry.tangentRow()[idx],
+                        geometry.row()[down], geometry.tangentRow()[down], t);
+                float cc = hermite(geometry.col()[idx], geometry.tangentCol()[idx],
+                        geometry.col()[down], geometry.tangentCol()[down], t);
                 float flow = lerp(flow0, flow1, t);
-                float level = Math.min(surface[idx], lerp(surface[idx], surface[down], t));
-                stampChannelPoint(seed, i0, j0, rr, cc, level, flow, 1.0f,
-                        profile, load, waterSurface, height, width, pixelSizeM);
+                float level = lerp(surface[idx], downstreamSurface, t);
+                float sectionRadius = lerp(radius[idx], radius[down], t);
+                stampChannelPoint(rr, cc, level, flow, sectionRadius,
+                        profile, load, waterSurface, height, width);
             }
         }
     }
 
-    private static void stampChannelPoint(long seed, int i0, int j0, float centerR, float centerC,
-                                          float surface, float flow, float strength,
-                                          float[] profile, float[] load, float[] waterSurface,
-                                          int height, int width, float pixelSizeM) {
-        float normalizedLoad = clamp01((flow - RILL_FLOW) / (MIN_VISIBLE_FLOW * 24.0f));
-        float radius = radiusPixels(flow, null, -1, -1, width, pixelSizeM);
-        int minR = Math.max(0, (int) Math.floor(centerR - radius - 1));
-        int maxR = Math.min(height - 1, (int) Math.ceil(centerR + radius + 1));
-        int minC = Math.max(0, (int) Math.floor(centerC - radius - 1));
-        int maxC = Math.min(width - 1, (int) Math.ceil(centerC + radius + 1));
+    /**
+     * Reproduce archive 29's constrained centre-line smoothing without its dense point sampling.
+     * The two work buffers are reused as tangent storage after the third pass to limit allocation.
+     */
+    private static CenterlineGeometry smoothCenterlineGeometry(
+            long seed, int i0, int j0, float[] surface, int[] downstream,
+            float[] accumulation, boolean[] visible, int height, int width, float pixelSizeM) {
+        int n = height * width;
+        int[] dominantUpstream = new int[n];
+        Arrays.fill(dominantUpstream, -1);
+        for (int idx = 0; idx < n; idx++) {
+            if (!visible[idx]) continue;
+            int down = downstream[idx];
+            if (down < 0 || !visible[down]) continue;
+            int current = dominantUpstream[down];
+            if (current < 0 || accumulation[idx] > accumulation[current]) {
+                dominantUpstream[down] = idx;
+            }
+        }
+
+        float[] rowA = new float[n];
+        float[] colA = new float[n];
+        float[] rowB = new float[n];
+        float[] colB = new float[n];
+        for (int idx = 0; idx < n; idx++) {
+            if (!visible[idx]) continue;
+            int row = idx / width;
+            rowA[idx] = row + 0.5f;
+            colA[idx] = idx - row * width + 0.5f;
+        }
+
+        float[] sourceRow = rowA;
+        float[] sourceCol = colA;
+        float[] targetRow = rowB;
+        float[] targetCol = colB;
+        for (int pass = 0; pass < 3; pass++) {
+            for (int idx = 0; idx < n; idx++) {
+                if (!visible[idx]) continue;
+                float row = sourceRow[idx];
+                float col = sourceCol[idx];
+                int up = dominantUpstream[idx];
+                int down = downstream[idx];
+                if (up >= 0 && down >= 0 && visible[down]) {
+                    row = sourceRow[idx] * 0.38f + sourceRow[up] * 0.31f + sourceRow[down] * 0.31f;
+                    col = sourceCol[idx] * 0.38f + sourceCol[up] * 0.31f + sourceCol[down] * 0.31f;
+                }
+                setClampedCenter(targetRow, targetCol, idx, row, col, height, width);
+            }
+            float[] swap = sourceRow;
+            sourceRow = targetRow;
+            targetRow = swap;
+            swap = sourceCol;
+            sourceCol = targetCol;
+            targetCol = swap;
+        }
+
+        for (int idx = 0; idx < n; idx++) {
+            if (!visible[idx]) continue;
+            int down = downstream[idx];
+            if (down < 0 || !visible[down]) continue;
+            float dr = sourceRow[down] - sourceRow[idx];
+            float dc = sourceCol[down] - sourceCol[idx];
+            float inverseLength = invLength(dr, dc);
+            if (inverseLength <= 0.0f) continue;
+            float slope = Math.max(channelSlope(surface, idx, down, width, pixelSizeM),
+                    localTerrainSlope(surface, idx, height, width, pixelSizeM));
+            float amplitude = 0.34f * (1.0f - smoothRange(0.0008f, 0.018f, slope));
+            amplitude *= 0.45f + 0.55f * (1.0f - clamp01(accumulation[idx] / 8.0f));
+            float noise = smoothValueNoise(seed, i0 + sourceRow[idx], j0 + sourceCol[idx], 10.0f);
+            float row = sourceRow[idx] - dc * inverseLength * noise * amplitude;
+            float col = sourceCol[idx] + dr * inverseLength * noise * amplitude;
+            setClampedCenter(sourceRow, sourceCol, idx, row, col, height, width);
+        }
+
+        // After three passes targetRow/targetCol are the unused pair, so reuse them as tangents.
+        Arrays.fill(targetRow, 0.0f);
+        Arrays.fill(targetCol, 0.0f);
+        for (int idx = 0; idx < n; idx++) {
+            if (!visible[idx]) continue;
+            int up = dominantUpstream[idx];
+            int down = downstream[idx];
+            boolean hasUp = up >= 0 && visible[up];
+            boolean hasDown = down >= 0 && visible[down];
+            if (hasUp && hasDown) {
+                targetRow[idx] = (sourceRow[down] - sourceRow[up]) * 0.50f;
+                targetCol[idx] = (sourceCol[down] - sourceCol[up]) * 0.50f;
+            } else if (hasDown) {
+                targetRow[idx] = sourceRow[down] - sourceRow[idx];
+                targetCol[idx] = sourceCol[down] - sourceCol[idx];
+            } else if (hasUp) {
+                targetRow[idx] = sourceRow[idx] - sourceRow[up];
+                targetCol[idx] = sourceCol[idx] - sourceCol[up];
+            }
+            clampVectorLength(targetRow, targetCol, idx, 1.35f);
+        }
+        return new CenterlineGeometry(sourceRow, sourceCol, targetRow, targetCol);
+    }
+
+    private static void setClampedCenter(float[] rows, float[] cols, int idx,
+                                         float row, float col, int height, int width) {
+        int originRowIndex = idx / width;
+        float originRow = originRowIndex + 0.5f;
+        float originCol = idx - originRowIndex * width + 0.5f;
+        float dr = row - originRow;
+        float dc = col - originCol;
+        float inverseLength = invLength(dr, dc);
+        if (inverseLength > 0.0f && 1.0f / inverseLength > MAX_CENTERLINE_DISPLACEMENT_PX) {
+            float scale = MAX_CENTERLINE_DISPLACEMENT_PX * inverseLength;
+            row = originRow + dr * scale;
+            col = originCol + dc * scale;
+        }
+        rows[idx] = Math.max(0.5f, Math.min(height - 0.5f, row));
+        cols[idx] = Math.max(0.5f, Math.min(width - 0.5f, col));
+    }
+
+    private static void clampVectorLength(float[] rows, float[] cols, int idx, float maximumLength) {
+        float inverseLength = invLength(rows[idx], cols[idx]);
+        if (inverseLength <= 0.0f || 1.0f / inverseLength <= maximumLength) return;
+        float scale = maximumLength * inverseLength;
+        rows[idx] *= scale;
+        cols[idx] *= scale;
+    }
+
+    private static void stampChannelPoint(float centerR, float centerC, float surface, float flow,
+                                          float radius, float[] profile, float[] load,
+                                          float[] waterSurface, int height, int width) {
+        int minR = Math.max(0, (int) Math.floor(centerR - radius - 0.75f));
+        int maxR = Math.min(height - 1, (int) Math.ceil(centerR + radius + 0.75f));
+        int minC = Math.max(0, (int) Math.floor(centerC - radius - 0.75f));
+        int maxC = Math.min(width - 1, (int) Math.ceil(centerC + radius + 0.75f));
+        float normalizedLoad = normalizedLoad(flow);
         for (int r = minR; r <= maxR; r++) {
             for (int c = minC; c <= maxC; c++) {
-                float distance = (float) Math.hypot((r + 0.5f) - centerR, (c + 0.5f) - centerC);
-                if (distance > radius + 0.55f) continue;
+                float distance = (float) Math.hypot(
+                        (r + 0.5f) - centerR, (c + 0.5f) - centerC);
+                if (distance > radius + 0.50f) continue;
                 float x = clamp01(1.0f - distance / Math.max(0.55f, radius + 0.35f));
-                float section = x * x * (3.0f - 2.0f * x) * strength;
+                if (x <= 0.0f) continue;
+                float section = smoothstep(x);
                 int target = r * width + c;
-                if (section > profile[target]) {
+                boolean strongerSection = section > profile[target] + EPS;
+                boolean sameSectionWithMoreFlow = Math.abs(section - profile[target]) <= EPS
+                        && normalizedLoad > load[target];
+                if (strongerSection || sameSectionWithMoreFlow) {
                     profile[target] = section;
                     load[target] = Math.max(load[target], normalizedLoad);
-                    waterSurface[target] = Float.isFinite(waterSurface[target])
-                            ? Math.min(waterSurface[target], surface) : surface;
+                    waterSurface[target] = surface;
                 }
             }
         }
     }
 
-    private static float radiusPixels(float flow, float[] surface, int idx, int down, int width, float pixelSizeM) {
-        float slope = 0.001f;
-        if (surface != null && idx >= 0 && down >= 0) {
-            int r = idx / width;
-            int c = idx - r * width;
-            int dr = Math.abs(down / width - r);
-            int dc = Math.abs(down % width - c);
-            float distanceM = (dr + dc == 2 ? 1.41421356f : 1.0f) * Math.max(1.0f, pixelSizeM);
-            slope = Math.max(0.00005f, (surface[idx] - surface[down]) / distanceM);
-        }
-        float power = flow * (float) Math.sqrt(Math.max(0.0002f, slope));
-        float widthM = 1.0f + 9.5f * (float) Math.pow(Math.max(0.0f, flow), 0.42)
-                + 28.0f * (float) Math.pow(Math.max(0.0f, power), 0.30);
-        float radius = widthM / Math.max(1.0f, pixelSizeM) * 0.5f;
-        return Math.max(0.38f, Math.min(MAX_CHANNEL_RADIUS_PX, radius));
+    private static float radiusPixels(float flow, float elevationM) {
+        float normalizedLoad = normalizedLoad(flow);
+        float highAltitude = smoothRange(650.0f, 2600.0f, elevationM);
+        float headwater = 1.0f - normalizedLoad;
+        float hydraulicRadius = MIN_CHANNEL_RADIUS_PX
+                + 0.34f * (float) Math.pow(Math.max(1.0f, flow / RILL_FLOW), 0.34)
+                + 0.90f * (float) Math.pow(Math.max(0.0f, flow), 0.28);
+        hydraulicRadius *= 1.0f - 0.48f * highAltitude * headwater;
+        float minimumRadius = MIN_CHANNEL_RADIUS_PX + 0.38f * (float) Math.sqrt(normalizedLoad);
+        float projectedRadius = Math.max(minimumRadius, hydraulicRadius)
+                * (1.75f + 0.50f * (float) Math.sqrt(normalizedLoad));
+        return Math.min(MAX_CHANNEL_RADIUS_PX, projectedRadius);
     }
 
-    private static void smoothDirections(float[] directionR, float[] directionC, boolean[] visible,
-                                         int height, int width) {
-        for (int pass = 0; pass < DIRECTION_SMOOTHING_PASSES; pass++) {
-            float[] srcR = directionR.clone();
-            float[] srcC = directionC.clone();
-            for (int r = 1; r < height - 1; r++) {
-                for (int c = 1; c < width - 1; c++) {
-                    int idx = r * width + c;
-                    if (!visible[idx]) continue;
-                    float sumR = srcR[idx] * 3.0f;
-                    float sumC = srcC[idx] * 3.0f;
-                    float weight = 3.0f;
-                    for (int k = 0; k < 8; k++) {
-                        int ni = (r + DR[k]) * width + c + DC[k];
-                        if (!visible[ni]) continue;
-                        sumR += srcR[ni];
-                        sumC += srcC[ni];
-                        weight += 1.0f;
-                    }
-                    float rr = sumR / weight;
-                    float cc = sumC / weight;
-                    float inv = invLength(rr, cc);
-                    directionR[idx] = rr * inv;
-                    directionC[idx] = cc * inv;
-                }
-            }
-        }
+    private static float channelSlope(float[] surface, int idx, int down, int width, float pixelSizeM) {
+        if (surface == null || idx < 0 || down < 0) return 0.001f;
+        int r = idx / width;
+        int c = idx - r * width;
+        int dr = Math.abs(down / width - r);
+        int dc = Math.abs(down % width - c);
+        float distanceM = (dr + dc == 2 ? 1.41421356f : 1.0f) * Math.max(1.0f, pixelSizeM);
+        return Math.max(0.00005f, (surface[idx] - surface[down]) / distanceM);
     }
 
-    private static void smoothTopology(float[] profile, float[] load, float[] waterSurface,
-                                       int height, int width, int passes) {
-        for (int pass = 0; pass < passes; pass++) {
-            float[] srcProfile = profile.clone();
-            float[] srcLoad = load.clone();
-            for (int r = 1; r < height - 1; r++) {
-                for (int c = 1; c < width - 1; c++) {
-                    int idx = r * width + c;
-                    if (srcProfile[idx] <= 0.0f) continue;
-                    float p = srcProfile[idx] * 4.0f;
-                    float l = srcLoad[idx] * 4.0f;
-                    float weight = 4.0f;
-                    float minSurface = waterSurface[idx];
-                    for (int k = 0; k < 8; k++) {
-                        int ni = (r + DR[k]) * width + c + DC[k];
-                        if (srcProfile[ni] <= 0.0f) continue;
-                        p += srcProfile[ni];
-                        l += srcLoad[ni];
-                        weight += 1.0f;
-                        if (Float.isFinite(waterSurface[ni])) {
-                            minSurface = Float.isFinite(minSurface) ? Math.min(minSurface, waterSurface[ni]) : waterSurface[ni];
-                        }
-                    }
-                    profile[idx] = Math.max(srcProfile[idx] * 0.82f, p / weight);
-                    load[idx] = Math.max(srcLoad[idx], l / weight);
-                    waterSurface[idx] = minSurface;
-                }
-            }
+    private static float localTerrainSlope(float[] surface, int idx, int height, int width, float pixelSizeM) {
+        int r = idx / width;
+        int c = idx - r * width;
+        float maximum = 0.0f;
+        for (int k = 0; k < 8; k++) {
+            int nr = r + DR[k];
+            int nc = c + DC[k];
+            if (nr < 0 || nr >= height || nc < 0 || nc >= width) continue;
+            float distanceM = DISTANCE_PIXELS[k] * Math.max(1.0f, pixelSizeM);
+            maximum = Math.max(maximum, Math.abs(surface[idx] - surface[nr * width + nc]) / distanceM);
         }
+        return maximum;
+    }
+
+    private static float normalizedLoad(float flow) {
+        return smoothRange(RILL_FLOW, MIN_VISIBLE_FLOW * 18.0f, flow);
+    }
+
+    private static float hermite(float p0, float m0, float p1, float m1, float t) {
+        float t2 = t * t;
+        float t3 = t2 * t;
+        return (2.0f * t3 - 3.0f * t2 + 1.0f) * p0
+                + (t3 - 2.0f * t2 + t) * m0
+                + (-2.0f * t3 + 3.0f * t2) * p1
+                + (t3 - t2) * m1;
     }
 
     private static PriorityFlood runPriorityFlood(float[] elevation, int height, int width) {
@@ -436,9 +513,11 @@ public final class FluvialRiverNetwork {
                 || biome == TerrainBiomeCatalog.SNOWY_BEACH || biome == TerrainBiomeCatalog.STONY_SHORE;
     }
 
-    private static float coherentMeander(long seed, int i, int j) {
-        float x = i * 0.035f;
-        float y = j * 0.035f;
+    private static float smoothValueNoise(long seed, float row, float col, float spacing) {
+        return valueNoise(seed, row / spacing, col / spacing);
+    }
+
+    private static float valueNoise(long seed, float x, float y) {
         int x0 = fastFloor(x);
         int y0 = fastFloor(y);
         float fx = smoothstep(x - x0);
@@ -467,6 +546,12 @@ public final class FluvialRiverNetwork {
 
     private static float smoothstep(float value) {
         return value * value * (3.0f - 2.0f * value);
+    }
+
+    private static float smoothRange(float edge0, float edge1, float value) {
+        if (value <= edge0) return 0.0f;
+        if (value >= edge1) return 1.0f;
+        return smoothstep((value - edge0) / (edge1 - edge0));
     }
 
     private static float invLength(float r, float c) {
@@ -535,6 +620,9 @@ public final class FluvialRiverNetwork {
                     Math.max(required, heap.length + Math.max(1024, heap.length >>> 1))));
         }
     }
+
+    private record CenterlineGeometry(float[] row, float[] col,
+                                      float[] tangentRow, float[] tangentCol) {}
 
     private record PriorityFlood(float[] filledSurface, int[] downstream, int[] order, int orderSize) {}
 

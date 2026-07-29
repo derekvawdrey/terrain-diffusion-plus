@@ -91,8 +91,12 @@ public final class TerrainDiffusionLifecycle {
      */
     public static void onWorldLoad(ServerLevel world) {
         if (world.dimension() == Level.OVERWORLD) {
-            WorldScaleManager.initializeForWorld(world);
-            LocalTerrainProvider.init(world.getSeed());
+            boolean terrainDiffusionWorld = world.getChunkSource().getGenerator().getBiomeSource()
+                    instanceof TerrainDiffusionBiomeSource;
+            WorldScaleManager.initializeForWorld(world, terrainDiffusionWorld);
+            if (terrainDiffusionWorld) {
+                LocalTerrainProvider.init(world.getSeed());
+            }
         }
     }
 

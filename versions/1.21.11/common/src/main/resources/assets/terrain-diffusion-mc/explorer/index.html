@@ -782,7 +782,7 @@
     const scale = state.coordScale;
     const mPerBlock = res / scale;
     coordBlockSize.textContent = `1 block = ${mPerBlock % 1 === 0 ? mPerBlock : mPerBlock.toFixed(2)} m`;
-    const totalKm = DETAIL_SIZE * res / 1000;
+    const totalKm = DETAIL_SIZE * res / scale / 1000;
     const barKm = niceScaleKm(totalKm * 0.25);
     coordScaleFill.style.width = (barKm / totalKm * 100).toFixed(1) + '%';
     coordScaleLbl.textContent = barKm >= 1 ? `${barKm} km` : `${barKm * 1000} m`;
@@ -808,12 +808,12 @@
     if (ci === null || !detailRaw) return;
     _lastDetailClick = { row, col };
     const scale = state.coordScale;
-    const centerI = ci * 256 + pi;
-    const centerJ = cj * 256 + pj;
+    const centerI = ci * 256 * scale + pi;
+    const centerJ = cj * 256 * scale + pj;
     const i1x = centerI - detailRaw.h / 2 + row;
     const j1x = centerJ - detailRaw.w / 2 + col;
-    const mcX = Math.round(j1x * scale);
-    const mcZ = Math.round(i1x * scale);
+    const mcX = Math.round(j1x);
+    const mcZ = Math.round(i1x);
     const tp = `/tp ${mcX} ~ ${mcZ}`;
     coordRows.innerHTML = `
       <div class="coord-xyz">
@@ -952,7 +952,7 @@
   function renderDetailFromRaw() {
     const raw = state.detailRaw;
     if (!raw) return;
-    const { elev, temp, biome, h, w } = raw;
+    const { elev, temp, biome, water, h, w } = raw;
     const ctx = detailImg.getContext('2d', { alpha: false });
     if (detailImg.width !== w) detailImg.width = w;
     if (detailImg.height !== h) detailImg.height = h;
@@ -981,6 +981,20 @@
           const shade = clamp(0.86 - dx * 0.24 - dy * 0.34, 0.42, 1.22);
           writeRGB(data, idx * 4, terrainBaseColor(elev[idx]), shade);
         }
+      }
+    }
+
+    if (water && mode !== 'biome') {
+      for (let i = 0; i < h * w; i++) {
+        const strength = water[i];
+        if (!strength) continue;
+        const frozen = biome && (state.biomes[String(biome[i])] || '').includes('frozen_river');
+        const alpha = 0.28 + 0.42 * strength / 255;
+        const target = frozen ? [184, 225, 245] : [20, 92, 199];
+        const offset = i * 4;
+        data[offset] = Math.round(data[offset] * (1 - alpha) + target[0] * alpha);
+        data[offset + 1] = Math.round(data[offset + 1] * (1 - alpha) + target[1] * alpha);
+        data[offset + 2] = Math.round(data[offset + 2] * (1 - alpha) + target[2] * alpha);
       }
     }
 
@@ -1122,14 +1136,20 @@
       if (!Number.isFinite(h) || !Number.isFinite(w) || h <= 0 || w <= 0) return;
       const hasTemp = res.headers.get('X-Has-Temp') === '1';
       const hasBiome = res.headers.get('X-Has-Biome') === '1';
+      const hasWater = res.headers.get('X-Has-Water') === '1';
       const buf = await res.arrayBuffer();
       if (req !== detailRequestSeq || activeDetailRawController !== controller) return;
-      const tempOffset = h * w * 2;
-      const biomeOffset = tempOffset + (hasTemp ? h * w * 2 : 0);
+      const cells = h * w;
+      const tempOffset = cells * 2;
+      const biomeOffset = tempOffset + (hasTemp ? cells * 2 : 0);
+      const waterSurfaceOffset = biomeOffset + cells * 2;
+      const waterMaskOffset = waterSurfaceOffset + cells * 2;
       state.detailRaw = {
-        elev: new Int16Array(buf, 0, h * w),
-        temp: hasTemp ? new Int16Array(buf, tempOffset, h * w) : null,
-        biome: hasBiome ? new Int16Array(buf, biomeOffset, h * w) : null,
+        elev: new Int16Array(buf, 0, cells),
+        temp: hasTemp ? new Int16Array(buf, tempOffset, cells) : null,
+        biome: hasBiome ? new Int16Array(buf, biomeOffset, cells) : null,
+        waterSurface: hasWater ? new Int16Array(buf, waterSurfaceOffset, cells) : null,
+        water: hasWater ? new Uint8Array(buf, waterMaskOffset, cells) : null,
         h, w,
       };
       renderDetailFromRaw();
@@ -1152,9 +1172,10 @@
 
   function detailViewportCoarse() {
     if (state.detailCI === null) return null;
-    const centerI = state.detailCI + state.detailPanI / 256.0;
-    const centerJ = state.detailCJ + state.detailPanJ / 256.0;
-    const half = DETAIL_SIZE / 512.0;
+    const scale = state.coordScale || 1;
+    const centerI = state.detailCI + state.detailPanI / (256.0 * scale);
+    const centerJ = state.detailCJ + state.detailPanJ / (256.0 * scale);
+    const half = DETAIL_SIZE / (512.0 * scale);
     return {
       centerI, centerJ,
       minI: centerI - half, maxI: centerI + half,
@@ -1290,7 +1311,7 @@
   // ── Detail hover ──
   detailImg.addEventListener('mousemove', (e) => {
     if (!state.detailRaw) return;
-    const { elev, temp, biome, h, w } = state.detailRaw;
+    const { elev, temp, biome, water, waterSurface, h, w } = state.detailRaw;
     const rect = detailImg.getBoundingClientRect();
     const col = Math.floor((e.clientX - rect.left) / rect.width  * w);
     const row = Math.floor((e.clientY - rect.top)  / rect.height * h);
@@ -1301,6 +1322,10 @@
     if (biome) {
       const biomeKey = state.biomes[String(biome[idx])] || `#${biome[idx]}`;
       html += `<div class="ht-row"><span class="ht-label">Biome</span><span class="ht-val">${biomeKey}</span></div>`;
+    }
+    if (water && water[idx] > 0) {
+      const level = waterSurface && waterSurface[idx] !== -32768 ? `${waterSurface[idx]} m` : 'n/a';
+      html += `<div class="ht-row"><span class="ht-label">Water</span><span class="ht-val">${level} (${water[idx]}/255)</span></div>`;
     }
     showTooltip(e, html);
   });

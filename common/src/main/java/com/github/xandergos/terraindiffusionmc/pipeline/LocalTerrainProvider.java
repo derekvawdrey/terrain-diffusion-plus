@@ -1,6 +1,7 @@
 package com.github.xandergos.terraindiffusionmc.pipeline;
 
 import com.github.xandergos.terraindiffusionmc.config.TerrainDiffusionConfig;
+import com.github.xandergos.terraindiffusionmc.hydrology.DetailedRiverCarver;
 import com.github.xandergos.terraindiffusionmc.hydrology.FluvialRiverNetwork;
 import com.github.xandergos.terraindiffusionmc.hydrology.HydrologyProvider;
 import com.github.xandergos.terraindiffusionmc.infinitetensor.FloatTensor;
@@ -109,20 +110,24 @@ public final class LocalTerrainProvider {
         public final short[] elevation;
         public final short[] temperatureCentiC;
         public final short[] biomeIndexes;
+        public final byte[] waterMask;
+        public final short[] waterSurface;
         public final int width;
         public final int height;
 
         public ExplorerDetailData(short[] elevation, short[] temperatureCentiC, short[] biomeIndexes,
-                                  int width, int height) {
+                                  byte[] waterMask, short[] waterSurface, int width, int height) {
             this.elevation = elevation;
             this.temperatureCentiC = temperatureCentiC;
             this.biomeIndexes = biomeIndexes;
+            this.waterMask = waterMask;
+            this.waterSurface = waterSurface;
             this.width = width;
             this.height = height;
         }
     }
 
-    private static record CacheKey(long seed, int scale, int i1, int j1, int i2, int j2) {}
+    private static record CacheKey(long seed, int scale, boolean blockLowAltitudeSources, int i1, int j1, int i2, int j2) {}
     private static record CacheEntry(HeightmapData data, AtomicLong lastAccessed, long bytes) {}
 
     private static final int MAX_CACHE_ENTRIES = TerrainDiffusionConfig.terrainRegionCacheMaxEntries();
@@ -219,16 +224,20 @@ public final class LocalTerrainProvider {
         return submitToInferenceThread(() -> getInstance().pipeline.getCoarseSlice(ci0, cj0, ci1, cj1));
     }
 
-    /**
-     * Build pipeline elevation/climate plus fluvial routing for the explorer at native model resolution.
-     */
+    /** Build canonical terrain and hydrology at the exact scale selected for the active world. */
     public static RiverTerrainData getRiverTerrainData(int i1, int j1, int i2, int j2, boolean withBiomes) throws Exception {
-        return submitToInferenceThread(() -> getInstance().buildRiverTerrainData(i1, j1, i2, j2, 1, withBiomes));
+        return submitToInferenceThread(() -> {
+            int scale = WorldScaleManager.getCurrentScale();
+            return getInstance().buildRiverTerrainData(i1, j1, i2, j2, scale, withBiomes);
+        });
     }
 
-    /** Explorer detail fast path: no river-strength, lake-depth, water-mask, or water-surface region copies. */
+    /** Explorer detail uses the same canonical scale, cache and water arrays as chunk generation. */
     public static ExplorerDetailData getExplorerDetailData(int i1, int j1, int i2, int j2) throws Exception {
-        return submitToInferenceThread(() -> getInstance().buildExplorerDetailData(i1, j1, i2, j2));
+        return submitToInferenceThread(() -> {
+            int scale = WorldScaleManager.getCurrentScale();
+            return getInstance().buildExplorerDetailData(i1, j1, i2, j2, scale);
+        });
     }
 
     /**
@@ -265,7 +274,8 @@ public final class LocalTerrainProvider {
      */
     public HeightmapData fetchHeightmap(int i1, int j1, int i2, int j2) {
         int scale = WorldScaleManager.getCurrentScale();
-        CacheKey key = new CacheKey(instanceSeed, scale, i1, j1, i2, j2);
+        boolean blockLowAltitudeSources = WorldScaleManager.shouldBlockLowAltitudeSources();
+        CacheKey key = new CacheKey(instanceSeed, scale, blockLowAltitudeSources, i1, j1, i2, j2);
         CacheEntry cached = CACHE.get(key);
         if (cached != null) {
             cached.lastAccessed.set(CACHE_CLOCK.incrementAndGet());
@@ -280,8 +290,8 @@ public final class LocalTerrainProvider {
         FutureTask<HeightmapData> task = new FutureTask<>(() -> {
             long computedWindowCountBefore = pipeline.getTotalComputedWindowCount();
             HeightmapData data = scale <= 1
-                    ? handle1x(i1, j1, i2, j2)
-                    : handleUpsampled(i1, j1, i2, j2, scale);
+                    ? handle1x(i1, j1, i2, j2, key.blockLowAltitudeSources())
+                    : handleUpsampled(i1, j1, i2, j2, scale, key.blockLowAltitudeSources());
             long computedWindowCountAfter = pipeline.getTotalComputedWindowCount();
 
             long newlyComputedWindowCount = computedWindowCountAfter - computedWindowCountBefore;
@@ -371,16 +381,17 @@ public final class LocalTerrainProvider {
     // Canonical hydrology shared by explorer and Minecraft world generation
     // =========================================================================
 
-    private HeightmapData handle1x(int i1, int j1, int i2, int j2) {
+    private HeightmapData handle1x(int i1, int j1, int i2, int j2, boolean blockLowAltitudeSources) {
         HydrologyProvider.HydrologyRegion hydrology = hydrologyProvider.getRegion(
-                instanceSeed, i1, j1, i2, j2, 1, true);
+                instanceSeed, i1, j1, i2, j2, 1, blockLowAltitudeSources, true);
         return buildHeightmapData(hydrology.adjustedElevation(), hydrology.biomeIndexes(),
                 hydrology.waterMask(), hydrology.waterSurface(), hydrology.height(), hydrology.width());
     }
 
-    private HeightmapData handleUpsampled(int i1, int j1, int i2, int j2, int scale) {
+    private HeightmapData handleUpsampled(int i1, int j1, int i2, int j2, int scale,
+                                                boolean blockLowAltitudeSources) {
         HydrologyProvider.HydrologyRegion hydrology = hydrologyProvider.getRegion(
-                instanceSeed, i1, j1, i2, j2, scale, true);
+                instanceSeed, i1, j1, i2, j2, scale, blockLowAltitudeSources, true);
         return buildHeightmapData(hydrology.adjustedElevation(), hydrology.biomeIndexes(),
                 hydrology.waterMask(), hydrology.waterSurface(), hydrology.height(), hydrology.width());
     }
@@ -388,7 +399,7 @@ public final class LocalTerrainProvider {
     /** Compatibility/full-data path. World generation and detail_raw use compact specialised paths instead. */
     private RiverTerrainData buildRiverTerrainData(int i1, int j1, int i2, int j2, int scale, boolean withBiomes) {
         HydrologyProvider.HydrologyRegion hydrology = hydrologyProvider.getRegion(
-                instanceSeed, i1, j1, i2, j2, scale, withBiomes);
+                instanceSeed, i1, j1, i2, j2, scale, WorldScaleManager.shouldBlockLowAltitudeSources(), withBiomes);
         float[] climate = sampleClimate(i1, j1, i2, j2, scale);
         return new RiverTerrainData(
                 shortsToFloats(hydrology.adjustedElevation()),
@@ -401,10 +412,11 @@ public final class LocalTerrainProvider {
         );
     }
 
-    private ExplorerDetailData buildExplorerDetailData(int i1, int j1, int i2, int j2) {
-        HydrologyProvider.ExplorerRegion hydrology = hydrologyProvider.getExplorerRegion(
-                instanceSeed, i1, j1, i2, j2, 1);
-        float[] climate = sampleClimate(i1, j1, i2, j2, 1);
+    private ExplorerDetailData buildExplorerDetailData(int i1, int j1, int i2, int j2, int scale) {
+        HydrologyProvider.HydrologyRegion hydrology = hydrologyProvider.getRegion(
+                instanceSeed, i1, j1, i2, j2, scale,
+                WorldScaleManager.shouldBlockLowAltitudeSources(), true);
+        float[] climate = sampleClimate(i1, j1, i2, j2, scale);
         short[] temperature = null;
         if (climate != null) {
             int n = Math.multiplyExact(hydrology.height(), hydrology.width());
@@ -414,12 +426,14 @@ public final class LocalTerrainProvider {
             }
         }
         return new ExplorerDetailData(hydrology.adjustedElevation(), temperature,
-                hydrology.biomeIndexes(), hydrology.width(), hydrology.height());
+                hydrology.biomeIndexes(), hydrology.waterMask(), hydrology.waterSurface(),
+                hydrology.width(), hydrology.height());
     }
 
     /** Generate exactly one fixed hydrology tile, including its fixed analysis halo. */
     private HydrologyProvider.HydrologyTile computeHydrologyTile(
-            int coreI0, int coreJ0, int coreSize, int halo, int scale) {
+            int coreI0, int coreJ0, int coreSize, int halo, int scale,
+            boolean blockLowAltitudeSources) {
         int analysisI0 = coreI0 - halo;
         int analysisJ0 = coreJ0 - halo;
         int analysisI1 = coreI0 + coreSize + halo;
@@ -442,25 +456,30 @@ public final class LocalTerrainProvider {
             climate = sample.climate();
         }
 
-        FluvialRiverNetwork.RiverResult padded = FluvialRiverNetwork.build(
-                analysisI0, analysisJ0, elevation, climate, analysisHeight, analysisWidth, pixelSizeM);
-        float[] coreElevation = padded.cropAdjustedElevation(halo, halo, coreSize, coreSize);
+        FluvialRiverNetwork.RiverTopology topology = FluvialRiverNetwork.build(
+                instanceSeed, analysisI0, analysisJ0, elevation, climate, analysisHeight, analysisWidth,
+                pixelSizeM, blockLowAltitudeSources, WorldScaleManager.MINIMUM_SOURCE_ELEVATION_METERS);
+        DetailedRiverCarver.CarvedTerrain carved = DetailedRiverCarver.carve(
+                elevation, topology, analysisHeight, analysisWidth, pixelSizeM);
+        float[] coreElevation = carved.cropAdjustedElevation(
+                halo, halo, coreSize, coreSize, analysisWidth);
         float[] coreClimate = cropClimate(climate, analysisHeight, analysisWidth,
                 halo, halo, coreSize, coreSize);
-        float[] classifierElevation = padded.cropAdjustedElevation(
-                halo - 1, halo - 1, coreSize + 2, coreSize + 2);
+        float[] classifierElevation = carved.cropAdjustedElevation(
+                halo - 1, halo - 1, coreSize + 2, coreSize + 2, analysisWidth);
         short[] biomes = BiomeClassifier.classify(coreElevation, coreClimate,
                 coreI0, coreJ0, classifierElevation, coreSize, coreSize, pixelSizeM);
         FluvialRiverNetwork.applyRiverBiomesFromWindow(
-                biomes, coreClimate, padded, halo, halo, coreSize, coreSize);
+                biomes, coreClimate, topology, halo, halo, coreSize, coreSize);
 
         int cells = Math.multiplyExact(coreSize, coreSize);
         short[] compactElevation = new short[cells];
         byte[] compactWaterMask = new byte[cells];
         short[] compactWaterSurface = new short[cells];
-        float[] riverStrength = padded.riverStrength();
-        float[] lakeDepth = padded.lakeDepth();
-        float[] waterSurface = padded.waterSurface();
+        float[] channelProfile = topology.channelProfile();
+        float[] channelLoad = topology.channelLoad();
+        float[] lakeDepth = topology.lakeDepth();
+        float[] waterSurface = topology.waterSurface();
         for (int row = 0; row < coreSize; row++) {
             int sourceOffset = (halo + row) * analysisWidth + halo;
             int targetOffset = row * coreSize;
@@ -469,7 +488,7 @@ public final class LocalTerrainProvider {
                 int targetIndex = targetOffset + col;
                 compactElevation[targetIndex] = clampTerrainElevationToShort(coreElevation[targetIndex]);
                 compactWaterMask[targetIndex] = FluvialRiverNetwork.encodeWaterMask(
-                        riverStrength[sourceIndex], lakeDepth[sourceIndex]);
+                        channelProfile[sourceIndex], channelLoad[sourceIndex], lakeDepth[sourceIndex]);
                 float surface = waterSurface[sourceIndex];
                 compactWaterSurface[targetIndex] = Float.isFinite(surface)
                         ? clampWaterElevationToShort(surface)

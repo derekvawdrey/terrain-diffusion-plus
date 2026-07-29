@@ -36,8 +36,8 @@ public final class HydrologyProvider {
     private static final Logger LOG = LoggerFactory.getLogger(HydrologyProvider.class);
 
     /** Increment when generated hydrology or compact encoding becomes semantically incompatible. */
-    private static final int ALGORITHM_VERSION = 2;
-    private static final int DISK_FORMAT_VERSION = 1;
+    private static final int ALGORITHM_VERSION = 3;
+    private static final int DISK_FORMAT_VERSION = 2;
     private static final int DISK_MAGIC = 0x54444859; // TDHY
     /** Keeps the initial explorer viewport centered on a canonical grid boundary-compatible origin. */
     private static final int GRID_ORIGIN = -512;
@@ -52,10 +52,10 @@ public final class HydrologyProvider {
 
     @FunctionalInterface
     public interface TileGenerator {
-        HydrologyTile generate(int coreI0, int coreJ0, int coreSize, int halo, int scale);
+        HydrologyTile generate(int coreI0, int coreJ0, int coreSize, int halo, int scale, boolean blockLowAltitudeSources);
     }
 
-    private record TileKey(long seed, int scale, int tileI, int tileJ, int algorithmVersion) {}
+    private record TileKey(long seed, int scale, boolean blockLowAltitudeSources, int tileI, int tileJ, int algorithmVersion) {}
 
     private final TileGenerator generator;
     private final int tileSize;
@@ -89,29 +89,17 @@ public final class HydrologyProvider {
      * Assemble all compact data required by Minecraft terrain generation.
      * Coordinates use i=Z/row and j=X/column and end coordinates are exclusive.
      */
-    public HydrologyRegion getRegion(long seed, int i1, int j1, int i2, int j2, int scale, boolean withBiomes) {
+    public HydrologyRegion getRegion(long seed, int i1, int j1, int i2, int j2, int scale,
+                                     boolean blockLowAltitudeSources, boolean withBiomes) {
         RegionShape shape = validateRegion(i1, j1, i2, j2, scale);
         short[] elevation = new short[shape.cells];
         byte[] waterMask = new byte[shape.cells];
         short[] waterSurface = new short[shape.cells];
         short[] biomeIndexes = withBiomes ? new short[shape.cells] : null;
 
-        copyTiles(seed, scale, i1, j1, i2, j2, shape.width,
+        copyTiles(seed, scale, blockLowAltitudeSources, i1, j1, i2, j2, shape.width,
                 elevation, waterMask, waterSurface, biomeIndexes);
         return new HydrologyRegion(elevation, waterMask, waterSurface, biomeIndexes, shape.height, shape.width);
-    }
-
-    /**
-     * Explorer fast path. It avoids allocating/copying water arrays that are not sent by detail_raw.
-     */
-    public ExplorerRegion getExplorerRegion(long seed, int i1, int j1, int i2, int j2, int scale) {
-        RegionShape shape = validateRegion(i1, j1, i2, j2, scale);
-        short[] elevation = new short[shape.cells];
-        short[] biomeIndexes = new short[shape.cells];
-
-        copyTiles(seed, scale, i1, j1, i2, j2, shape.width,
-                elevation, null, null, biomeIndexes);
-        return new ExplorerRegion(elevation, biomeIndexes, shape.height, shape.width);
     }
 
     /** Clears only the memory cache. Persisted canonical tiles intentionally survive restarts and seed changes. */
@@ -140,7 +128,7 @@ public final class HydrologyProvider {
         return new RegionShape(height, width, Math.multiplyExact(height, width));
     }
 
-    private void copyTiles(long seed, int scale,
+    private void copyTiles(long seed, int scale, boolean blockLowAltitudeSources,
                            int i1, int j1, int i2, int j2, int requestWidth,
                            short[] elevation, byte[] waterMask, short[] waterSurface, short[] biomeIndexes) {
         int firstTileI = tileIndex(i1);
@@ -150,15 +138,15 @@ public final class HydrologyProvider {
 
         for (int tileI = firstTileI; tileI <= lastTileI; tileI++) {
             for (int tileJ = firstTileJ; tileJ <= lastTileJ; tileJ++) {
-                HydrologyTile tile = getTile(seed, scale, tileI, tileJ);
+                HydrologyTile tile = getTile(seed, scale, blockLowAltitudeSources, tileI, tileJ);
                 copyIntersection(tile, i1, j1, i2, j2, requestWidth,
                         elevation, waterMask, waterSurface, biomeIndexes);
             }
         }
     }
 
-    private HydrologyTile getTile(long seed, int scale, int tileI, int tileJ) {
-        TileKey key = new TileKey(seed, scale, tileI, tileJ, ALGORITHM_VERSION);
+    private HydrologyTile getTile(long seed, int scale, boolean blockLowAltitudeSources, int tileI, int tileJ) {
+        TileKey key = new TileKey(seed, scale, blockLowAltitudeSources, tileI, tileJ, ALGORITHM_VERSION);
         synchronized (this) {
             HydrologyTile cached = cache.get(key);
             if (cached != null) {
@@ -180,7 +168,7 @@ public final class HydrologyProvider {
 
         int coreI0 = tileOrigin(tileI);
         int coreJ0 = tileOrigin(tileJ);
-        HydrologyTile generated = generator.generate(coreI0, coreJ0, tileSize, halo, scale);
+        HydrologyTile generated = generator.generate(coreI0, coreJ0, tileSize, halo, scale, blockLowAltitudeSources);
         validateTile(generated, coreI0, coreJ0);
 
         synchronized (this) {
@@ -273,7 +261,8 @@ public final class HydrologyProvider {
             if (in.readInt() != DISK_FORMAT_VERSION) throw new IOException("unsupported disk format");
             if (in.readInt() != ALGORITHM_VERSION) throw new IOException("algorithm version mismatch");
             if (in.readLong() != key.seed) throw new IOException("seed mismatch");
-            if (in.readInt() != key.scale || in.readInt() != key.tileI || in.readInt() != key.tileJ) {
+            if (in.readInt() != key.scale || in.readBoolean() != key.blockLowAltitudeSources
+                    || in.readInt() != key.tileI || in.readInt() != key.tileJ) {
                 throw new IOException("tile key mismatch");
             }
             int originI = in.readInt();
@@ -323,6 +312,7 @@ public final class HydrologyProvider {
                     out.writeInt(ALGORITHM_VERSION);
                     out.writeLong(key.seed);
                     out.writeInt(key.scale);
+                    out.writeBoolean(key.blockLowAltitudeSources);
                     out.writeInt(key.tileI);
                     out.writeInt(key.tileJ);
                     out.writeInt(tile.originI);
@@ -356,6 +346,7 @@ public final class HydrologyProvider {
         return diskCacheRoot
                 .resolve(seedDirectory)
                 .resolve("scale-" + key.scale)
+                .resolve(key.blockLowAltitudeSources ? "sources-min-775m" : "sources-unrestricted")
                 .resolve(key.tileI + "_" + key.tileJ + ".tdh");
     }
 
@@ -443,5 +434,4 @@ public final class HydrologyProvider {
     public record HydrologyRegion(short[] adjustedElevation, byte[] waterMask, short[] waterSurface,
                                   short[] biomeIndexes, int height, int width) {}
 
-    public record ExplorerRegion(short[] adjustedElevation, short[] biomeIndexes, int height, int width) {}
 }

@@ -1,34 +1,22 @@
 package com.github.xandergos.terraindiffusionmc.mixin;
 
+import com.github.xandergos.terraindiffusionmc.world.ScaledAltitude;
+import com.github.xandergos.terraindiffusionmc.world.WorldScaleManager;
 import net.minecraft.core.BlockPos;
 import net.minecraft.world.level.biome.Biome;
 import org.spongepowered.asm.mixin.Mixin;
-import org.spongepowered.asm.mixin.Shadow;
 import org.spongepowered.asm.mixin.injection.At;
-import org.spongepowered.asm.mixin.injection.Inject;
-import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
+import org.spongepowered.asm.mixin.injection.ModifyVariable;
 
+/** Scales vanilla altitude cooling back to the equivalent model altitude. */
 @Mixin(Biome.class)
 public abstract class BiomeMixin {
-
-    @Shadow
-    public abstract float getBaseTemperature();
-
-    @Shadow
-    public abstract boolean hasPrecipitation();
-
-    @Inject(method = "getPrecipitationAt", at = @At("HEAD"), cancellable = true)
-    private void preventHighAltitudeSnow(BlockPos pos, CallbackInfoReturnable<Biome.Precipitation> cir) {
-        if (!this.hasPrecipitation()) {
-            cir.setReturnValue(Biome.Precipitation.NONE);
-            return;
-        }
-
-        // Base temperature >= 0.15 means this is NOT a snowy biome.
-        // Always return RAIN to prevent altitude-based snow in non-snowy biomes.
-        if (this.getBaseTemperature() >= 0.15F) {
-            cir.setReturnValue(Biome.Precipitation.RAIN);
-        }
-        // For snowy biomes (base temp < 0.15), let vanilla handle it.
+    @ModifyVariable(method = "getTemperature(Lnet/minecraft/core/BlockPos;)F",
+            at = @At("HEAD"), argsOnly = true)
+    private BlockPos terrainDiffusion$useEquivalentAltitude(BlockPos position) {
+        if (!WorldScaleManager.isTerrainDiffusionWorldActive()) return position;
+        int scale = WorldScaleManager.getCurrentScale();
+        if (scale <= 1) return position;
+        return new BlockPos(position.getX(), ScaledAltitude.equivalentY(position.getY(), scale), position.getZ());
     }
 }

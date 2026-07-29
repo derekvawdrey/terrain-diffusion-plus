@@ -31,6 +31,7 @@ public final class WorldScaleSettingsScreen extends Screen {
     private static final int TEXT_FIELD_HEIGHT = 20;
     private static final int BUTTON_WIDTH = 80;
     private static final int BUTTON_HEIGHT = 20;
+    private static final int OPTION_BUTTON_WIDTH = 260;
 
     private static final Component LABEL_TEXT = Component.literal("World Scale");
     private static final Component DESCRIPTION_TEXT = Component.literal("Enter an integer value (1-6)");
@@ -40,6 +41,8 @@ public final class WorldScaleSettingsScreen extends Screen {
     private final Screen parentScreen;
     private EditBox scaleTextField;
     private StringWidget validationTextWidget;
+    private Button sourceLimitButton;
+    private boolean blockLowAltitudeSources;
 
     public WorldScaleSettingsScreen(Screen parentScreen) {
         super(Component.translatable("terrain-diffusion-mc.world_settings.title"));
@@ -65,14 +68,24 @@ public final class WorldScaleSettingsScreen extends Screen {
         this.addRenderableWidget(scaleTextField);
         this.setInitialFocus(scaleTextField);
 
+        blockLowAltitudeSources = WorldScaleSelectionState.getPendingBlockLowAltitudeSourcesOrDefault();
+        sourceLimitButton = Button.builder(sourceLimitLabel(), button -> {
+                    blockLowAltitudeSources = !blockLowAltitudeSources;
+                    button.setMessage(sourceLimitLabel());
+                })
+                .bounds(centerX - OPTION_BUTTON_WIDTH / 2, centerY + 18,
+                        OPTION_BUTTON_WIDTH, BUTTON_HEIGHT)
+                .build();
+        this.addRenderableWidget(sourceLimitButton);
+
         this.addRenderableWidget(Button.builder(Component.translatable("gui.done"), b -> onDonePressed())
-                .bounds(centerX - BUTTON_WIDTH - 5, centerY + 20, BUTTON_WIDTH, BUTTON_HEIGHT)
+                .bounds(centerX - BUTTON_WIDTH - 5, centerY + 48, BUTTON_WIDTH, BUTTON_HEIGHT)
                 .build());
         this.addRenderableWidget(Button.builder(Component.translatable("gui.cancel"), b -> onClose())
-                .bounds(centerX + 5, centerY + 20, BUTTON_WIDTH, BUTTON_HEIGHT)
+                .bounds(centerX + 5, centerY + 48, BUTTON_WIDTH, BUTTON_HEIGHT)
                 .build());
 
-        validationTextWidget = new StringWidget(0, centerY + 46, this.width, 9, Component.empty(), this.font);
+        validationTextWidget = new StringWidget(0, centerY + 74, this.width, 9, Component.empty(), this.font);
         this.addRenderableWidget(validationTextWidget);
     }
 
@@ -93,6 +106,12 @@ public final class WorldScaleSettingsScreen extends Screen {
         }
     }
 
+
+    private Component sourceLimitLabel() {
+        String state = blockLowAltitudeSources ? "Blocked" : "Allowed";
+        return Component.literal("New river sources below 775 m: " + state);
+    }
+
     /**
      * Parses and validates the chosen scale, then stores it as a pending world-creation value.
      */
@@ -109,7 +128,7 @@ public final class WorldScaleSettingsScreen extends Screen {
                 return;
             }
             applyWorldHeightForScale(selectedScale);
-            WorldScaleSelectionState.setPendingScale(selectedScale);
+            WorldScaleSelectionState.setPendingSettings(selectedScale, blockLowAltitudeSources);
             onClose();
         } catch (NumberFormatException exception) {
             validationTextWidget.setMessage(ERROR_TEXT);

@@ -3,7 +3,6 @@ package com.github.xandergos.terraindiffusionmc.explorer;
 import com.github.xandergos.terraindiffusionmc.biome.TerrainBiomeCatalog;
 import com.github.xandergos.terraindiffusionmc.config.TerrainDiffusionConfig;
 import com.github.xandergos.terraindiffusionmc.infinitetensor.FloatTensor;
-import com.github.xandergos.terraindiffusionmc.pipeline.BiomeClassifier;
 import com.github.xandergos.terraindiffusionmc.pipeline.LocalTerrainProvider;
 import com.github.xandergos.terraindiffusionmc.pipeline.WorldPipelineModelConfig;
 import com.github.xandergos.terraindiffusionmc.world.WorldScaleManager;
@@ -46,7 +45,6 @@ public final class ExplorerServer {
 
     private static final String[] CHANNEL_NAMES = {"Elev", "p5", "Temp", "T std", "Precip", "Precip CV"};
     private static final float NATIVE_RESOLUTION = WorldPipelineModelConfig.nativeResolution();
-    private static final int DETAIL_PIPELINE_PADDING = 0;
 
     private static volatile HttpServer SERVER;
     private static volatile int SERVER_PORT = -1;
@@ -138,7 +136,7 @@ public final class ExplorerServer {
         }
     }
 
-    /** GET /api/status → {seed, channels, native_resolution, scale} */
+    /** GET /api/status → {seed, channels, native_resolution, scale, block_sources_below_775m} */
     private static void handleStatus(HttpExchange ex) throws IOException {
         if (!ex.getRequestMethod().equalsIgnoreCase("GET")) { send405(ex); return; }
         try {
@@ -148,6 +146,7 @@ public final class ExplorerServer {
             resp.put("native_resolution", NATIVE_RESOLUTION);
             int scale = WorldScaleManager.getCurrentScale();
             resp.put("scale", scale);
+            resp.put("block_sources_below_775m", WorldScaleManager.shouldBlockLowAltitudeSources());
             resp.put("biomes", TerrainBiomeCatalog.indexToKeyMap());
             resp.put("biome_colors", TerrainBiomeCatalog.indexToColorMap());
             if (!Double.isNaN(COMMAND_ORIGIN_X) && !Double.isNaN(COMMAND_ORIGIN_Z)) {
@@ -338,8 +337,9 @@ public final class ExplorerServer {
             int panJ       = getInt(q, "pan_j", 0);
             String mode    = q.getOrDefault("mode", "relief");
 
-            int centerI = ci * 256 + panI;
-            int centerJ = cj * 256 + panJ;
+            int scale = WorldScaleManager.getCurrentScale();
+            int centerI = ci * 256 * scale + panI;
+            int centerJ = cj * 256 * scale + panJ;
             int half    = detailSize / 2;
 
             int H = detailSize, W = detailSize;
@@ -371,6 +371,7 @@ public final class ExplorerServer {
                     rgba[3][i] = 1f;
                 }
             }
+            applyWaterOverlay(rgba, detailData.waterMask, detailData.biomeIndexes);
             byte[] png = toPng(rgba, H, W);
             setNoStoreHeaders(ex);
             ex.getResponseHeaders().set("Content-Type", "image/png");
@@ -386,8 +387,8 @@ public final class ExplorerServer {
 
     /**
      * GET /api/detail_raw — port of detail_raw().
-     * Binary: int16-LE elevation + optional int16-LE temperature in 0.01 C + int16-LE biome.
-     * Headers: X-Height, X-Width, X-Has-Temp, X-Has-Biome, X-Temp-Encoding.
+     * Binary: int16-LE elevation, optional temperature, biome, water surface, then uint8 water mask.
+     * All data comes from the canonical hydrology tile at the active user-selected world scale.
      */
     private static void handleDetailRaw(HttpExchange ex) throws IOException {
         if (!ex.getRequestMethod().equalsIgnoreCase("GET")) { send405(ex); return; }
@@ -399,8 +400,9 @@ public final class ExplorerServer {
             int panI       = getInt(q, "pan_i", 0);
             int panJ       = getInt(q, "pan_j", 0);
 
-            int centerI = ci * 256 + panI;
-            int centerJ = cj * 256 + panJ;
+            int scale = WorldScaleManager.getCurrentScale();
+            int centerI = ci * 256 * scale + panI;
+            int centerJ = cj * 256 * scale + panJ;
             int half    = detailSize / 2;
             int H = detailSize, W = detailSize;
 
@@ -409,18 +411,19 @@ public final class ExplorerServer {
             short[] elevation = detailData.elevation;
             short[] temperature = detailData.temperatureCentiC;
             short[] biomeIndexes = detailData.biomeIndexes;
+            short[] waterSurface = detailData.waterSurface;
+            byte[] waterMask = detailData.waterMask;
 
             boolean hasTemp = temperature != null;
             int cells = Math.multiplyExact(H, W);
-            int payloadSize = cells * (hasTemp ? 6 : 4);
+            int shortChannels = hasTemp ? 4 : 3;
+            int payloadSize = Math.addExact(Math.multiplyExact(cells, shortChannels * Short.BYTES), cells);
             ByteBuffer payloadBuffer = ByteBuffer.allocate(payloadSize).order(ByteOrder.LITTLE_ENDIAN);
             for (short value : elevation) payloadBuffer.putShort(value);
-            if (hasTemp) {
-                for (short value : temperature) payloadBuffer.putShort(value);
-            }
-            for (int index = 0; index < cells; index++) {
-                payloadBuffer.putShort(biomeIndexes != null ? biomeIndexes[index] : 0);
-            }
+            if (hasTemp) for (short value : temperature) payloadBuffer.putShort(value);
+            for (int index = 0; index < cells; index++) payloadBuffer.putShort(biomeIndexes[index]);
+            for (int index = 0; index < cells; index++) payloadBuffer.putShort(waterSurface[index]);
+            payloadBuffer.put(waterMask);
             byte[] payload = payloadBuffer.array();
 
             ex.getResponseHeaders().set("Content-Type", "application/octet-stream");
@@ -429,9 +432,12 @@ public final class ExplorerServer {
             ex.getResponseHeaders().set("X-Width", String.valueOf(W));
             ex.getResponseHeaders().set("X-Has-Temp", hasTemp ? "1" : "0");
             ex.getResponseHeaders().set("X-Has-Biome", "1");
+            ex.getResponseHeaders().set("X-Has-Water", "1");
             ex.getResponseHeaders().set("X-Temp-Encoding", "int16-centi-celsius");
+            ex.getResponseHeaders().set("X-Water-Surface-Encoding", "int16-model-metres-min-value-none");
             ex.getResponseHeaders().set("Access-Control-Expose-Headers",
-                    "X-Height, X-Width, X-Has-Temp, X-Has-Biome, X-Temp-Encoding");
+                    "X-Height, X-Width, X-Has-Temp, X-Has-Biome, X-Has-Water, "
+                            + "X-Temp-Encoding, X-Water-Surface-Encoding");
             ex.sendResponseHeaders(200, payload.length);
             ex.getResponseBody().write(payload);
         } catch (Exception e) {
@@ -439,6 +445,23 @@ public final class ExplorerServer {
             sendError(ex, 400, e.getMessage());
         } finally {
             ex.close();
+        }
+    }
+
+    private static void applyWaterOverlay(float[][] rgba, byte[] waterMask, short[] biomes) {
+        if (rgba == null || waterMask == null) return;
+        int cells = Math.min(waterMask.length, rgba[0].length);
+        for (int index = 0; index < cells; index++) {
+            int intensity = Byte.toUnsignedInt(waterMask[index]);
+            if (intensity == 0) continue;
+            float alpha = 0.28f + 0.42f * (intensity / 255.0f);
+            boolean frozen = biomes != null && biomes[index] == TerrainBiomeCatalog.FROZEN_RIVER;
+            float red = frozen ? 0.72f : 0.08f;
+            float green = frozen ? 0.88f : 0.36f;
+            float blue = frozen ? 0.96f : 0.78f;
+            rgba[0][index] = rgba[0][index] * (1.0f - alpha) + red * alpha;
+            rgba[1][index] = rgba[1][index] * (1.0f - alpha) + green * alpha;
+            rgba[2][index] = rgba[2][index] * (1.0f - alpha) + blue * alpha;
         }
     }
 
@@ -510,90 +533,6 @@ public final class ExplorerServer {
             rgba[0][i] = rgb[0]; rgba[1][i] = rgb[1]; rgba[2][i] = rgb[2]; rgba[3][i] = 1f;
         }
         return rgba;
-    }
-
-    private static float[][] getDetailPipelineData(int i1, int j1, int i2, int j2, boolean withClimate) throws Exception {
-        int H = i2 - i1;
-        int W = j2 - j1;
-        int pad = DETAIL_PIPELINE_PADDING;
-        if (pad <= 0) {
-            return LocalTerrainProvider.getPipelineData(i1, j1, i2, j2, withClimate);
-        }
-        int paddedH = H + 2 * pad;
-        int paddedW = W + 2 * pad;
-
-        float[][] padded = LocalTerrainProvider.getPipelineData(i1 - pad, j1 - pad,
-                i2 + pad, j2 + pad, withClimate);
-        float[] elev = cropFlat(padded[0], paddedH, paddedW, pad, pad, H, W);
-        float[] climate = cropClimate(padded[1], paddedH, paddedW, pad, pad, H, W);
-        return new float[][]{elev, climate};
-    }
-
-    private static short[] classifyDetailBiomes(int i1, int j1, int i2, int j2) throws Exception {
-        int H = i2 - i1;
-        int W = j2 - j1;
-        int pad = BiomeClassifier.detailShorelinePadding();
-
-        // Classify a larger padded window and crop the result. This removes the
-        // hard rectangular artifacts that appeared when shoreline/variant logic
-        // only saw the exact 1024x1024 viewport while panning.
-        int paddedH = H + 2 * pad;
-        int paddedW = W + 2 * pad;
-        float[][] padded = LocalTerrainProvider.getPipelineData(i1 - pad, j1 - pad, i2 + pad, j2 + pad, true);
-        float[] elevPaddedWindow = padded[0];
-        float[] climatePaddedWindow = padded[1];
-
-        float[] classifierElevPadded = addOnePixelElevationPadding(elevPaddedWindow, paddedH, paddedW);
-        short[] paddedBiomes = BiomeClassifier.classify(elevPaddedWindow, climatePaddedWindow,
-                i1 - pad, j1 - pad, classifierElevPadded, paddedH, paddedW, NATIVE_RESOLUTION);
-
-        short[] out = new short[H * W];
-        for (int r = 0; r < H; r++) {
-            System.arraycopy(paddedBiomes, (r + pad) * paddedW + pad, out, r * W, W);
-        }
-        return out;
-    }
-
-    private static float[] addOnePixelElevationPadding(float[] src, int H, int W) {
-        float[] out = new float[(H + 2) * (W + 2)];
-        for (int r = 0; r < H + 2; r++) {
-            int sr = Math.max(0, Math.min(H - 1, r - 1));
-            for (int c = 0; c < W + 2; c++) {
-                int sc = Math.max(0, Math.min(W - 1, c - 1));
-                out[r * (W + 2) + c] = src[sr * W + sc];
-            }
-        }
-        return out;
-    }
-
-    private static float[] cropFlat(float[] src, int srcH, int srcW, int row0, int col0, int H, int W) {
-        float[] out = new float[H * W];
-        for (int r = 0; r < H; r++) {
-            int sr = Math.max(0, Math.min(srcH - 1, row0 + r));
-            for (int c = 0; c < W; c++) {
-                int sc = Math.max(0, Math.min(srcW - 1, col0 + c));
-                out[r * W + c] = src[sr * srcW + sc];
-            }
-        }
-        return out;
-    }
-
-    private static float[] cropClimate(float[] src, int srcH, int srcW, int row0, int col0, int H, int W) {
-        if (src == null) return null;
-        int srcPlane = srcH * srcW;
-        int channels = Math.max(1, src.length / srcPlane);
-        float[] out = new float[channels * H * W];
-        int outPlane = H * W;
-        for (int ch = 0; ch < channels; ch++) {
-            for (int r = 0; r < H; r++) {
-                int sr = Math.max(0, Math.min(srcH - 1, row0 + r));
-                for (int c = 0; c < W; c++) {
-                    int sc = Math.max(0, Math.min(srcW - 1, col0 + c));
-                    out[ch * outPlane + r * W + c] = src[ch * srcPlane + sr * srcW + sc];
-                }
-            }
-        }
-        return out;
     }
 
     private static float[][] applyBiomeColors(short[] biomeIndexes, int H, int W) {

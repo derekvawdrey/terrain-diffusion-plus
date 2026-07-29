@@ -2,37 +2,42 @@ package com.github.xandergos.terraindiffusionmc.world;
 
 import java.util.concurrent.atomic.AtomicReference;
 
-/**
- * In-memory handoff for world-creation scale selection.
- *
- * <p>In single-player, client and integrated server run in the same JVM, so this allows
- * the world-creation UI to pass an initial scale to server-side world initialization.
- */
+/** In-memory handoff for terrain settings selected in the single-player world creation UI. */
 public final class WorldScaleSelectionState {
-    private static final AtomicReference<Integer> PENDING_SCALE = new AtomicReference<>();
+    private static final AtomicReference<PendingSettings> PENDING_SETTINGS = new AtomicReference<>();
 
-    private WorldScaleSelectionState() {
+    private WorldScaleSelectionState() {}
+
+    public static void setPendingSettings(int selectedScale, boolean blockLowAltitudeSources) {
+        PENDING_SETTINGS.set(new PendingSettings(
+                WorldScaleManager.clampScale(selectedScale), blockLowAltitudeSources));
     }
 
-    /**
-     * Stores a pending scale selected in world creation UI.
-     */
+    /** Compatibility helper for callers that only update scale. */
     public static void setPendingScale(int selectedScale) {
-        PENDING_SCALE.set(WorldScaleManager.clampScale(selectedScale));
+        setPendingSettings(selectedScale, getPendingBlockLowAltitudeSourcesOrDefault());
     }
 
-    /**
-     * Returns and clears the pending scale, if any.
-     */
+    public static PendingSettings consumePendingSettings() {
+        return PENDING_SETTINGS.getAndSet(null);
+    }
+
     public static Integer consumePendingScale() {
-        return PENDING_SCALE.getAndSet(null);
+        PendingSettings settings = consumePendingSettings();
+        return settings == null ? null : settings.scale();
     }
 
-    /**
-     * Returns the currently selected pending scale, or the default if none is set.
-     */
     public static int getPendingScaleOrDefault() {
-        Integer pendingScale = PENDING_SCALE.get();
-        return pendingScale != null ? pendingScale : WorldScaleManager.DEFAULT_SCALE;
+        PendingSettings settings = PENDING_SETTINGS.get();
+        return settings == null ? WorldScaleManager.DEFAULT_SCALE : settings.scale();
     }
+
+    public static boolean getPendingBlockLowAltitudeSourcesOrDefault() {
+        PendingSettings settings = PENDING_SETTINGS.get();
+        return settings == null
+                ? WorldScaleManager.DEFAULT_BLOCK_LOW_ALTITUDE_SOURCES
+                : settings.blockLowAltitudeSources();
+    }
+
+    public record PendingSettings(int scale, boolean blockLowAltitudeSources) {}
 }

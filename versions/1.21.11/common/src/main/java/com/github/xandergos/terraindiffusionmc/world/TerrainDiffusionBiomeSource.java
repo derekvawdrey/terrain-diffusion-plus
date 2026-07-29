@@ -70,8 +70,12 @@ public class TerrainDiffusionBiomeSource extends BiomeSource {
     }
 
     private Holder<Biome> resolveBiomeKey(String key) {
-        Optional<Holder.Reference<Biome>> holder = this.biomeLookup.get(biomeResourceKey(key));
-        return holder.<Holder<Biome>>map(h -> h).orElse(null);
+        try {
+            Optional<Holder.Reference<Biome>> holder = this.biomeLookup.get(biomeResourceKey(key));
+            return holder.<Holder<Biome>>map(h -> h).orElse(null);
+        } catch (IllegalStateException e) {
+            return null;
+        }
     }
 
     private static ResourceKey<Biome> biomeResourceKey(String key) {

@@ -49,7 +49,6 @@ public final class TerrainBiomeCatalog {
     public static final short STONY_PEAKS = 35;
     public static final short MUSHROOM_FIELDS = 36;
     public static final short PALE_GARDEN = 37;
-
     public static final short RIVER = 38;
     public static final short FROZEN_RIVER = 39;
     public static final short BEACH = 40;
@@ -64,17 +63,14 @@ public final class TerrainBiomeCatalog {
     public static final short DEEP_FROZEN_OCEAN = 49;
     public static final short STONY_SHORE = 50;
     public static final short SNOWY_BEACH = 51;
-
     public static final short LUSH_CAVES = 52;
     public static final short DRIPSTONE_CAVES = 53;
     public static final short DEEP_DARK = 54;
-
     public static final short NETHER_WASTES = 55;
     public static final short CRIMSON_FOREST = 56;
     public static final short WARPED_FOREST = 57;
     public static final short SOUL_SAND_VALLEY = 58;
     public static final short BASALT_DELTAS = 59;
-
     public static final short THE_END = 60;
     public static final short END_HIGHLANDS = 61;
     public static final short END_MIDLANDS = 62;

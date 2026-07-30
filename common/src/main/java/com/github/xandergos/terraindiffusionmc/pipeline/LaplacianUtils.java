@@ -183,13 +183,30 @@ public final class LaplacianUtils {
      * @return float[2][H - win + 1][W - win + 1]: [0] = T_sea, [1] = beta
      */
     public static float[][][] localBaselineTemperature(float[][] T, float[][] e, int win, float fallbackThreshold) {
+        return localBaselineTemperature(T, e, win, fallbackThreshold, 0, 0, 1);
+    }
+
+    /**
+     * Same as {@link #localBaselineTemperature(float[][], float[][], int, float)}, but the
+     * regression's upper slope clamp ({@code betaMax}) is allowed to rise above 0 in regions
+     * flagged by the large-wavelength {@link BiomeClassifier#sampleRegionNoise} field (the same
+     * field used to gate rare biomes and river density). Everywhere else the clamp stays at 0,
+     * preserving the normal "elevation never gets warmer" behavior.
+     *
+     * @param originCoarseRow world-space coarse-grid row of {@code T[0]}/{@code e[0]}
+     * @param originCoarseCol world-space coarse-grid column of {@code T[0]}/{@code e[0]}
+     * @param coarseStride    native blocks per coarse grid cell
+     */
+    public static float[][][] localBaselineTemperature(float[][] T, float[][] e, int win, float fallbackThreshold,
+                                                         int originCoarseRow, int originCoarseCol, int coarseStride) {
         int H = T.length, W = T[0].length;
         int outH = H - win + 1, outW = W - win + 1;
         float[][][] result = new float[2][outH][outW];
 
         float fallbackBeta = -0.0065f;
-        float betaMin = -0.012f, betaMax = 0.0f;
+        float betaMin = -0.012f;
         float eps = 1e-6f;
+        int pad = (win - 1) / 2;
 
         HydrologyParallel.forEachRow(0, outH, outW * win * win, r -> {
             for (int c = 0; c < outW; c++) {
@@ -211,9 +228,12 @@ public final class LaplacianUtils {
                 double varE = muE2 - muE * muE;
                 double covET = muET - muE * muT;
                 double beta = (varE < 1.0 || sumW < fallbackThreshold * n) ? fallbackBeta : (covET / (varE + eps));
+
+                float worldX = (originCoarseCol + c + pad) * (float) coarseStride;
+                float worldZ = (originCoarseRow + r + pad) * (float) coarseStride;
+                float betaMax = warmRegionBetaMax(worldX, worldZ);
                 beta = Math.max(betaMin, Math.min(betaMax, beta));
 
-                int pad = (win - 1) / 2;
                 float Tc = T[r + pad][c + pad];
                 float ec = e[r + pad][c + pad];
                 result[0][r][c] = (float) (Tc - beta * ec);
@@ -221,5 +241,18 @@ public final class LaplacianUtils {
             }
         });
         return result;
+    }
+
+    /**
+     * Upper clamp on the lapse-rate slope for this world position. 0 everywhere except inside
+     * the tropical/arid "special region" belts (|regionNoise| beyond 0.3, matching the thresholds
+     * already used to gate rare BoP biomes), where it ramps up to +0.004 (~+4C/km), letting
+     * mountains in those regions get warmer with elevation instead of always colder.
+     */
+    private static float warmRegionBetaMax(float worldX, float worldZ) {
+        float n = Math.abs(BiomeClassifier.sampleRegionNoise(worldX, worldZ));
+        float t = Math.max(0f, Math.min(1f, (n - 0.3f) / 0.7f));
+        float smooth = t * t * (3f - 2f * t);
+        return smooth * 0.004f;
     }
 }

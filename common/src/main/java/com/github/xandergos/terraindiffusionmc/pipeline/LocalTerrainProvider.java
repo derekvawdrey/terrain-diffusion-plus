@@ -495,6 +495,7 @@ public final class LocalTerrainProvider {
         int analysisWidth = analysisJ1 - analysisJ0;
         float pixelSizeM = NATIVE_RESOLUTION / Math.max(1, scale);
 
+        long tSampleStart = System.nanoTime();
         float[] elevation;
         float[] climate;
         if (scale <= 1) {
@@ -508,22 +509,28 @@ public final class LocalTerrainProvider {
                     analysisI0, analysisJ0, analysisHeight, analysisWidth, pixelSizeM);
             climate = sample.climate();
         }
+        long tSample = System.nanoTime();
 
         FluvialRiverNetwork.RiverTopology topology = FluvialRiverNetwork.build(
                 instanceSeed, analysisI0, analysisJ0, elevation, climate, analysisHeight, analysisWidth,
                 pixelSizeM, blockLowAltitudeSources, WorldScaleManager.MINIMUM_SOURCE_ELEVATION_METERS);
+        long tRiverBuild = System.nanoTime();
         DetailedRiverCarver.CarvedTerrain carved = DetailedRiverCarver.carve(
                 elevation, topology, analysisHeight, analysisWidth, pixelSizeM);
+        long tCarve = System.nanoTime();
         float[] coreElevation = carved.cropAdjustedElevation(
                 halo, halo, coreSize, coreSize, analysisWidth);
         float[] coreClimate = cropClimate(climate, analysisHeight, analysisWidth,
                 halo, halo, coreSize, coreSize);
         float[] classifierElevation = carved.cropAdjustedElevation(
                 halo - 1, halo - 1, coreSize + 2, coreSize + 2, analysisWidth);
+        long tCrop = System.nanoTime();
         short[] biomes = BiomeClassifier.classify(coreElevation, coreClimate,
                 coreI0, coreJ0, classifierElevation, coreSize, coreSize, pixelSizeM);
+        long tClassify = System.nanoTime();
         FluvialRiverNetwork.applyRiverBiomesFromWindow(
                 biomes, coreClimate, topology, halo, halo, coreSize, coreSize);
+        long tRiverBiomes = System.nanoTime();
 
         int cells = Math.multiplyExact(coreSize, coreSize);
         short[] compactElevation = new short[cells];
@@ -548,11 +555,18 @@ public final class LocalTerrainProvider {
                         : HeightmapData.NO_FLUVIAL_WATER;
             }
         });
+        long tCompact = System.nanoTime();
 
         LOG.info("Generated canonical hydrology tile at ({}, {}) size {} scale {} with halo {}, {} workers ({} MiB compact)",
                 coreJ0, coreI0, coreSize, scale, halo,
                 HydrologyParallel.workerThreads(),
                 (compactElevation.length * 7L) / (1024L * 1024L));
+        LOG.info("Hydrology tile ({}, {}) phase breakdown (ms): terrainSample={} riverBuild={} riverCarve={} "
+                        + "crop={} biomeClassify={} riverBiomes={} compact={} total={}",
+                coreJ0, coreI0,
+                millis(tSampleStart, tSample), millis(tSample, tRiverBuild), millis(tRiverBuild, tCarve),
+                millis(tCarve, tCrop), millis(tCrop, tClassify), millis(tClassify, tRiverBiomes),
+                millis(tRiverBiomes, tCompact), millis(tSampleStart, tCompact));
         return new HydrologyProvider.HydrologyTile(
                 coreI0,
                 coreJ0,
@@ -563,6 +577,10 @@ public final class LocalTerrainProvider {
                 coreSize,
                 coreSize
         );
+    }
+
+    private static long millis(long fromNanos, long toNanos) {
+        return (toNanos - fromNanos) / 1_000_000L;
     }
 
     private float[] sampleClimate(int i1, int j1, int i2, int j2, int scale) {

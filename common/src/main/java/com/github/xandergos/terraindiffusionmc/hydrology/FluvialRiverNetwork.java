@@ -3,6 +3,8 @@ package com.github.xandergos.terraindiffusionmc.hydrology;
 import com.github.xandergos.terraindiffusionmc.biome.TerrainBiomeRegistry;
 import com.github.xandergos.terraindiffusionmc.biome.TerrainBiomeSettlement;
 import com.github.xandergos.terraindiffusionmc.pipeline.BiomeClassifier;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.util.Arrays;
 
@@ -15,6 +17,7 @@ import java.util.Arrays;
  * carving is handled by {@link DetailedRiverCarver}.</p>
  */
 public final class FluvialRiverNetwork {
+    private static final Logger LOG = LoggerFactory.getLogger(FluvialRiverNetwork.class);
     private static final float SEA_LEVEL_METERS = 0.0f;
     private static final float MIN_VISIBLE_FLOW = 0.18f;
     private static final float RILL_FLOW = 0.08f;
@@ -52,11 +55,18 @@ public final class FluvialRiverNetwork {
             return RiverTopology.empty(height, width);
         }
 
-        PriorityFlood flood = runPriorityFlood(elevation, height, width);
+        long t0 = System.nanoTime();
+        // TODO: switch to runPriorityFloodParallel once it passes HydrologyFloodValidation --
+        // it currently has a confirmed correctness bug (adjacent strips can mutually reinforce
+        // a boundary estimate into a 2-cycle). Reverted to the sequential reference pending a fix.
+        PriorityFlood flood = runPriorityFloodSequential(elevation, height, width);
+        long t1 = System.nanoTime();
         float[] accumulation = accumulateRunoff(elevation, climate, flood.downstream, flood.order,
                 flood.orderSize, height, width, pixelSizeM);
+        long t2 = System.nanoTime();
         boolean[] visible = selectVisibleNetwork(elevation, accumulation, flood.downstream, flood.order,
                 flood.orderSize, height, width, i0, j0, blockSourcesBelowElevation, minimumSourceElevationM);
+        long t3 = System.nanoTime();
 
         float[] profile = new float[n];
         float[] load = new float[n];
@@ -65,10 +75,21 @@ public final class FluvialRiverNetwork {
         Arrays.fill(waterSurface, Float.NaN);
 
         rasterizeLakes(elevation, flood.filledSurface, accumulation, lake, load, waterSurface);
+        long t4 = System.nanoTime();
         rasterizeHermiteChannels(seed, i0, j0, elevation, flood.filledSurface, flood.downstream, accumulation,
                 visible, profile, load, waterSurface, height, width, pixelSizeM);
+        long t5 = System.nanoTime();
+
+        LOG.info("FluvialRiverNetwork.build ({}, {}) n={} phases (ms): priorityFlood={} accumulateRunoff={} "
+                        + "selectVisibleNetwork={} rasterizeLakes={} rasterizeChannels={} total={}",
+                j0, i0, n, millis(t0, t1), millis(t1, t2), millis(t2, t3), millis(t3, t4), millis(t4, t5),
+                millis(t0, t5));
 
         return new RiverTopology(profile, load, lake, waterSurface, height, width);
+    }
+
+    private static long millis(long fromNanos, long toNanos) {
+        return (toNanos - fromNanos) / 1_000_000L;
     }
 
     public static void applyRiverBiomesFromWindow(short[] biomes, float[] climate, RiverTopology rivers,
@@ -155,6 +176,61 @@ public final class FluvialRiverNetwork {
         return MIN_RIVER_DENSITY + (1f - MIN_RIVER_DENSITY) * smooth;
     }
 
+    /** Grid spacing (pixels) between direct {@link #riverDensity} samples; see {@link RiverDensityField}. */
+    private static final int REGION_DENSITY_STRIDE = 64;
+
+    /**
+     * {@link #riverDensity} is driven by {@code BiomeClassifier}'s region-noise field, which only
+     * has a ~5000-block wavelength (see {@code BiomeClassifier.REGION_NOISE}). Evaluating that
+     * noise once per native pixel is tens of millions of wasted FastNoiseLite calls per tile for a
+     * value that barely changes over thousands of pixels. This samples it on a coarse grid instead
+     * and bilinearly interpolates, matching the coarse-grid pattern used elsewhere in the pipeline
+     * (e.g. {@code LaplacianUtils.localBaselineTemperature}).
+     */
+    private static final class RiverDensityField {
+        private final float[] values;
+        private final int coarseWidth;
+        private final int coarseHeight;
+
+        private RiverDensityField(float[] values, int coarseWidth, int coarseHeight) {
+            this.values = values;
+            this.coarseWidth = coarseWidth;
+            this.coarseHeight = coarseHeight;
+        }
+
+        static RiverDensityField build(int i0, int j0, int height, int width) {
+            int coarseWidth = (width - 1) / REGION_DENSITY_STRIDE + 2;
+            int coarseHeight = (height - 1) / REGION_DENSITY_STRIDE + 2;
+            float[] values = new float[coarseWidth * coarseHeight];
+            HydrologyParallel.forEachIndex(0, values.length, idx -> {
+                int cr = idx / coarseWidth;
+                int cc = idx - cr * coarseWidth;
+                float worldX = j0 + cc * (float) REGION_DENSITY_STRIDE;
+                float worldZ = i0 + cr * (float) REGION_DENSITY_STRIDE;
+                values[idx] = riverDensity(worldX, worldZ);
+            });
+            return new RiverDensityField(values, coarseWidth, coarseHeight);
+        }
+
+        float sample(int r, int c) {
+            float gy = r / (float) REGION_DENSITY_STRIDE;
+            float gx = c / (float) REGION_DENSITY_STRIDE;
+            int y0 = (int) gy;
+            int x0 = (int) gx;
+            float fy = gy - y0;
+            float fx = gx - x0;
+            int y1 = Math.min(y0 + 1, coarseHeight - 1);
+            int x1 = Math.min(x0 + 1, coarseWidth - 1);
+            float v00 = values[y0 * coarseWidth + x0];
+            float v01 = values[y0 * coarseWidth + x1];
+            float v10 = values[y1 * coarseWidth + x0];
+            float v11 = values[y1 * coarseWidth + x1];
+            float top = v00 + (v01 - v00) * fx;
+            float bottom = v10 + (v11 - v10) * fx;
+            return top + (bottom - top) * fy;
+        }
+    }
+
     private static boolean[] selectVisibleNetwork(float[] elevation, float[] accumulation, int[] downstream,
                                                    int[] order, int orderSize, int height, int width,
                                                    int i0, int j0,
@@ -162,10 +238,11 @@ public final class FluvialRiverNetwork {
         int n = elevation.length;
         boolean[] candidate = new boolean[n];
         boolean[] hasCandidateUpstream = new boolean[n];
+        RiverDensityField density = RiverDensityField.build(i0, j0, height, width);
         HydrologyParallel.forEachIndex(0, n, idx -> {
             int r = idx / width;
             int c = idx - r * width;
-            float threshold = RILL_FLOW / riverDensity(j0 + c, i0 + r);
+            float threshold = RILL_FLOW / density.sample(r, c);
             candidate[idx] = elevation[idx] > SEA_LEVEL_METERS && accumulation[idx] >= threshold;
         });
         HydrologyParallel.forEachIndex(0, n, idx -> {
@@ -217,14 +294,17 @@ public final class FluvialRiverNetwork {
                                                   float[] profile, float[] load, float[] waterSurface,
                                                   int height, int width, float pixelSizeM) {
         int n = height * width;
+        long t0 = System.nanoTime();
         float[] radius = new float[n];
         HydrologyParallel.forEachIndex(0, n, idx -> {
             if (!visible[idx]) return;
             radius[idx] = radiusPixels(accumulation[idx], elevation[idx]);
         });
+        long t1 = System.nanoTime();
         CenterlineGeometry geometry = smoothCenterlineGeometry(
                 seed, i0, j0, surface, downstream, accumulation, visible,
                 height, width, pixelSizeM);
+        long t2 = System.nanoTime();
 
         Object[] channelLocks = null;
         if (HydrologyParallel.isEnabled()) {
@@ -237,6 +317,15 @@ public final class FluvialRiverNetwork {
         HydrologyParallel.forEachIndex(0, n, idx -> rasterizeChannelSegment(
                 idx, surface, downstream, accumulation, visible, radius, geometry,
                 profile, load, waterSurface, height, width, locks));
+        long t3 = System.nanoTime();
+
+        int visibleCount = 0;
+        for (int idx = 0; idx < n; idx++) {
+            if (visible[idx]) visibleCount++;
+        }
+        LOG.info("FluvialRiverNetwork.rasterizeHermiteChannels ({}, {}) n={} visible={} phases (ms): "
+                        + "radius={} centerlineGeometry={} stampChannels={} total={}",
+                j0, i0, n, visibleCount, millis(t0, t1), millis(t1, t2), millis(t2, t3), millis(t0, t3));
     }
 
     private static void rasterizeChannelSegment(
@@ -502,7 +591,11 @@ public final class FluvialRiverNetwork {
                 + (t3 - t2) * m1;
     }
 
-    private static PriorityFlood runPriorityFlood(float[] elevation, int height, int width) {
+    /**
+     * Reference, single-threaded implementation. Kept for validation of
+     * {@link #runPriorityFloodParallel}; {@link #build} no longer calls this directly.
+     */
+    static PriorityFlood runPriorityFloodSequential(float[] elevation, int height, int width) {
         int n = height * width;
         boolean[] visited = new boolean[n];
         float[] filled = new float[n];
@@ -540,6 +633,373 @@ public final class FluvialRiverNetwork {
             }
         }
         return new PriorityFlood(filled, downstream, order, orderSize);
+    }
+
+    private static final float RELAX_EPS = 1e-4f;
+    private static final int MIN_STRIP_ROWS = 64;
+
+    private static boolean isTrueSeed(int r, int c, int height, int width, float elevationValue) {
+        return r == 0 || c == 0 || r == height - 1 || c == width - 1 || elevationValue <= SEA_LEVEL_METERS;
+    }
+
+    /**
+     * Parallel priority-flood via row-strip domain decomposition, in four phases:
+     *
+     * <p><b>1.</b> Every strip is flooded independently in parallel using only true seeds (each
+     * strip's own left/right columns always qualify -- a row-strip spans the full width -- so
+     * this alone is already exact for any cell whose true optimum doesn't need to leave its
+     * strip). This gives a safe, non-circular baseline for every cell, including border cells.
+     *
+     * <p><b>2.</b> For "middle" strips (bounded by a cut on both sides), two more per-strip
+     * floods run in parallel: one seeded only by that strip's own top row (raw elevation, true
+     * seeds excluded) to get each bottom-row cell's pure-interior cost to cross to the top row
+     * (and which column), and the symmetric one for reaching the bottom row from the top.
+     *
+     * <p><b>3.</b> The boundary cells of every cut, plus the phase-2 same-strip shortcuts, form a
+     * small graph (grid edges across each cut, plus one precomputed pass-through edge per
+     * boundary cell). This is solved with an ordinary priority-flood -- reusing {@link IntMinHeap}
+     * with lazy deletion (a node can be pushed more than once; only its first pop, which is
+     * necessarily its true minimum, is acted on) -- seeded from phase 1's baseline. Because a
+     * node is finalized exactly once, in strictly increasing cost order, no cyclic reinforcement
+     * between adjacent strips is possible (unlike an iterative relaxation, which this replaced
+     * after it was found to allow exactly that).
+     *
+     * <p><b>4.</b> Every strip re-floods in parallel, this time seeding both of its cuts (if any)
+     * with phase 3's resolved values alongside its true seeds, giving the final, exact result for
+     * every cell. Border cells whose value didn't need a cross-strip correction fall back to their
+     * phase-1 downstream pointer.
+     *
+     * <p>The one behavioral difference from {@link #runPriorityFloodSequential} is in perfectly
+     * flat filled regions (lake surfaces): when several neighbors tie for the minimum crossing
+     * cost, this may pick a different (still valid) one than the single global heap's tie-breaking
+     * would have, so the specific drainage path through a flat surface can differ. Values never
+     * differ. See {@code HydrologyProvider.ALGORITHM_VERSION}, bumped alongside this change.
+     */
+    static PriorityFlood runPriorityFloodParallel(float[] elevation, int height, int width) {
+        int n = height * width;
+        int workers = Math.max(1, HydrologyParallel.workerThreads());
+        int stripCount = Math.max(1, Math.min(workers, height / MIN_STRIP_ROWS));
+
+        int[] stripStart = new int[stripCount + 1];
+        for (int i = 0; i <= stripCount; i++) {
+            stripStart[i] = (int) ((long) height * i / stripCount);
+        }
+
+        // Phase 1: true-seeds-only baseline, every strip independent and parallel.
+        boolean[] baseVisited = new boolean[n];
+        float[] baseFilled = new float[n];
+        int[] baseDownstream = new int[n];
+        Arrays.fill(baseDownstream, -1);
+        HydrologyParallel.forEachTask(stripCount, s -> floodStrip(
+                elevation, height, width, stripStart[s], stripStart[s + 1], true, null, null,
+                baseVisited, baseFilled, baseDownstream, null));
+
+        if (stripCount == 1) {
+            int[] order = new int[n];
+            int orderSize = buildTopologicalOrder(baseDownstream, n, order);
+            return new PriorityFlood(baseFilled, baseDownstream, order, orderSize);
+        }
+
+        int cuts = stripCount - 1;
+
+        // Phase 2: same-strip pass-through cost, only meaningful for strips with a cut on both
+        // sides. Two disjoint scratch sets so both directions for the same strip never race.
+        int middleStripCount = Math.max(0, stripCount - 2);
+        float[] viaTopFilled = null;
+        int[] viaTopOrigin = null;
+        float[] viaBottomFilled = null;
+        int[] viaBottomOrigin = null;
+        if (middleStripCount > 0) {
+            viaTopFilled = new float[n];
+            int[] viaTopDownstream = new int[n];
+            boolean[] viaTopVisited = new boolean[n];
+            viaTopOrigin = new int[n];
+            float[] fViaTopFilled = viaTopFilled;
+            int[] fViaTopOrigin = viaTopOrigin;
+
+            viaBottomFilled = new float[n];
+            int[] viaBottomDownstream = new int[n];
+            boolean[] viaBottomVisited = new boolean[n];
+            viaBottomOrigin = new int[n];
+            float[] fViaBottomFilled = viaBottomFilled;
+            int[] fViaBottomOrigin = viaBottomOrigin;
+
+            int[] fStripStart = stripStart;
+            HydrologyParallel.forEachTask(2 * middleStripCount, t -> {
+                int strip = 1 + t / 2;
+                int rowStart = fStripStart[strip];
+                int rowEnd = fStripStart[strip + 1];
+                float[] topRow = new float[width];
+                float[] bottomRow = new float[width];
+                for (int c = 0; c < width; c++) {
+                    topRow[c] = elevation[rowStart * width + c];
+                    bottomRow[c] = elevation[(rowEnd - 1) * width + c];
+                }
+                if (t % 2 == 0) {
+                    floodStrip(elevation, height, width, rowStart, rowEnd, false, topRow, null,
+                            viaTopVisited, fViaTopFilled, viaTopDownstream, fViaTopOrigin);
+                } else {
+                    floodStrip(elevation, height, width, rowStart, rowEnd, false, null, bottomRow,
+                            viaBottomVisited, fViaBottomFilled, viaBottomDownstream, fViaBottomOrigin);
+                }
+            });
+        }
+
+        // Phase 3: solve the boundary graph exactly via an ordinary (cycle-free) priority-flood.
+        int totalBoundaryNodes = cuts * 2 * width;
+        int[] boundaryCellOf = new int[totalBoundaryNodes];
+        int[] cellToBoundaryNode = new int[n];
+        Arrays.fill(cellToBoundaryNode, -1);
+        int nodeIdx = 0;
+        for (int cut = 0; cut < cuts; cut++) {
+            int aboveRow = stripStart[cut + 1] - 1;
+            int belowRow = stripStart[cut + 1];
+            for (int c = 0; c < width; c++) {
+                int cell = aboveRow * width + c;
+                boundaryCellOf[nodeIdx] = cell;
+                cellToBoundaryNode[cell] = nodeIdx;
+                nodeIdx++;
+            }
+            for (int c = 0; c < width; c++) {
+                int cell = belowRow * width + c;
+                boundaryCellOf[nodeIdx] = cell;
+                cellToBoundaryNode[cell] = nodeIdx;
+                nodeIdx++;
+            }
+        }
+
+        float[] boundaryFilled = new float[totalBoundaryNodes];
+        int[] boundaryFromCell = new int[totalBoundaryNodes];
+        Arrays.fill(boundaryFromCell, -1);
+        boolean[] boundaryFinal = new boolean[totalBoundaryNodes];
+        for (int node = 0; node < totalBoundaryNodes; node++) {
+            boundaryFilled[node] = baseFilled[boundaryCellOf[node]];
+        }
+        // Lazy-deletion Dijkstra: a node can be pushed again each time it improves (up to 3
+        // cross-cut neighbors + 1 pass-through partner), so the heap sees more pushes than nodes.
+        IntMinHeap boundaryQueue = new IntMinHeap(boundaryFilled, totalBoundaryNodes * 6, 1, totalBoundaryNodes);
+        for (int node = 0; node < totalBoundaryNodes; node++) {
+            boundaryQueue.add(node);
+        }
+
+        while (!boundaryQueue.isEmpty()) {
+            int node = boundaryQueue.poll();
+            if (boundaryFinal[node]) continue;
+            boundaryFinal[node] = true;
+            int cell = boundaryCellOf[node];
+            int r = cell / width;
+            int c = cell - r * width;
+            int cut = (nodeCutIndex(node, width));
+            boolean above = isAboveNode(node, width);
+            int otherRow = above ? stripStart[cut + 1] : stripStart[cut + 1] - 1;
+
+            for (int dc = -1; dc <= 1; dc++) {
+                int nc = c + dc;
+                if (nc < 0 || nc >= width) continue;
+                int neighborCell = otherRow * width + nc;
+                int neighborNode = cellToBoundaryNode[neighborCell];
+                if (neighborNode < 0 || boundaryFinal[neighborNode]) continue;
+                float candidate = Math.max(elevation[neighborCell], boundaryFilled[node]);
+                if (candidate < boundaryFilled[neighborNode] - RELAX_EPS) {
+                    boundaryFilled[neighborNode] = candidate;
+                    boundaryFromCell[neighborNode] = cell;
+                    boundaryQueue.add(neighborNode);
+                }
+            }
+
+            int stripOfCell = above ? cut : cut + 1;
+            if (stripOfCell >= 1 && stripOfCell <= stripCount - 2) {
+                int partnerCell;
+                float rawCost;
+                if (above) {
+                    // "cell" is this middle strip's bottom row; partner is its own top row.
+                    rawCost = viaTopFilled[cell];
+                    partnerCell = stripStart[stripOfCell] * width + viaTopOrigin[cell];
+                } else {
+                    // "cell" is this middle strip's top row; partner is its own bottom row.
+                    rawCost = viaBottomFilled[cell];
+                    partnerCell = (stripStart[stripOfCell + 1] - 1) * width + viaBottomOrigin[cell];
+                }
+                int partnerNode = cellToBoundaryNode[partnerCell];
+                if (partnerNode >= 0 && !boundaryFinal[partnerNode] && Float.isFinite(rawCost)) {
+                    float candidate = Math.max(rawCost, boundaryFilled[node]);
+                    if (candidate < boundaryFilled[partnerNode] - RELAX_EPS) {
+                        boundaryFilled[partnerNode] = candidate;
+                        boundaryFromCell[partnerNode] = cell;
+                        boundaryQueue.add(partnerNode);
+                    }
+                }
+            }
+        }
+
+        // Phase 4: final re-flood per strip using phase 3's resolved boundary values, parallel.
+        float[][] finalTopSeed = new float[stripCount][];
+        float[][] finalBottomSeed = new float[stripCount][];
+        for (int s = 0; s < stripCount; s++) {
+            if (s > 0) {
+                finalTopSeed[s] = new float[width];
+                int belowNodeBase = (s - 1) * 2 * width + width;
+                System.arraycopy(boundaryFilled, belowNodeBase, finalTopSeed[s], 0, width);
+            }
+            if (s < stripCount - 1) {
+                finalBottomSeed[s] = new float[width];
+                int aboveNodeBase = s * 2 * width;
+                System.arraycopy(boundaryFilled, aboveNodeBase, finalBottomSeed[s], 0, width);
+            }
+        }
+
+        boolean[] visited = new boolean[n];
+        float[] filled = new float[n];
+        int[] downstream = new int[n];
+        Arrays.fill(downstream, -1);
+        int[] fStripStart2 = stripStart;
+        float[][] fFinalTopSeed = finalTopSeed;
+        float[][] fFinalBottomSeed = finalBottomSeed;
+        HydrologyParallel.forEachTask(stripCount, s -> floodStrip(
+                elevation, height, width, fStripStart2[s], fStripStart2[s + 1], true,
+                fFinalTopSeed[s], fFinalBottomSeed[s], visited, filled, downstream, null));
+
+        for (int cut = 0; cut < cuts; cut++) {
+            int aboveRow = stripStart[cut + 1] - 1;
+            int belowRow = stripStart[cut + 1];
+            for (int c = 0; c < width; c++) {
+                int aboveCell = aboveRow * width + c;
+                if (!isTrueSeed(aboveRow, c, height, width, elevation[aboveCell])) {
+                    int node = cellToBoundaryNode[aboveCell];
+                    downstream[aboveCell] = boundaryFromCell[node] >= 0 ? boundaryFromCell[node] : baseDownstream[aboveCell];
+                }
+                int belowCell = belowRow * width + c;
+                if (!isTrueSeed(belowRow, c, height, width, elevation[belowCell])) {
+                    int node = cellToBoundaryNode[belowCell];
+                    downstream[belowCell] = boundaryFromCell[node] >= 0 ? boundaryFromCell[node] : baseDownstream[belowCell];
+                }
+            }
+        }
+
+        int[] order = new int[n];
+        int orderSize = buildTopologicalOrder(downstream, n, order);
+        return new PriorityFlood(filled, downstream, order, orderSize);
+    }
+
+    /** Node layout: per cut, {@code width} "above" nodes followed by {@code width} "below" nodes. */
+    private static int nodeCutIndex(int node, int width) {
+        return node / (2 * width);
+    }
+
+    private static boolean isAboveNode(int node, int width) {
+        return (node % (2 * width)) < width;
+    }
+
+    /**
+     * Floods rows [rowStart, rowEnd) only; never crosses into a neighboring strip.
+     *
+     * @param includeTrueSeeds whether ordinary border/ocean cells (see {@link #isTrueSeed}) seed
+     *                         the flood; {@code false} is used for the same-strip pass-through
+     *                         floods, which must only see the provided top/bottom row.
+     * @param originTag        if non-null, receives -- for every visited cell -- the column of the
+     *                         top/bottom-row seed its flood chain originated from. Only meaningful
+     *                         when exactly one of topSeedValues/bottomSeedValues is set.
+     */
+    private static void floodStrip(float[] elevation, int height, int width, int rowStart, int rowEnd,
+                                    boolean includeTrueSeeds, float[] topSeedValues, float[] bottomSeedValues,
+                                    boolean[] visited, float[] filled, int[] downstream, int[] originTag) {
+        int stripRows = rowEnd - rowStart;
+        IntMinHeap queue = new IntMinHeap(filled, stripRows * width, stripRows, width);
+        for (int r = rowStart; r < rowEnd; r++) {
+            for (int c = 0; c < width; c++) {
+                int idx = r * width + c;
+                boolean seed = includeTrueSeeds && isTrueSeed(r, c, height, width, elevation[idx]);
+                float seedValue = elevation[idx];
+                if (!seed && r == rowStart && topSeedValues != null && Float.isFinite(topSeedValues[c])) {
+                    seed = true;
+                    seedValue = topSeedValues[c];
+                }
+                if (!seed && r == rowEnd - 1 && bottomSeedValues != null && Float.isFinite(bottomSeedValues[c])) {
+                    seed = true;
+                    seedValue = bottomSeedValues[c];
+                }
+                if (!seed) continue;
+                visited[idx] = true;
+                filled[idx] = seedValue;
+                if (originTag != null) originTag[idx] = c;
+                queue.add(idx);
+            }
+        }
+        while (!queue.isEmpty()) {
+            int idx = queue.poll();
+            int r = idx / width;
+            int c = idx - r * width;
+            for (int k = 0; k < 8; k++) {
+                int nr = r + DR[k];
+                int nc = c + DC[k];
+                if (nr < rowStart || nr >= rowEnd || nc < 0 || nc >= width) continue;
+                int ni = nr * width + nc;
+                if (visited[ni]) continue;
+                visited[ni] = true;
+                downstream[ni] = idx;
+                filled[ni] = Math.max(elevation[ni], filled[idx]);
+                if (originTag != null) originTag[ni] = originTag[idx];
+                queue.add(ni);
+            }
+        }
+    }
+
+    /**
+     * Rebuilds a valid flood order (every cell's downstream target appears earlier than the cell
+     * itself) from a complete {@code downstream[]}, via BFS from the roots (downstream == -1).
+     * Needed because the parallel flood's cross-strip overrides are applied after all per-strip
+     * floods finish, so no single strip's local order is globally valid on its own.
+     */
+    private static int buildTopologicalOrder(int[] downstream, int n, int[] order) {
+        int[] childCount = new int[n];
+        for (int idx = 0; idx < n; idx++) {
+            int d = downstream[idx];
+            if (d >= 0) childCount[d]++;
+        }
+        int[] childStart = new int[n + 1];
+        for (int idx = 0; idx < n; idx++) {
+            childStart[idx + 1] = childStart[idx] + childCount[idx];
+        }
+        int[] childList = new int[childStart[n]];
+        int[] fillPos = childStart.clone();
+        for (int idx = 0; idx < n; idx++) {
+            int d = downstream[idx];
+            if (d >= 0) {
+                childList[fillPos[d]++] = idx;
+            }
+        }
+
+        int[] queue = new int[n];
+        int head = 0;
+        int tail = 0;
+        for (int idx = 0; idx < n; idx++) {
+            if (downstream[idx] < 0) queue[tail++] = idx;
+        }
+        int orderSize = 0;
+        while (head < tail) {
+            int idx = queue[head++];
+            order[orderSize++] = idx;
+            for (int k = childStart[idx]; k < childStart[idx + 1]; k++) {
+                queue[tail++] = childList[k];
+            }
+        }
+        if (orderSize < n) {
+            // Defensive fallback for a pathological, fully-enclosed region with no path to any
+            // seed even through neighboring strips (should not occur for real terrain, since every
+            // strip's own left/right columns are always true seeds). Treat leftover cells as
+            // additional roots so downstream code never hangs or reads a partially built order.
+            LOG.warn("FluvialRiverNetwork parallel flood: {} of {} cells had no path to a seed; "
+                    + "treating them as roots", n - orderSize, n);
+            boolean[] included = new boolean[n];
+            for (int i = 0; i < orderSize; i++) included[order[i]] = true;
+            for (int idx = 0; idx < n; idx++) {
+                if (!included[idx]) {
+                    downstream[idx] = -1;
+                    order[orderSize++] = idx;
+                }
+            }
+        }
+        return orderSize;
     }
 
     private static float[] accumulateRunoff(float[] elevation, float[] climate, int[] downstream,
@@ -692,7 +1152,7 @@ public final class FluvialRiverNetwork {
     private record CenterlineGeometry(float[] row, float[] col,
                                       float[] tangentRow, float[] tangentCol) {}
 
-    private record PriorityFlood(float[] filledSurface, int[] downstream, int[] order, int orderSize) {}
+    record PriorityFlood(float[] filledSurface, int[] downstream, int[] order, int orderSize) {}
 
     public record RiverTopology(float[] channelProfile, float[] channelLoad, float[] lakeDepth,
                                 float[] waterSurface, int height, int width) {

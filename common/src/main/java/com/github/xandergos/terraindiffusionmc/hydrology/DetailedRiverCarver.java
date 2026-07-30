@@ -1,9 +1,13 @@
 package com.github.xandergos.terraindiffusionmc.hydrology;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import java.util.Arrays;
 
 /** Carves the hydrology topology directly into the final high-resolution terrain. */
 public final class DetailedRiverCarver {
+    private static final Logger LOG = LoggerFactory.getLogger(DetailedRiverCarver.class);
     private static final int BED_SMOOTHING_PASSES = 2;
     private static final int BANK_SOFTENING_PASSES = 2;
     private static final float LAKE_MIN_DEPTH_M = 0.75f;
@@ -22,6 +26,7 @@ public final class DetailedRiverCarver {
         if (detailedElevation.length != n || topology.channelProfile().length != n) {
             throw new IllegalArgumentException("Detailed terrain and hydrology topology shapes differ");
         }
+        long t0 = System.nanoTime();
         float[] adjusted = detailedElevation.clone();
         float[] bedTarget = new float[n];
         Arrays.fill(bedTarget, Float.NaN);
@@ -60,9 +65,12 @@ public final class DetailedRiverCarver {
             }
             bedTarget[idx] = surface - depthBlocks * metresPerBlock;
         });
+        long t1 = System.nanoTime();
 
+        float[] bedSmoothingScratch = new float[n];
         for (int pass = 0; pass < BED_SMOOTHING_PASSES; pass++) {
-            float[] source = bedTarget.clone();
+            System.arraycopy(bedTarget, 0, bedSmoothingScratch, 0, n);
+            float[] source = bedSmoothingScratch;
             HydrologyParallel.forEachRow(1, height - 1, width, r -> {
                 for (int c = 1; c < width - 1; c++) {
                     int idx = r * width + c;
@@ -82,11 +90,19 @@ public final class DetailedRiverCarver {
                 }
             });
         }
+        long t2 = System.nanoTime();
 
         HydrologyParallel.forEachIndex(0, n, idx -> {
             if (Float.isFinite(bedTarget[idx])) adjusted[idx] = Math.min(adjusted[idx], bedTarget[idx]);
         });
+        long t3 = System.nanoTime();
         softenChannelBanks(adjusted, detailedElevation, topology.channelProfile(), height, width);
+        long t4 = System.nanoTime();
+
+        LOG.info("DetailedRiverCarver.carve n={} phases (ms): depthCompute={} bedSmoothing={} applyBed={} "
+                        + "softenBanks={} total={}",
+                n, millis(t0, t1), millis(t1, t2), millis(t2, t3), millis(t3, t4), millis(t0, t4));
+
         return new CarvedTerrain(adjusted, bedTarget);
     }
 
@@ -96,8 +112,10 @@ public final class DetailedRiverCarver {
      */
     private static void softenChannelBanks(float[] adjusted, float[] naturalElevation,
                                            float[] profile, int height, int width) {
+        float[] bankSofteningScratch = new float[adjusted.length];
         for (int pass = 0; pass < BANK_SOFTENING_PASSES; pass++) {
-            float[] source = adjusted.clone();
+            System.arraycopy(adjusted, 0, bankSofteningScratch, 0, adjusted.length);
+            float[] source = bankSofteningScratch;
             HydrologyParallel.forEachRow(1, height - 1, width, r -> {
                 for (int c = 1; c < width - 1; c++) {
                     int idx = r * width + c;
@@ -148,6 +166,10 @@ public final class DetailedRiverCarver {
 
     private static float clamp01(float value) {
         return Math.max(0.0f, Math.min(1.0f, value));
+    }
+
+    private static long millis(long fromNanos, long toNanos) {
+        return (toNanos - fromNanos) / 1_000_000L;
     }
 
     public record CarvedTerrain(float[] adjustedElevation, float[] bedTarget) {

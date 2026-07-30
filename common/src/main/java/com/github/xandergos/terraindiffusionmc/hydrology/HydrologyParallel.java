@@ -39,6 +39,16 @@ public final class HydrologyParallel {
         invoke(fromInclusive, toExclusive, minimumRows, action);
     }
 
+    /**
+     * Runs {@code taskCount} independent, individually expensive tasks in parallel (e.g. one
+     * per grid strip). Unlike {@link #forEachIndex}/{@link #forEachRow}, this always splits down
+     * to one task per leaf regardless of {@code taskCount} -- those assume many cheap cells and
+     * would otherwise run a small task count (far below {@link #MIN_CELLS_PER_TASK}) sequentially.
+     */
+    public static void forEachTask(int taskCount, IntConsumer action) {
+        invoke(0, taskCount, 1, action);
+    }
+
     private static void invoke(int fromInclusive, int toExclusive, int minimumGrain, IntConsumer action) {
         if (toExclusive <= fromInclusive) return;
         int length = toExclusive - fromInclusive;

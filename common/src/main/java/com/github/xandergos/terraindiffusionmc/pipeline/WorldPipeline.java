@@ -566,7 +566,8 @@ public final class WorldPipeline implements AutoCloseable {
 
         // Windowed lapse-rate regression
         float[][][] lbt = LaplacianUtils.localBaselineTemperature(
-                to2D(coarseMap[2], cH, cW), to2D(coarseElev, cH, cW), win, 0.02f);
+                to2D(coarseMap[2], cH, cW), to2D(coarseElev, cH, cW), win, 0.02f,
+                ci1 - pad, cj1 - pad, S);
         int lH = lbt[0].length, lW = lbt[0][0].length;
 
         // Central coarse (crop pad pixels from each side)

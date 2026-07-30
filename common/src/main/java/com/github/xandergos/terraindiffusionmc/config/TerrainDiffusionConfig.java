@@ -25,6 +25,8 @@ public final class TerrainDiffusionConfig {
     private static final int DEFAULT_HYDROLOGY_ANALYSIS_HALO = 128;
     private static final int DEFAULT_HYDROLOGY_WORKER_THREADS = 0;
     private static final int MAX_HYDROLOGY_WORKER_THREADS = 64;
+    private static final int DEFAULT_INFERENCE_WORKER_THREADS = 0;
+    private static final int MAX_INFERENCE_WORKER_THREADS = 16;
     private static final int DEFAULT_HYDROLOGY_CACHE_MAX_MIB = 160;
     private static final int DEFAULT_HYDROLOGY_CACHE_MAX_ENTRIES = 5;
     private static final boolean DEFAULT_HYDROLOGY_DISK_CACHE_ENABLED = true;
@@ -54,6 +56,26 @@ public final class TerrainDiffusionConfig {
     /** Whether to offload inactive models from VRAM between pipeline stages. */
     public static boolean offloadModels() {
         return readBoolean("inference.offload_models", DEFAULT_OFFLOAD_MODELS);
+    }
+
+    /**
+     * Concurrent region/tile computations. Zero selects an automatic value: 1 when
+     * {@link #offloadModels()} is true (GPU-slot swapping already serializes every inference
+     * call, so extra threads would only add queuing overhead and risk swap thrashing between
+     * different models), or a small pool sized off available CPUs when models stay resident.
+     */
+    public static int inferenceWorkerThreads() {
+        int configured = readInt("inference.worker_threads", DEFAULT_INFERENCE_WORKER_THREADS);
+        if (configured == 0) {
+            if (offloadModels()) return 1;
+            int available = Math.max(1, Runtime.getRuntime().availableProcessors());
+            return Math.max(1, Math.min(4, available / 2));
+        }
+        if (configured < 1 || configured > MAX_INFERENCE_WORKER_THREADS) {
+            System.err.println("Invalid inference.worker_threads: " + configured + ", using 1");
+            return 1;
+        }
+        return configured;
     }
 
     /** TCP port for the local terrain explorer HTTP server. */

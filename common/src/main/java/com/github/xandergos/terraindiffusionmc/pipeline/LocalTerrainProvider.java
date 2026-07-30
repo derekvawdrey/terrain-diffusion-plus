@@ -19,7 +19,10 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.FutureTask;
+import java.util.concurrent.ThreadFactory;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 /**
  * Provides terrain heightmap and biome data from the local WorldPipeline.
@@ -137,12 +140,36 @@ public final class LocalTerrainProvider {
     private static final AtomicLong CACHE_CLOCK = new AtomicLong();
     private static final AtomicLong CACHE_BYTES = new AtomicLong();
     private static final Map<CacheKey, Future<HeightmapData>> PENDING = new ConcurrentHashMap<>();
-    /** Single thread for pipeline.get() so MemoryTileStore is not accessed concurrently. */
-    private static final ExecutorService INFERENCE_EXECUTOR = Executors.newSingleThreadExecutor(r -> {
-        Thread t = new Thread(r, "terrain-diffusion-inference");
-        t.setDaemon(true);
-        return t;
-    });
+
+    /**
+     * Sized by {@link TerrainDiffusionConfig#inferenceWorkerThreads()}: 1 when models are
+     * offloaded between stages (GPU-slot swapping already serializes inference; more threads
+     * there would only add queuing overhead and risk swap thrashing), otherwise a small pool
+     * since {@link com.github.xandergos.terraindiffusionmc.infinitetensor.MemoryTileStore} and
+     * {@link com.github.xandergos.terraindiffusionmc.infinitetensor.InfiniteTensor} are
+     * per-tensor-locked and already safe for concurrent access.
+     */
+    private static final ExecutorService INFERENCE_EXECUTOR = Executors.newFixedThreadPool(
+            TerrainDiffusionConfig.inferenceWorkerThreads(), new ThreadFactory() {
+                private final AtomicInteger index = new AtomicInteger();
+
+                @Override
+                public Thread newThread(Runnable r) {
+                    Thread t = new Thread(r, "terrain-diffusion-inference-" + index.incrementAndGet());
+                    t.setDaemon(true);
+                    return t;
+                }
+            });
+
+    /**
+     * Guards {@link WorldPipeline#setSeed} against running concurrently with in-flight
+     * generation. Normal fetches hold the read lock (many can run at once); a seed change
+     * takes the write lock, so it waits for in-flight fetches to finish and blocks new ones
+     * until {@code MemoryTileStore} has been cleared for the new seed. Without this, a fetch
+     * still computing under the old seed could cache its result after the clear and poison
+     * the pipeline's tensor cache with stale-seed data (the cache isn't keyed by seed).
+     */
+    private static final ReentrantReadWriteLock SEED_LOCK = new ReentrantReadWriteLock();
 
     private static volatile LocalTerrainProvider INSTANCE;
     private static long instanceSeed;
@@ -246,7 +273,7 @@ public final class LocalTerrainProvider {
      * Note: this also affects terrain generation for new Minecraft chunks.
      */
     public static void changeSeedFromExplorer(long newSeed) throws Exception {
-        submitToInferenceThread(() -> {
+        submitExclusiveToInferenceThread(() -> {
             LocalTerrainProvider provider = getInstance();
             provider.pipeline.setSeed(newSeed);
             provider.hydrologyProvider.clear();
@@ -263,8 +290,28 @@ public final class LocalTerrainProvider {
         return newSeed;
     }
 
+    /** Runs under the shared read lock: any number of these can run concurrently. */
     private static <T> T submitToInferenceThread(Callable<T> task) throws Exception {
-        return INFERENCE_EXECUTOR.submit(task).get();
+        return INFERENCE_EXECUTOR.submit(() -> {
+            SEED_LOCK.readLock().lock();
+            try {
+                return task.call();
+            } finally {
+                SEED_LOCK.readLock().unlock();
+            }
+        }).get();
+    }
+
+    /** Runs under the exclusive write lock: waits for in-flight fetches, blocks new ones. */
+    private static <T> T submitExclusiveToInferenceThread(Callable<T> task) throws Exception {
+        return INFERENCE_EXECUTOR.submit(() -> {
+            SEED_LOCK.writeLock().lock();
+            try {
+                return task.call();
+            } finally {
+                SEED_LOCK.writeLock().unlock();
+            }
+        }).get();
     }
 
     /**
@@ -289,21 +336,26 @@ public final class LocalTerrainProvider {
     private HeightmapData genHeightmap(CacheKey key, int i1, int j1, int i2, int j2) {
         int scale = key.scale();
         FutureTask<HeightmapData> task = new FutureTask<>(() -> {
-            long computedWindowCountBefore = pipeline.getTotalComputedWindowCount();
-            HeightmapData data = scale <= 1
-                    ? handle1x(i1, j1, i2, j2, key.blockLowAltitudeSources())
-                    : handleUpsampled(i1, j1, i2, j2, scale, key.blockLowAltitudeSources());
-            long computedWindowCountAfter = pipeline.getTotalComputedWindowCount();
+            SEED_LOCK.readLock().lock();
+            try {
+                long computedWindowCountBefore = pipeline.getTotalComputedWindowCount();
+                HeightmapData data = scale <= 1
+                        ? handle1x(i1, j1, i2, j2, key.blockLowAltitudeSources())
+                        : handleUpsampled(i1, j1, i2, j2, scale, key.blockLowAltitudeSources());
+                long computedWindowCountAfter = pipeline.getTotalComputedWindowCount();
 
-            long newlyComputedWindowCount = computedWindowCountAfter - computedWindowCountBefore;
-            int regionWidth = j2 - j1;
-            int regionHeight = i2 - i1;
-            LOG.info(
-                    "Terrain Diffusion ({}) finished generating region {}x{} ({} newly computed windows)",
-                    OnnxModel.getResolvedInferenceProvider(), regionWidth, regionHeight, newlyComputedWindowCount);
-            cacheHeightmap(key, data);
-            PENDING.remove(key);
-            return data;
+                long newlyComputedWindowCount = computedWindowCountAfter - computedWindowCountBefore;
+                int regionWidth = j2 - j1;
+                int regionHeight = i2 - i1;
+                LOG.info(
+                        "Terrain Diffusion ({}) finished generating region {}x{} ({} newly computed windows)",
+                        OnnxModel.getResolvedInferenceProvider(), regionWidth, regionHeight, newlyComputedWindowCount);
+                cacheHeightmap(key, data);
+                PENDING.remove(key);
+                return data;
+            } finally {
+                SEED_LOCK.readLock().unlock();
+            }
         });
         Future<HeightmapData> existing = PENDING.putIfAbsent(key, task);
         FutureTask<HeightmapData> toRun = (existing == null) ? task : (FutureTask<HeightmapData>) existing;

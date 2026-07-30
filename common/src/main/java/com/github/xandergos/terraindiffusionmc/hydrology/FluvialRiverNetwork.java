@@ -2,6 +2,7 @@ package com.github.xandergos.terraindiffusionmc.hydrology;
 
 import com.github.xandergos.terraindiffusionmc.biome.TerrainBiomeRegistry;
 import com.github.xandergos.terraindiffusionmc.biome.TerrainBiomeSettlement;
+import com.github.xandergos.terraindiffusionmc.pipeline.BiomeClassifier;
 
 import java.util.Arrays;
 
@@ -55,7 +56,7 @@ public final class FluvialRiverNetwork {
         float[] accumulation = accumulateRunoff(elevation, climate, flood.downstream, flood.order,
                 flood.orderSize, height, width, pixelSizeM);
         boolean[] visible = selectVisibleNetwork(elevation, accumulation, flood.downstream, flood.order,
-                flood.orderSize, height, width, blockSourcesBelowElevation, minimumSourceElevationM);
+                flood.orderSize, height, width, i0, j0, blockSourcesBelowElevation, minimumSourceElevationM);
 
         float[] profile = new float[n];
         float[] load = new float[n];
@@ -135,14 +136,38 @@ public final class FluvialRiverNetwork {
         return (byte) Math.max(1, Math.min(255, Math.round(value * 255.0f)));
     }
 
+    /**
+     * Floor on the region river-density multiplier. Rivers are never fully disabled by the
+     * region gate (avoids a hard visible cutoff at the noise field's boundary); at this floor
+     * the effective flow threshold is ~8x normal, so only the largest trunk rivers survive.
+     */
+    private static final float MIN_RIVER_DENSITY = 0.12f;
+
+    /**
+     * Large-wavelength multiplier (0..1) on how easily a cell qualifies as a river, sampled
+     * from the same region-noise field {@link BiomeClassifier} uses to gate rare biomes. Low
+     * values raise the effective {@link #RILL_FLOW} threshold, thinning rivers out smoothly
+     * across whole regions instead of per-cell.
+     */
+    private static float riverDensity(float worldX, float worldZ) {
+        float normalized = clamp01((BiomeClassifier.sampleRegionNoise(worldX, worldZ) + 1f) * 0.5f);
+        float smooth = normalized * normalized * (3f - 2f * normalized);
+        return MIN_RIVER_DENSITY + (1f - MIN_RIVER_DENSITY) * smooth;
+    }
+
     private static boolean[] selectVisibleNetwork(float[] elevation, float[] accumulation, int[] downstream,
                                                    int[] order, int orderSize, int height, int width,
+                                                   int i0, int j0,
                                                    boolean blockLowSources, float minimumSourceElevationM) {
         int n = elevation.length;
         boolean[] candidate = new boolean[n];
         boolean[] hasCandidateUpstream = new boolean[n];
-        HydrologyParallel.forEachIndex(0, n, idx ->
-                candidate[idx] = elevation[idx] > SEA_LEVEL_METERS && accumulation[idx] >= RILL_FLOW);
+        HydrologyParallel.forEachIndex(0, n, idx -> {
+            int r = idx / width;
+            int c = idx - r * width;
+            float threshold = RILL_FLOW / riverDensity(j0 + c, i0 + r);
+            candidate[idx] = elevation[idx] > SEA_LEVEL_METERS && accumulation[idx] >= threshold;
+        });
         HydrologyParallel.forEachIndex(0, n, idx -> {
             if (candidate[idx] && downstream[idx] >= 0) {
                 // Concurrent writes are idempotent: every writer stores the same true value.

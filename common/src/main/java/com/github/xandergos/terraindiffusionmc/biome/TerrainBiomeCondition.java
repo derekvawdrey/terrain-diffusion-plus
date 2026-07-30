@@ -31,7 +31,7 @@ public final class TerrainBiomeCondition {
         ELEVATION_M, TEMPERATURE_C, TEMPERATURE_SEASONALITY, PRECIPITATION_MM, PRECIPITATION_CV,
         MOISTURE, ARIDITY, TREE_MOISTURE, TREE_COVERAGE, SPARSITY, SLOPE, GROWING_SEASON_DAYS,
         OCEAN, SNOWY, BARE_SLOPE, MOUNTAIN, LOWLAND,
-        VARIANT_NOISE, CHERRY_NOISE, PALE_NOISE, CLEARING_NOISE, FLOWER_NOISE,
+        VARIANT_NOISE, CHERRY_NOISE, PALE_NOISE, CLEARING_NOISE, FLOWER_NOISE, REGION_NOISE,
         UNKNOWN
     }
 
@@ -98,6 +98,7 @@ public final class TerrainBiomeCondition {
             case "paleNoise" -> Variable.PALE_NOISE;
             case "clearingNoise" -> Variable.CLEARING_NOISE;
             case "flowerNoise" -> Variable.FLOWER_NOISE;
+            case "regionNoise" -> Variable.REGION_NOISE;
             default -> Variable.UNKNOWN;
         };
     }

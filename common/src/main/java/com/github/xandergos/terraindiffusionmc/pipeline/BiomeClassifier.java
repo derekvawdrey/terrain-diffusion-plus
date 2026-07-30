@@ -30,6 +30,7 @@ public final class BiomeClassifier {
     private static final FastNoiseLite SNOW_NOISE, SNOW_NOISE_FINE;
     private static final FastNoiseLite BIOME_VARIANT_NOISE, CHERRY_GROVE_NOISE, PALE_GARDEN_NOISE;
     private static final FastNoiseLite FOREST_CLEARING_NOISE, FLOWER_PATCH_NOISE;
+    private static final FastNoiseLite REGION_NOISE;
 
     static {
         TEMP_NOISE = makeFnl(12345, 1f/500f, 3, 2f, 0.5f);
@@ -44,6 +45,20 @@ public final class BiomeClassifier {
 
         FOREST_CLEARING_NOISE = makeFnl(112233, 1f/260f, 3, 2f, 0.54f);
         FLOWER_PATCH_NOISE = makeFnl(445566, 1f/220f, 3, 2f, 0.54f);
+
+        // Large-wavelength (~5000 block) noise for gating rare/region-specific biomes
+        // and river density. Low octave count keeps it cheap and smooth across tile
+        // boundaries so region membership doesn't jitter at generation-tile seams.
+        REGION_NOISE = makeFnl(778899, 1f/5000f, 2, 2f, 0.5f);
+    }
+
+    /**
+     * Large-wavelength region noise sampled directly by world coordinate, for callers
+     * outside the per-pixel classify loop (e.g. hydrology's river-density gating) that
+     * need the same region field without running full biome classification.
+     */
+    public static float sampleRegionNoise(float worldX, float worldZ) {
+        return REGION_NOISE.GetNoise(worldX, worldZ);
     }
 
     /** Extra elevation/climate pixels used by Explorer detail biome rendering. */
@@ -93,6 +108,7 @@ public final class BiomeClassifier {
         float[] paleNoise = new float[H * W];
         float[] clearingNoise = new float[H * W];
         float[] flowerNoise = new float[H * W];
+        float[] regionNoise = new float[H * W];
 
         HydrologyParallel.forEachRow(0, H, W, r -> {
             for (int c = 0; c < W; c++) {
@@ -114,6 +130,7 @@ public final class BiomeClassifier {
                 paleNoise[idx] = PALE_GARDEN_NOISE.GetNoise(nx, ny);
                 clearingNoise[idx] = FOREST_CLEARING_NOISE.GetNoise(nx, ny);
                 flowerNoise[idx] = FLOWER_PATCH_NOISE.GetNoise(nx, ny);
+                regionNoise[idx] = REGION_NOISE.GetNoise(nx, ny);
             }
         });
 
@@ -125,7 +142,7 @@ public final class BiomeClassifier {
                 boolean coastline = isCoastlineCandidate(elev, H, W, r, c, elev[idx], slopeRatio[idx]);
                 out[idx] = classifyPixel(elev[idx], climate, H, W, idx, tempNoise[idx],
                         precipNoiseFact[idx], snowNoise[idx], variantNoise[idx], cherryNoise[idx], paleNoise[idx],
-                        clearingNoise[idx], flowerNoise[idx], slopeRatio[idx], coastline);
+                        clearingNoise[idx], flowerNoise[idx], regionNoise[idx], slopeRatio[idx], coastline);
             }
         });
         smoothIsolatedTransitions(out, H, W);
@@ -253,7 +270,7 @@ public final class BiomeClassifier {
 
     private static short classifyPixel(float elevation, float[] climate, int H, int W, int idx,
                                         float tempNoise, float precipNoiseFactor, float snowNoise,
-                                        float variantNoise, float cherryNoise, float paleNoise, float clearingNoise, float flowerNoise, float slope, boolean coastline) {
+                                        float variantNoise, float cherryNoise, float paleNoise, float clearingNoise, float flowerNoise, float regionNoise, float slope, boolean coastline) {
         float altM = Math.max(0f, elevation);
 
         float temp = climate[idx] + tempNoise;
@@ -334,7 +351,7 @@ public final class BiomeClassifier {
                 isOcean, hasSnow, slopeBare, mountains, lowland);
 
         TerrainBiomeNoiseSample noiseValues = new TerrainBiomeNoiseSample(
-                variantNoise, cherryNoise, paleNoise, clearingNoise, flowerNoise);
+                variantNoise, cherryNoise, paleNoise, clearingNoise, flowerNoise, regionNoise);
 
         short defaultIndex = REGISTRY.defaultBiomeIndex();
         short biome;

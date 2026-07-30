@@ -10,7 +10,8 @@ public record TerrainBiomeNoiseSample(
         float cherryNoise,
         float paleNoise,
         float clearingNoise,
-        float flowerNoise
+        float flowerNoise,
+        float regionNoise
 ) {
     /** Returns {@link Float#NaN} for a variable this sample doesn't carry. */
     public float value(TerrainBiomeCondition.Variable variable) {
@@ -20,6 +21,7 @@ public record TerrainBiomeNoiseSample(
             case PALE_NOISE -> paleNoise;
             case CLEARING_NOISE -> clearingNoise;
             case FLOWER_NOISE -> flowerNoise;
+            case REGION_NOISE -> regionNoise;
             default -> Float.NaN;
         };
     }

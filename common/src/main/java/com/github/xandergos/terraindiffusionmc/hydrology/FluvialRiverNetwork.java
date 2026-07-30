@@ -1,6 +1,7 @@
 package com.github.xandergos.terraindiffusionmc.hydrology;
 
-import com.github.xandergos.terraindiffusionmc.biome.TerrainBiomeCatalog;
+import com.github.xandergos.terraindiffusionmc.biome.TerrainBiomeRegistry;
+import com.github.xandergos.terraindiffusionmc.biome.TerrainBiomeSettlement;
 
 import java.util.Arrays;
 
@@ -120,7 +121,7 @@ public final class FluvialRiverNetwork {
                 short current = biomes[targetIndex];
                 if (isOceanOrShore(current)) continue;
                 float temp = climate != null && climate.length >= n ? climate[targetIndex] : 8.0f;
-                biomes[targetIndex] = temp < 0.0f ? TerrainBiomeCatalog.FROZEN_RIVER : TerrainBiomeCatalog.RIVER;
+                biomes[targetIndex] = temp < 0.0f ? TerrainBiomeRegistry.instance().frozenRiverBiomeIndex() : TerrainBiomeRegistry.instance().riverBiomeIndex();
             }
         }
     }
@@ -505,12 +506,10 @@ public final class FluvialRiverNetwork {
     }
 
     private static boolean isOceanOrShore(short biome) {
-        return biome == TerrainBiomeCatalog.WARM_OCEAN || biome == TerrainBiomeCatalog.LUKEWARM_OCEAN
-                || biome == TerrainBiomeCatalog.DEEP_LUKEWARM_OCEAN || biome == TerrainBiomeCatalog.OCEAN
-                || biome == TerrainBiomeCatalog.DEEP_OCEAN || biome == TerrainBiomeCatalog.COLD_OCEAN
-                || biome == TerrainBiomeCatalog.DEEP_COLD_OCEAN || biome == TerrainBiomeCatalog.FROZEN_OCEAN
-                || biome == TerrainBiomeCatalog.DEEP_FROZEN_OCEAN || biome == TerrainBiomeCatalog.BEACH
-                || biome == TerrainBiomeCatalog.SNOWY_BEACH || biome == TerrainBiomeCatalog.STONY_SHORE;
+        TerrainBiomeSettlement s = TerrainBiomeRegistry.instance().byIndex(biome);
+        if (s == null) return false;
+        String kind = s.kind();
+        return "OCEAN".equals(kind) || "BEACH".equals(kind);
     }
 
     private static float smoothValueNoise(long seed, float row, float col, float spacing) {

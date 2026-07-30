@@ -1,7 +1,7 @@
 package com.github.xandergos.terraindiffusionmc.world;
 
-import com.github.xandergos.terraindiffusionmc.biome.TerrainBiomeCatalog;
-import com.github.xandergos.terraindiffusionmc.biome.TerrainBiomeProfile;
+import com.github.xandergos.terraindiffusionmc.biome.TerrainBiomeRegistry;
+import com.github.xandergos.terraindiffusionmc.biome.TerrainBiomeSettlement;
 import com.github.xandergos.terraindiffusionmc.config.TerrainDiffusionConfig;
 import com.github.xandergos.terraindiffusionmc.pipeline.LocalTerrainProvider;
 import com.github.xandergos.terraindiffusionmc.pipeline.LocalTerrainProvider.HeightmapData;
@@ -38,7 +38,7 @@ public class TerrainDiffusionBiomeSource extends BiomeSource {
             ).apply(instance, instance.stable(TerrainDiffusionBiomeSource::new)));
 
     private final HolderGetter<Biome> biomeLookup;
-    private Map<Short, Holder<Biome>> biomeIndexMap = null;
+    private volatile Map<Short, Holder<Biome>> biomeIndexMap = null;
 
     public TerrainDiffusionBiomeSource(HolderGetter<Biome> biomeLookup) {
         this.biomeLookup = biomeLookup;
@@ -52,18 +52,25 @@ public class TerrainDiffusionBiomeSource extends BiomeSource {
     private void requireBiomeIndexMap() {
         if (biomeIndexMap != null) return;
 
-        Map<Short, Holder<Biome>> resolved = new LinkedHashMap<>();
-        for (TerrainBiomeProfile profile : TerrainBiomeCatalog.all()) {
-            resolved.put(profile.index(), resolveBiome(profile));
+        // getNoiseBiome runs concurrently on multiple chunk-generation worker threads;
+        // without this lock two threads can race to build the map and one can observe
+        // a partially-published biomeIndexMap, causing getNoiseBiome to return null.
+        synchronized (this) {
+            if (biomeIndexMap != null) return;
+
+            Map<Short, Holder<Biome>> resolved = new LinkedHashMap<>();
+            for (TerrainBiomeSettlement settlement : TerrainBiomeRegistry.instance().all()) {
+                resolved.put(settlement.index(), resolveBiome(settlement));
+            }
+            biomeIndexMap = Collections.unmodifiableMap(resolved);
         }
-        biomeIndexMap = Collections.unmodifiableMap(resolved);
     }
 
-    private Holder<Biome> resolveBiome(TerrainBiomeProfile profile) {
-        Holder<Biome> primary = resolveBiomeKey(profile.key());
+    private Holder<Biome> resolveBiome(TerrainBiomeSettlement settlement) {
+        Holder<Biome> primary = resolveBiomeKey(settlement.key());
         if (primary != null) return primary;
 
-        Holder<Biome> fallback = resolveBiomeKey(profile.fallbackKey());
+        Holder<Biome> fallback = resolveBiomeKey(settlement.fallbackKey());
         if (fallback != null) return fallback;
 
         return this.biomeLookup.getOrThrow(Biomes.PLAINS);
@@ -94,7 +101,7 @@ public class TerrainDiffusionBiomeSource extends BiomeSource {
     @Override
     public Holder<Biome> getNoiseBiome(int x, int y, int z, Climate.Sampler noise) {
         requireBiomeIndexMap();
-        Holder<Biome> defaultEntry = biomeIndexMap.get(TerrainBiomeCatalog.PLAINS);
+        Holder<Biome> defaultEntry = biomeIndexMap.get(TerrainBiomeRegistry.instance().defaultBiomeIndex());
 
         // x, y, z are in quart coordinates (block / 4)
         int blockX = QuartPos.toBlock(x);
@@ -119,7 +126,11 @@ public class TerrainDiffusionBiomeSource extends BiomeSource {
             if (entry != null) return entry;
         }
 
-        return defaultEntry;
+        if (defaultEntry != null) return defaultEntry;
+
+        // Vanilla surface generation calls .is() on this return value with no null check
+        // (see SurfaceSystem.buildSurface), so this must never be null.
+        return this.biomeLookup.getOrThrow(Biomes.PLAINS);
     }
 
     @Override

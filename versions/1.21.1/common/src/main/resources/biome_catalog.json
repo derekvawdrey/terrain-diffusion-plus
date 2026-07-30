@@ -1,0 +1,8352 @@
+[
+  {
+    "index": 1,
+    "key": "minecraft:plains",
+    "fallbackKey": "minecraft:plains",
+    "kind": "OVERWORLD",
+    "color": 9286496,
+    "hardBoundary": false,
+    "blendable": true,
+    "river": false,
+    "frozenRiver": false,
+    "canGenerateOverworld": true,
+    "rules": [
+      {
+        "zone": "mountain",
+        "priority": 40,
+        "conditions": [
+          {
+            "variable": "treeCoverage",
+            "op": "lte",
+            "value": 0.01
+          },
+          {
+            "variable": "temperatureC",
+            "op": "between",
+            "value": 12,
+            "value2": 19.99
+          },
+          {
+            "variable": "moisture",
+            "op": "gte",
+            "value": 0.28
+          },
+          {
+            "variable": "precipitationMm",
+            "op": "gte",
+            "value": 300
+          },
+          {
+            "variable": "treeMoisture",
+            "op": "gte",
+            "value": 0.05
+          },
+          {
+            "variable": "growingSeasonDays",
+            "op": "gte",
+            "value": 60
+          }
+        ]
+      },
+      {
+        "zone": "lowland",
+        "priority": 40,
+        "conditions": [
+          {
+            "variable": "elevationM",
+            "op": "lte",
+            "value": 900
+          },
+          {
+            "variable": "treeMoisture",
+            "op": "lt",
+            "value": 0.05
+          },
+          {
+            "variable": "temperatureC",
+            "op": "between",
+            "value": -5,
+            "value2": 19.99
+          },
+          {
+            "variable": "snowy",
+            "op": "eq",
+            "bool": false
+          },
+          {
+            "variable": "treeCoverage",
+            "op": "lte",
+            "value": 0.01
+          },
+          {
+            "variable": "growingSeasonDays",
+            "op": "gte",
+            "value": 60
+          }
+        ]
+      },
+      {
+        "zone": "lowland",
+        "priority": 40,
+        "conditions": [
+          {
+            "variable": "elevationM",
+            "op": "lte",
+            "value": 900
+          },
+          {
+            "variable": "growingSeasonDays",
+            "op": "lt",
+            "value": 60
+          },
+          {
+            "variable": "temperatureC",
+            "op": "between",
+            "value": -5,
+            "value2": 19.99
+          },
+          {
+            "variable": "snowy",
+            "op": "eq",
+            "bool": false
+          },
+          {
+            "variable": "treeCoverage",
+            "op": "lte",
+            "value": 0.01
+          }
+        ]
+      },
+      {
+        "zone": "lowland",
+        "priority": 40,
+        "conditions": [
+          {
+            "variable": "elevationM",
+            "op": "lte",
+            "value": 900
+          },
+          {
+            "variable": "moisture",
+            "op": "lt",
+            "value": 0.35
+          },
+          {
+            "variable": "snowy",
+            "op": "eq",
+            "bool": false
+          },
+          {
+            "variable": "treeCoverage",
+            "op": "lte",
+            "value": 0.01
+          }
+        ]
+      },
+      {
+        "zone": "lowland",
+        "priority": 40,
+        "conditions": [
+          {
+            "variable": "elevationM",
+            "op": "lte",
+            "value": 900
+          },
+          {
+            "variable": "precipitationMm",
+            "op": "lt",
+            "value": 350
+          },
+          {
+            "variable": "snowy",
+            "op": "eq",
+            "bool": false
+          },
+          {
+            "variable": "treeCoverage",
+            "op": "lte",
+            "value": 0.01
+          }
+        ]
+      },
+      {
+        "zone": "lowland",
+        "priority": 40,
+        "conditions": [
+          {
+            "variable": "snowy",
+            "op": "eq",
+            "bool": false
+          },
+          {
+            "variable": "treeCoverage",
+            "op": "lte",
+            "value": 0.01
+          }
+        ]
+      },
+      {
+        "zone": "lowland",
+        "priority": 40,
+        "conditions": [
+          {
+            "variable": "temperatureC",
+            "op": "between",
+            "value": 5,
+            "value2": 23
+          },
+          {
+            "variable": "moisture",
+            "op": "between",
+            "value": 0.52,
+            "value2": 1.35
+          },
+          {
+            "variable": "precipitationMm",
+            "op": "gte",
+            "value": 380
+          },
+          {
+            "variable": "slope",
+            "op": "lt",
+            "value": 0.38
+          },
+          {
+            "variable": "snowy",
+            "op": "eq",
+            "bool": false
+          },
+          {
+            "variable": "bareSlope",
+            "op": "eq",
+            "bool": false
+          },
+          {
+            "variable": "treeCoverage",
+            "op": "between",
+            "value": 0.3,
+            "value2": 0.7
+          },
+          {
+            "variable": "elevationM",
+            "op": "lte",
+            "value": 850
+          }
+        ],
+        "noiseConditions": [
+          {
+            "variable": "clearingNoise",
+            "op": "gt",
+            "value": 0.6
+          }
+        ]
+      },
+      {
+        "zone": "lowland",
+        "priority": 40,
+        "conditions": [
+          {
+            "variable": "temperatureC",
+            "op": "between",
+            "value": 12,
+            "value2": 19.99
+          },
+          {
+            "variable": "sparsity",
+            "op": "gt",
+            "value": 0.72
+          },
+          {
+            "variable": "treeCoverage",
+            "op": "between",
+            "value": 0.3,
+            "value2": 0.7
+          }
+        ],
+        "noiseConditions": [
+          {
+            "variable": "variantNoise",
+            "op": "lte",
+            "value": 0.22
+          }
+        ]
+      },
+      {
+        "zone": "lowland",
+        "priority": 40,
+        "conditions": [
+          {
+            "variable": "temperatureC",
+            "op": "between",
+            "value": 5,
+            "value2": 23
+          },
+          {
+            "variable": "moisture",
+            "op": "between",
+            "value": 0.52,
+            "value2": 1.35
+          },
+          {
+            "variable": "precipitationMm",
+            "op": "gte",
+            "value": 380
+          },
+          {
+            "variable": "slope",
+            "op": "lt",
+            "value": 0.38
+          },
+          {
+            "variable": "snowy",
+            "op": "eq",
+            "bool": false
+          },
+          {
+            "variable": "bareSlope",
+            "op": "eq",
+            "bool": false
+          },
+          {
+            "variable": "treeCoverage",
+            "op": "gte",
+            "value": 0.8
+          },
+          {
+            "variable": "elevationM",
+            "op": "lte",
+            "value": 850
+          }
+        ],
+        "noiseConditions": [
+          {
+            "variable": "clearingNoise",
+            "op": "gt",
+            "value": 0.82
+          }
+        ]
+      },
+      {
+        "zone": "lowland",
+        "priority": 40,
+        "conditions": [
+          {
+            "variable": "temperatureC",
+            "op": "between",
+            "value": 5,
+            "value2": 23
+          },
+          {
+            "variable": "moisture",
+            "op": "between",
+            "value": 0.52,
+            "value2": 1.35
+          },
+          {
+            "variable": "precipitationMm",
+            "op": "gte",
+            "value": 380
+          },
+          {
+            "variable": "slope",
+            "op": "lt",
+            "value": 0.38
+          },
+          {
+            "variable": "snowy",
+            "op": "eq",
+            "bool": false
+          },
+          {
+            "variable": "bareSlope",
+            "op": "eq",
+            "bool": false
+          },
+          {
+            "variable": "treeCoverage",
+            "op": "gte",
+            "value": 0.95
+          },
+          {
+            "variable": "elevationM",
+            "op": "lte",
+            "value": 850
+          }
+        ],
+        "noiseConditions": [
+          {
+            "variable": "clearingNoise",
+            "op": "gt",
+            "value": 0.82
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "index": 2,
+    "key": "minecraft:sunflower_plains",
+    "fallbackKey": "minecraft:plains",
+    "kind": "OVERWORLD",
+    "color": 11913562,
+    "hardBoundary": false,
+    "blendable": true,
+    "river": false,
+    "frozenRiver": false,
+    "canGenerateOverworld": true,
+    "rules": [
+      {
+        "zone": "lowland",
+        "priority": 35,
+        "conditions": [
+          {
+            "variable": "temperatureC",
+            "op": "between",
+            "value": 12,
+            "value2": 19.99
+          },
+          {
+            "variable": "treeMoisture",
+            "op": "gte",
+            "value": 0.05
+          },
+          {
+            "variable": "growingSeasonDays",
+            "op": "gte",
+            "value": 60
+          },
+          {
+            "variable": "moisture",
+            "op": "between",
+            "value": 0.36,
+            "value2": 0.78
+          },
+          {
+            "variable": "precipitationMm",
+            "op": "gt",
+            "value": 330
+          },
+          {
+            "variable": "slope",
+            "op": "lt",
+            "value": 0.36
+          },
+          {
+            "variable": "snowy",
+            "op": "eq",
+            "bool": false
+          }
+        ],
+        "noiseConditions": [
+          {
+            "variable": "flowerNoise",
+            "op": "gt",
+            "value": 0.72
+          },
+          {
+            "variable": "variantNoise",
+            "op": "gt",
+            "value": 0.2
+          }
+        ]
+      },
+      {
+        "zone": "lowland",
+        "priority": 35,
+        "conditions": [
+          {
+            "variable": "temperatureC",
+            "op": "between",
+            "value": 12,
+            "value2": 19.99
+          },
+          {
+            "variable": "snowy",
+            "op": "eq",
+            "bool": false
+          },
+          {
+            "variable": "treeCoverage",
+            "op": "lte",
+            "value": 0.01
+          }
+        ],
+        "noiseConditions": [
+          {
+            "variable": "variantNoise",
+            "op": "gt",
+            "value": 0.4
+          }
+        ]
+      },
+      {
+        "zone": "lowland",
+        "priority": 35,
+        "conditions": [
+          {
+            "variable": "temperatureC",
+            "op": "between",
+            "value": 5,
+            "value2": 23
+          },
+          {
+            "variable": "moisture",
+            "op": "between",
+            "value": 0.52,
+            "value2": 1.35
+          },
+          {
+            "variable": "precipitationMm",
+            "op": "gte",
+            "value": 380
+          },
+          {
+            "variable": "slope",
+            "op": "lt",
+            "value": 0.38
+          },
+          {
+            "variable": "snowy",
+            "op": "eq",
+            "bool": false
+          },
+          {
+            "variable": "bareSlope",
+            "op": "eq",
+            "bool": false
+          },
+          {
+            "variable": "treeCoverage",
+            "op": "between",
+            "value": 0.3,
+            "value2": 0.7
+          },
+          {
+            "variable": "elevationM",
+            "op": "lte",
+            "value": 850
+          }
+        ],
+        "noiseConditions": [
+          {
+            "variable": "clearingNoise",
+            "op": "gt",
+            "value": 0.6
+          },
+          {
+            "variable": "flowerNoise",
+            "op": "gt",
+            "value": 0.68
+          },
+          {
+            "variable": "variantNoise",
+            "op": "gt",
+            "value": 0.18
+          }
+        ]
+      },
+      {
+        "zone": "lowland",
+        "priority": 35,
+        "conditions": [
+          {
+            "variable": "temperatureC",
+            "op": "between",
+            "value": 5,
+            "value2": 23
+          },
+          {
+            "variable": "moisture",
+            "op": "between",
+            "value": 0.52,
+            "value2": 1.35
+          },
+          {
+            "variable": "precipitationMm",
+            "op": "gte",
+            "value": 380
+          },
+          {
+            "variable": "slope",
+            "op": "lt",
+            "value": 0.38
+          },
+          {
+            "variable": "snowy",
+            "op": "eq",
+            "bool": false
+          },
+          {
+            "variable": "bareSlope",
+            "op": "eq",
+            "bool": false
+          },
+          {
+            "variable": "treeCoverage",
+            "op": "gte",
+            "value": 0.8
+          },
+          {
+            "variable": "elevationM",
+            "op": "lte",
+            "value": 850
+          }
+        ],
+        "noiseConditions": [
+          {
+            "variable": "clearingNoise",
+            "op": "gt",
+            "value": 0.82
+          },
+          {
+            "variable": "flowerNoise",
+            "op": "gt",
+            "value": 0.68
+          },
+          {
+            "variable": "variantNoise",
+            "op": "gt",
+            "value": 0.18
+          }
+        ]
+      },
+      {
+        "zone": "lowland",
+        "priority": 35,
+        "conditions": [
+          {
+            "variable": "temperatureC",
+            "op": "between",
+            "value": 5,
+            "value2": 23
+          },
+          {
+            "variable": "moisture",
+            "op": "between",
+            "value": 0.52,
+            "value2": 1.35
+          },
+          {
+            "variable": "precipitationMm",
+            "op": "gte",
+            "value": 380
+          },
+          {
+            "variable": "slope",
+            "op": "lt",
+            "value": 0.38
+          },
+          {
+            "variable": "snowy",
+            "op": "eq",
+            "bool": false
+          },
+          {
+            "variable": "bareSlope",
+            "op": "eq",
+            "bool": false
+          },
+          {
+            "variable": "treeCoverage",
+            "op": "gte",
+            "value": 0.95
+          },
+          {
+            "variable": "elevationM",
+            "op": "lte",
+            "value": 850
+          }
+        ],
+        "noiseConditions": [
+          {
+            "variable": "clearingNoise",
+            "op": "gt",
+            "value": 0.82
+          },
+          {
+            "variable": "flowerNoise",
+            "op": "gt",
+            "value": 0.68
+          },
+          {
+            "variable": "variantNoise",
+            "op": "gt",
+            "value": 0.18
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "index": 3,
+    "key": "minecraft:snowy_plains",
+    "fallbackKey": "minecraft:snowy_plains",
+    "kind": "OVERWORLD",
+    "color": 14543080,
+    "hardBoundary": false,
+    "blendable": true,
+    "river": false,
+    "frozenRiver": false,
+    "canGenerateOverworld": true,
+    "rules": [
+      {
+        "zone": "lowland",
+        "priority": 60,
+        "conditions": [
+          {
+            "variable": "snowy",
+            "op": "eq",
+            "bool": true
+          },
+          {
+            "variable": "treeCoverage",
+            "op": "lte",
+            "value": 0.01
+          }
+        ]
+      },
+      {
+        "zone": "lowland",
+        "priority": 60,
+        "conditions": [
+          {
+            "variable": "snowy",
+            "op": "eq",
+            "bool": true
+          },
+          {
+            "variable": "treeCoverage",
+            "op": "between",
+            "value": 0.3,
+            "value2": 0.4
+          },
+          {
+            "variable": "sparsity",
+            "op": "gt",
+            "value": 0.7
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "index": 4,
+    "key": "minecraft:ice_spikes",
+    "fallbackKey": "minecraft:snowy_plains",
+    "kind": "OVERWORLD",
+    "color": 13100788,
+    "hardBoundary": false,
+    "blendable": true,
+    "river": false,
+    "frozenRiver": false,
+    "canGenerateOverworld": true,
+    "rules": [
+      {
+        "zone": "lowland",
+        "priority": 45,
+        "conditions": [
+          {
+            "variable": "snowy",
+            "op": "eq",
+            "bool": true
+          },
+          {
+            "variable": "treeCoverage",
+            "op": "lte",
+            "value": 0.01
+          },
+          {
+            "variable": "sparsity",
+            "op": "gt",
+            "value": 0.85
+          }
+        ],
+        "noiseConditions": [
+          {
+            "variable": "variantNoise",
+            "op": "gt",
+            "value": 0.2
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "index": 5,
+    "key": "minecraft:desert",
+    "fallbackKey": "minecraft:desert",
+    "kind": "OVERWORLD",
+    "color": 16421912,
+    "hardBoundary": false,
+    "blendable": true,
+    "river": false,
+    "frozenRiver": false,
+    "canGenerateOverworld": true,
+    "rules": [
+      {
+        "zone": "lowland",
+        "priority": 80,
+        "conditions": [
+          {
+            "variable": "temperatureC",
+            "op": "between",
+            "value": 20,
+            "value2": 25.99
+          },
+          {
+            "variable": "moisture",
+            "op": "lt",
+            "value": 0.16
+          },
+          {
+            "variable": "precipitationMm",
+            "op": "lt",
+            "value": 180
+          },
+          {
+            "variable": "lowland",
+            "op": "eq",
+            "bool": false
+          },
+          {
+            "variable": "snowy",
+            "op": "eq",
+            "bool": false
+          },
+          {
+            "variable": "treeCoverage",
+            "op": "lte",
+            "value": 0.01
+          }
+        ]
+      },
+      {
+        "zone": "lowland",
+        "priority": 80,
+        "conditions": [
+          {
+            "variable": "temperatureC",
+            "op": "gte",
+            "value": 26
+          },
+          {
+            "variable": "moisture",
+            "op": "lt",
+            "value": 0.16
+          },
+          {
+            "variable": "precipitationMm",
+            "op": "lt",
+            "value": 180
+          },
+          {
+            "variable": "lowland",
+            "op": "eq",
+            "bool": false
+          },
+          {
+            "variable": "snowy",
+            "op": "eq",
+            "bool": false
+          },
+          {
+            "variable": "treeCoverage",
+            "op": "lte",
+            "value": 0.01
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "index": 6,
+    "key": "minecraft:swamp",
+    "fallbackKey": "minecraft:swamp",
+    "kind": "OVERWORLD",
+    "color": 522674,
+    "hardBoundary": false,
+    "blendable": true,
+    "river": false,
+    "frozenRiver": false,
+    "canGenerateOverworld": true,
+    "rules": [
+      {
+        "zone": "lowland",
+        "priority": 75,
+        "conditions": [
+          {
+            "variable": "temperatureC",
+            "op": "between",
+            "value": 20,
+            "value2": 25.99
+          },
+          {
+            "variable": "lowland",
+            "op": "eq",
+            "bool": true
+          },
+          {
+            "variable": "moisture",
+            "op": "lte",
+            "value": 1.35
+          },
+          {
+            "variable": "treeCoverage",
+            "op": "gte",
+            "value": 0.8
+          }
+        ]
+      },
+      {
+        "zone": "lowland",
+        "priority": 75,
+        "conditions": [
+          {
+            "variable": "lowland",
+            "op": "eq",
+            "bool": true
+          },
+          {
+            "variable": "treeCoverage",
+            "op": "gte",
+            "value": 0.95
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "index": 7,
+    "key": "minecraft:mangrove_swamp",
+    "fallbackKey": "minecraft:swamp",
+    "kind": "OVERWORLD",
+    "color": 3832387,
+    "hardBoundary": false,
+    "blendable": true,
+    "river": false,
+    "frozenRiver": false,
+    "canGenerateOverworld": true,
+    "rules": [
+      {
+        "zone": "lowland",
+        "priority": 82,
+        "conditions": [
+          {
+            "variable": "temperatureC",
+            "op": "between",
+            "value": 20,
+            "value2": 25.99
+          },
+          {
+            "variable": "lowland",
+            "op": "eq",
+            "bool": true
+          },
+          {
+            "variable": "moisture",
+            "op": "gt",
+            "value": 1.35
+          },
+          {
+            "variable": "treeCoverage",
+            "op": "gte",
+            "value": 0.8
+          }
+        ]
+      },
+      {
+        "zone": "lowland",
+        "priority": 82,
+        "conditions": [
+          {
+            "variable": "temperatureC",
+            "op": "between",
+            "value": 20,
+            "value2": 25.99
+          },
+          {
+            "variable": "lowland",
+            "op": "eq",
+            "bool": true
+          },
+          {
+            "variable": "treeCoverage",
+            "op": "gte",
+            "value": 0.95
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "index": 8,
+    "key": "minecraft:forest",
+    "fallbackKey": "minecraft:forest",
+    "kind": "OVERWORLD",
+    "color": 353825,
+    "hardBoundary": false,
+    "blendable": true,
+    "river": false,
+    "frozenRiver": false,
+    "canGenerateOverworld": true,
+    "rules": [
+      {
+        "zone": "mountain",
+        "priority": 65,
+        "conditions": [
+          {
+            "variable": "treeCoverage",
+            "op": "gte",
+            "value": 0.8
+          },
+          {
+            "variable": "temperatureC",
+            "op": "between",
+            "value": 12,
+            "value2": 19.99
+          }
+        ]
+      },
+      {
+        "zone": "lowland",
+        "priority": 65,
+        "conditions": [
+          {
+            "variable": "temperatureC",
+            "op": "between",
+            "value": 12,
+            "value2": 19.99
+          },
+          {
+            "variable": "treeMoisture",
+            "op": "gte",
+            "value": 0.05
+          },
+          {
+            "variable": "growingSeasonDays",
+            "op": "gte",
+            "value": 60
+          },
+          {
+            "variable": "moisture",
+            "op": "between",
+            "value": 0.36,
+            "value2": 0.78
+          },
+          {
+            "variable": "precipitationMm",
+            "op": "gt",
+            "value": 330
+          },
+          {
+            "variable": "slope",
+            "op": "lt",
+            "value": 0.36
+          },
+          {
+            "variable": "snowy",
+            "op": "eq",
+            "bool": false
+          }
+        ],
+        "noiseConditions": [
+          {
+            "variable": "clearingNoise",
+            "op": "gt",
+            "value": 0.78
+          },
+          {
+            "variable": "variantNoise",
+            "op": "gt",
+            "value": 0.25
+          }
+        ]
+      },
+      {
+        "zone": "lowland",
+        "priority": 65,
+        "conditions": [
+          {
+            "variable": "temperatureC",
+            "op": "between",
+            "value": 12,
+            "value2": 19.99
+          },
+          {
+            "variable": "treeCoverage",
+            "op": "between",
+            "value": 0.3,
+            "value2": 0.7
+          }
+        ]
+      },
+      {
+        "zone": "lowland",
+        "priority": 65,
+        "conditions": [
+          {
+            "variable": "treeCoverage",
+            "op": "gte",
+            "value": 0.8
+          },
+          {
+            "variable": "temperatureC",
+            "op": "between",
+            "value": 12,
+            "value2": 19.99
+          }
+        ]
+      },
+      {
+        "zone": "lowland",
+        "priority": 65,
+        "conditions": [
+          {
+            "variable": "treeCoverage",
+            "op": "gte",
+            "value": 0.95
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "index": 9,
+    "key": "minecraft:flower_forest",
+    "fallbackKey": "minecraft:forest",
+    "kind": "OVERWORLD",
+    "color": 2985545,
+    "hardBoundary": false,
+    "blendable": true,
+    "river": false,
+    "frozenRiver": false,
+    "canGenerateOverworld": true,
+    "rules": [
+      {
+        "zone": "lowland",
+        "priority": 42,
+        "conditions": [
+          {
+            "variable": "temperatureC",
+            "op": "between",
+            "value": 12,
+            "value2": 19.99
+          },
+          {
+            "variable": "treeMoisture",
+            "op": "gte",
+            "value": 0.05
+          },
+          {
+            "variable": "growingSeasonDays",
+            "op": "gte",
+            "value": 60
+          },
+          {
+            "variable": "moisture",
+            "op": "between",
+            "value": 0.36,
+            "value2": 0.78
+          },
+          {
+            "variable": "precipitationMm",
+            "op": "gt",
+            "value": 330
+          },
+          {
+            "variable": "slope",
+            "op": "lt",
+            "value": 0.36
+          },
+          {
+            "variable": "snowy",
+            "op": "eq",
+            "bool": false
+          }
+        ],
+        "noiseConditions": [
+          {
+            "variable": "clearingNoise",
+            "op": "gt",
+            "value": 0.78
+          },
+          {
+            "variable": "variantNoise",
+            "op": "gt",
+            "value": 0.25
+          },
+          {
+            "variable": "flowerNoise",
+            "op": "gt",
+            "value": 0.55
+          }
+        ]
+      },
+      {
+        "zone": "lowland",
+        "priority": 42,
+        "conditions": [
+          {
+            "variable": "temperatureC",
+            "op": "between",
+            "value": 5,
+            "value2": 23
+          },
+          {
+            "variable": "moisture",
+            "op": "between",
+            "value": 0.52,
+            "value2": 1.12
+          },
+          {
+            "variable": "precipitationMm",
+            "op": "gte",
+            "value": 380
+          },
+          {
+            "variable": "slope",
+            "op": "lt",
+            "value": 0.38
+          },
+          {
+            "variable": "snowy",
+            "op": "eq",
+            "bool": false
+          },
+          {
+            "variable": "bareSlope",
+            "op": "eq",
+            "bool": false
+          },
+          {
+            "variable": "treeCoverage",
+            "op": "between",
+            "value": 0.3,
+            "value2": 0.7
+          },
+          {
+            "variable": "elevationM",
+            "op": "gt",
+            "value": 850
+          }
+        ],
+        "noiseConditions": [
+          {
+            "variable": "clearingNoise",
+            "op": "gt",
+            "value": 0.6
+          },
+          {
+            "variable": "flowerNoise",
+            "op": "gt",
+            "value": 0.64
+          }
+        ]
+      },
+      {
+        "zone": "lowland",
+        "priority": 42,
+        "conditions": [
+          {
+            "variable": "temperatureC",
+            "op": "between",
+            "value": 5,
+            "value2": 23
+          },
+          {
+            "variable": "moisture",
+            "op": "between",
+            "value": 0.52,
+            "value2": 1.12
+          },
+          {
+            "variable": "precipitationMm",
+            "op": "gte",
+            "value": 380
+          },
+          {
+            "variable": "slope",
+            "op": "lt",
+            "value": 0.38
+          },
+          {
+            "variable": "snowy",
+            "op": "eq",
+            "bool": false
+          },
+          {
+            "variable": "bareSlope",
+            "op": "eq",
+            "bool": false
+          },
+          {
+            "variable": "treeCoverage",
+            "op": "between",
+            "value": 0.3,
+            "value2": 0.7
+          },
+          {
+            "variable": "elevationM",
+            "op": "gt",
+            "value": 850
+          },
+          {
+            "variable": "sparsity",
+            "op": "gt",
+            "value": 0.5
+          }
+        ],
+        "noiseConditions": [
+          {
+            "variable": "clearingNoise",
+            "op": "gt",
+            "value": 0.55
+          },
+          {
+            "variable": "flowerNoise",
+            "op": "gt",
+            "value": 0.64
+          }
+        ]
+      },
+      {
+        "zone": "lowland",
+        "priority": 42,
+        "conditions": [
+          {
+            "variable": "temperatureC",
+            "op": "between",
+            "value": 5,
+            "value2": 23
+          },
+          {
+            "variable": "moisture",
+            "op": "between",
+            "value": 0.52,
+            "value2": 1.12
+          },
+          {
+            "variable": "precipitationMm",
+            "op": "gte",
+            "value": 380
+          },
+          {
+            "variable": "slope",
+            "op": "lt",
+            "value": 0.38
+          },
+          {
+            "variable": "snowy",
+            "op": "eq",
+            "bool": false
+          },
+          {
+            "variable": "bareSlope",
+            "op": "eq",
+            "bool": false
+          },
+          {
+            "variable": "treeCoverage",
+            "op": "between",
+            "value": 0.3,
+            "value2": 0.7
+          },
+          {
+            "variable": "elevationM",
+            "op": "gt",
+            "value": 850
+          },
+          {
+            "variable": "sparsity",
+            "op": "gt",
+            "value": 0.65
+          }
+        ],
+        "noiseConditions": [
+          {
+            "variable": "clearingNoise",
+            "op": "gt",
+            "value": 0.51
+          },
+          {
+            "variable": "flowerNoise",
+            "op": "gt",
+            "value": 0.64
+          }
+        ]
+      },
+      {
+        "zone": "lowland",
+        "priority": 42,
+        "conditions": [
+          {
+            "variable": "temperatureC",
+            "op": "between",
+            "value": 5,
+            "value2": 23
+          },
+          {
+            "variable": "moisture",
+            "op": "between",
+            "value": 1.1201,
+            "value2": 1.35
+          },
+          {
+            "variable": "precipitationMm",
+            "op": "gte",
+            "value": 380
+          },
+          {
+            "variable": "slope",
+            "op": "lt",
+            "value": 0.38
+          },
+          {
+            "variable": "snowy",
+            "op": "eq",
+            "bool": false
+          },
+          {
+            "variable": "bareSlope",
+            "op": "eq",
+            "bool": false
+          },
+          {
+            "variable": "treeCoverage",
+            "op": "between",
+            "value": 0.3,
+            "value2": 0.7
+          },
+          {
+            "variable": "elevationM",
+            "op": "gt",
+            "value": 850
+          }
+        ],
+        "noiseConditions": [
+          {
+            "variable": "clearingNoise",
+            "op": "gt",
+            "value": 0.67
+          },
+          {
+            "variable": "flowerNoise",
+            "op": "gt",
+            "value": 0.64
+          }
+        ]
+      },
+      {
+        "zone": "lowland",
+        "priority": 42,
+        "conditions": [
+          {
+            "variable": "temperatureC",
+            "op": "between",
+            "value": 5,
+            "value2": 23
+          },
+          {
+            "variable": "moisture",
+            "op": "gt",
+            "value": 0.72
+          },
+          {
+            "variable": "moisture",
+            "op": "lte",
+            "value": 1.35
+          },
+          {
+            "variable": "precipitationMm",
+            "op": "gte",
+            "value": 380
+          },
+          {
+            "variable": "slope",
+            "op": "lt",
+            "value": 0.38
+          },
+          {
+            "variable": "snowy",
+            "op": "eq",
+            "bool": false
+          },
+          {
+            "variable": "bareSlope",
+            "op": "eq",
+            "bool": false
+          },
+          {
+            "variable": "treeCoverage",
+            "op": "between",
+            "value": 0.3,
+            "value2": 0.7
+          },
+          {
+            "variable": "elevationM",
+            "op": "lte",
+            "value": 850
+          }
+        ],
+        "noiseConditions": [
+          {
+            "variable": "clearingNoise",
+            "op": "gt",
+            "value": 0.6
+          },
+          {
+            "variable": "flowerNoise",
+            "op": "lt",
+            "value": -0.46
+          },
+          {
+            "variable": "variantNoise",
+            "op": "gt",
+            "value": 0.26
+          }
+        ]
+      },
+      {
+        "zone": "lowland",
+        "priority": 42,
+        "conditions": [
+          {
+            "variable": "temperatureC",
+            "op": "between",
+            "value": 12,
+            "value2": 19.99
+          },
+          {
+            "variable": "sparsity",
+            "op": "gt",
+            "value": 0.72
+          },
+          {
+            "variable": "treeCoverage",
+            "op": "between",
+            "value": 0.3,
+            "value2": 0.7
+          }
+        ],
+        "noiseConditions": [
+          {
+            "variable": "variantNoise",
+            "op": "gt",
+            "value": 0.22
+          }
+        ]
+      },
+      {
+        "zone": "lowland",
+        "priority": 42,
+        "conditions": [
+          {
+            "variable": "temperatureC",
+            "op": "between",
+            "value": 12,
+            "value2": 19.99
+          },
+          {
+            "variable": "variantNoise",
+            "op": "gt",
+            "value": 0.48
+          },
+          {
+            "variable": "moisture",
+            "op": "gt",
+            "value": 0.58
+          },
+          {
+            "variable": "treeCoverage",
+            "op": "between",
+            "value": 0.3,
+            "value2": 0.7
+          }
+        ]
+      },
+      {
+        "zone": "lowland",
+        "priority": 42,
+        "conditions": [
+          {
+            "variable": "temperatureC",
+            "op": "between",
+            "value": 12,
+            "value2": 19.99
+          },
+          {
+            "variable": "moisture",
+            "op": "gt",
+            "value": 0.58
+          },
+          {
+            "variable": "treeCoverage",
+            "op": "between",
+            "value": 0.3,
+            "value2": 0.7
+          }
+        ],
+        "noiseConditions": [
+          {
+            "variable": "flowerNoise",
+            "op": "gt",
+            "value": 0.66
+          },
+          {
+            "variable": "variantNoise",
+            "op": "gt",
+            "value": 0.1
+          }
+        ]
+      },
+      {
+        "zone": "lowland",
+        "priority": 42,
+        "conditions": [
+          {
+            "variable": "temperatureC",
+            "op": "between",
+            "value": 5,
+            "value2": 23
+          },
+          {
+            "variable": "moisture",
+            "op": "between",
+            "value": 0.52,
+            "value2": 1.12
+          },
+          {
+            "variable": "precipitationMm",
+            "op": "gte",
+            "value": 380
+          },
+          {
+            "variable": "slope",
+            "op": "lt",
+            "value": 0.38
+          },
+          {
+            "variable": "snowy",
+            "op": "eq",
+            "bool": false
+          },
+          {
+            "variable": "bareSlope",
+            "op": "eq",
+            "bool": false
+          },
+          {
+            "variable": "treeCoverage",
+            "op": "gte",
+            "value": 0.8
+          },
+          {
+            "variable": "elevationM",
+            "op": "gt",
+            "value": 850
+          }
+        ],
+        "noiseConditions": [
+          {
+            "variable": "clearingNoise",
+            "op": "gt",
+            "value": 0.82
+          },
+          {
+            "variable": "flowerNoise",
+            "op": "gt",
+            "value": 0.64
+          }
+        ]
+      },
+      {
+        "zone": "lowland",
+        "priority": 42,
+        "conditions": [
+          {
+            "variable": "temperatureC",
+            "op": "between",
+            "value": 5,
+            "value2": 23
+          },
+          {
+            "variable": "moisture",
+            "op": "between",
+            "value": 1.1201,
+            "value2": 1.35
+          },
+          {
+            "variable": "precipitationMm",
+            "op": "gte",
+            "value": 380
+          },
+          {
+            "variable": "slope",
+            "op": "lt",
+            "value": 0.38
+          },
+          {
+            "variable": "snowy",
+            "op": "eq",
+            "bool": false
+          },
+          {
+            "variable": "bareSlope",
+            "op": "eq",
+            "bool": false
+          },
+          {
+            "variable": "treeCoverage",
+            "op": "gte",
+            "value": 0.8
+          },
+          {
+            "variable": "elevationM",
+            "op": "gt",
+            "value": 850
+          }
+        ],
+        "noiseConditions": [
+          {
+            "variable": "clearingNoise",
+            "op": "gt",
+            "value": 0.89
+          },
+          {
+            "variable": "flowerNoise",
+            "op": "gt",
+            "value": 0.64
+          }
+        ]
+      },
+      {
+        "zone": "lowland",
+        "priority": 42,
+        "conditions": [
+          {
+            "variable": "temperatureC",
+            "op": "between",
+            "value": 5,
+            "value2": 23
+          },
+          {
+            "variable": "moisture",
+            "op": "gt",
+            "value": 0.72
+          },
+          {
+            "variable": "moisture",
+            "op": "lte",
+            "value": 1.35
+          },
+          {
+            "variable": "precipitationMm",
+            "op": "gte",
+            "value": 380
+          },
+          {
+            "variable": "slope",
+            "op": "lt",
+            "value": 0.38
+          },
+          {
+            "variable": "snowy",
+            "op": "eq",
+            "bool": false
+          },
+          {
+            "variable": "bareSlope",
+            "op": "eq",
+            "bool": false
+          },
+          {
+            "variable": "treeCoverage",
+            "op": "gte",
+            "value": 0.8
+          },
+          {
+            "variable": "elevationM",
+            "op": "lte",
+            "value": 850
+          }
+        ],
+        "noiseConditions": [
+          {
+            "variable": "clearingNoise",
+            "op": "gt",
+            "value": 0.82
+          },
+          {
+            "variable": "flowerNoise",
+            "op": "lt",
+            "value": -0.46
+          },
+          {
+            "variable": "variantNoise",
+            "op": "gt",
+            "value": 0.26
+          }
+        ]
+      },
+      {
+        "zone": "lowland",
+        "priority": 42,
+        "conditions": [
+          {
+            "variable": "temperatureC",
+            "op": "between",
+            "value": 5,
+            "value2": 23
+          },
+          {
+            "variable": "moisture",
+            "op": "between",
+            "value": 0.52,
+            "value2": 1.12
+          },
+          {
+            "variable": "precipitationMm",
+            "op": "gte",
+            "value": 380
+          },
+          {
+            "variable": "slope",
+            "op": "lt",
+            "value": 0.38
+          },
+          {
+            "variable": "snowy",
+            "op": "eq",
+            "bool": false
+          },
+          {
+            "variable": "bareSlope",
+            "op": "eq",
+            "bool": false
+          },
+          {
+            "variable": "treeCoverage",
+            "op": "gte",
+            "value": 0.95
+          },
+          {
+            "variable": "elevationM",
+            "op": "gt",
+            "value": 850
+          }
+        ],
+        "noiseConditions": [
+          {
+            "variable": "clearingNoise",
+            "op": "gt",
+            "value": 0.82
+          },
+          {
+            "variable": "flowerNoise",
+            "op": "gt",
+            "value": 0.64
+          }
+        ]
+      },
+      {
+        "zone": "lowland",
+        "priority": 42,
+        "conditions": [
+          {
+            "variable": "temperatureC",
+            "op": "between",
+            "value": 5,
+            "value2": 23
+          },
+          {
+            "variable": "moisture",
+            "op": "between",
+            "value": 1.1201,
+            "value2": 1.35
+          },
+          {
+            "variable": "precipitationMm",
+            "op": "gte",
+            "value": 380
+          },
+          {
+            "variable": "slope",
+            "op": "lt",
+            "value": 0.38
+          },
+          {
+            "variable": "snowy",
+            "op": "eq",
+            "bool": false
+          },
+          {
+            "variable": "bareSlope",
+            "op": "eq",
+            "bool": false
+          },
+          {
+            "variable": "treeCoverage",
+            "op": "gte",
+            "value": 0.95
+          },
+          {
+            "variable": "elevationM",
+            "op": "gt",
+            "value": 850
+          }
+        ],
+        "noiseConditions": [
+          {
+            "variable": "clearingNoise",
+            "op": "gt",
+            "value": 0.89
+          },
+          {
+            "variable": "flowerNoise",
+            "op": "gt",
+            "value": 0.64
+          }
+        ]
+      },
+      {
+        "zone": "lowland",
+        "priority": 42,
+        "conditions": [
+          {
+            "variable": "temperatureC",
+            "op": "between",
+            "value": 5,
+            "value2": 23
+          },
+          {
+            "variable": "moisture",
+            "op": "gt",
+            "value": 0.72
+          },
+          {
+            "variable": "moisture",
+            "op": "lte",
+            "value": 1.35
+          },
+          {
+            "variable": "precipitationMm",
+            "op": "gte",
+            "value": 380
+          },
+          {
+            "variable": "slope",
+            "op": "lt",
+            "value": 0.38
+          },
+          {
+            "variable": "snowy",
+            "op": "eq",
+            "bool": false
+          },
+          {
+            "variable": "bareSlope",
+            "op": "eq",
+            "bool": false
+          },
+          {
+            "variable": "treeCoverage",
+            "op": "gte",
+            "value": 0.95
+          },
+          {
+            "variable": "elevationM",
+            "op": "lte",
+            "value": 850
+          }
+        ],
+        "noiseConditions": [
+          {
+            "variable": "clearingNoise",
+            "op": "gt",
+            "value": 0.82
+          },
+          {
+            "variable": "flowerNoise",
+            "op": "lt",
+            "value": -0.46
+          },
+          {
+            "variable": "variantNoise",
+            "op": "gt",
+            "value": 0.26
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "index": 10,
+    "key": "minecraft:birch_forest",
+    "fallbackKey": "minecraft:forest",
+    "kind": "OVERWORLD",
+    "color": 3175492,
+    "hardBoundary": false,
+    "blendable": true,
+    "river": false,
+    "frozenRiver": false,
+    "canGenerateOverworld": true,
+    "rules": [
+      {
+        "zone": "lowland",
+        "priority": 42,
+        "conditions": [
+          {
+            "variable": "temperatureC",
+            "op": "between",
+            "value": 12,
+            "value2": 19.99
+          },
+          {
+            "variable": "treeCoverage",
+            "op": "between",
+            "value": 0.3,
+            "value2": 0.7
+          }
+        ],
+        "noiseConditions": [
+          {
+            "variable": "variantNoise",
+            "op": "lt",
+            "value": -0.35
+          }
+        ]
+      },
+      {
+        "zone": "lowland",
+        "priority": 42,
+        "conditions": [
+          {
+            "variable": "treeCoverage",
+            "op": "gte",
+            "value": 0.8
+          },
+          {
+            "variable": "temperatureC",
+            "op": "between",
+            "value": 12,
+            "value2": 19.99
+          }
+        ],
+        "noiseConditions": [
+          {
+            "variable": "variantNoise",
+            "op": "lt",
+            "value": -0.4
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "index": 11,
+    "key": "minecraft:dark_forest",
+    "fallbackKey": "minecraft:forest",
+    "kind": "OVERWORLD",
+    "color": 4215066,
+    "hardBoundary": false,
+    "blendable": true,
+    "river": false,
+    "frozenRiver": false,
+    "canGenerateOverworld": true,
+    "rules": [
+      {
+        "zone": "lowland",
+        "priority": 70,
+        "conditions": [
+          {
+            "variable": "temperatureC",
+            "op": "between",
+            "value": 12,
+            "value2": 19.99
+          },
+          {
+            "variable": "moisture",
+            "op": "gt",
+            "value": 1.12
+          },
+          {
+            "variable": "treeCoverage",
+            "op": "between",
+            "value": 0.3,
+            "value2": 0.7
+          }
+        ]
+      },
+      {
+        "zone": "lowland",
+        "priority": 70,
+        "conditions": [
+          {
+            "variable": "moisture",
+            "op": "gt",
+            "value": 1.15
+          },
+          {
+            "variable": "treeCoverage",
+            "op": "gte",
+            "value": 0.8
+          },
+          {
+            "variable": "temperatureC",
+            "op": "between",
+            "value": 12,
+            "value2": 19.99
+          }
+        ],
+        "noiseConditions": [
+          {
+            "variable": "variantNoise",
+            "op": "gt",
+            "value": 0.1
+          }
+        ]
+      },
+      {
+        "zone": "lowland",
+        "priority": 70,
+        "conditions": [
+          {
+            "variable": "moisture",
+            "op": "gt",
+            "value": 1.2
+          },
+          {
+            "variable": "treeCoverage",
+            "op": "gte",
+            "value": 0.95
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "index": 12,
+    "key": "minecraft:old_growth_birch_forest",
+    "fallbackKey": "minecraft:birch_forest",
+    "kind": "OVERWORLD",
+    "color": 5807212,
+    "hardBoundary": false,
+    "blendable": true,
+    "river": false,
+    "frozenRiver": false,
+    "canGenerateOverworld": true,
+    "rules": []
+  },
+  {
+    "index": 13,
+    "key": "minecraft:old_growth_pine_taiga",
+    "fallbackKey": "minecraft:taiga",
+    "kind": "OVERWORLD",
+    "color": 5858897,
+    "hardBoundary": false,
+    "blendable": true,
+    "river": false,
+    "frozenRiver": false,
+    "canGenerateOverworld": true,
+    "rules": [
+      {
+        "zone": "lowland",
+        "priority": 58,
+        "conditions": [
+          {
+            "variable": "temperatureC",
+            "op": "between",
+            "value": -5,
+            "value2": 11.99
+          },
+          {
+            "variable": "moisture",
+            "op": "gt",
+            "value": 1.1
+          },
+          {
+            "variable": "treeCoverage",
+            "op": "gte",
+            "value": 0.8
+          },
+          {
+            "variable": "snowy",
+            "op": "eq",
+            "bool": false
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "index": 14,
+    "key": "minecraft:old_growth_spruce_taiga",
+    "fallbackKey": "minecraft:taiga",
+    "kind": "OVERWORLD",
+    "color": 8490617,
+    "hardBoundary": false,
+    "blendable": true,
+    "river": false,
+    "frozenRiver": false,
+    "canGenerateOverworld": true,
+    "rules": [
+      {
+        "zone": "mountain",
+        "priority": 60,
+        "conditions": [
+          {
+            "variable": "treeCoverage",
+            "op": "gte",
+            "value": 0.8
+          },
+          {
+            "variable": "temperatureC",
+            "op": "between",
+            "value": -5,
+            "value2": 11.99
+          },
+          {
+            "variable": "moisture",
+            "op": "gt",
+            "value": 0.95
+          }
+        ]
+      },
+      {
+        "zone": "lowland",
+        "priority": 60,
+        "conditions": [
+          {
+            "variable": "temperatureC",
+            "op": "between",
+            "value": -5,
+            "value2": 11.99
+          },
+          {
+            "variable": "moisture",
+            "op": "gt",
+            "value": 1.1
+          },
+          {
+            "variable": "treeCoverage",
+            "op": "gte",
+            "value": 0.95
+          },
+          {
+            "variable": "snowy",
+            "op": "eq",
+            "bool": false
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "index": 15,
+    "key": "minecraft:taiga",
+    "fallbackKey": "minecraft:taiga",
+    "kind": "OVERWORLD",
+    "color": 747097,
+    "hardBoundary": false,
+    "blendable": true,
+    "river": false,
+    "frozenRiver": false,
+    "canGenerateOverworld": true,
+    "rules": [
+      {
+        "zone": "mountain",
+        "priority": 65,
+        "conditions": [
+          {
+            "variable": "treeCoverage",
+            "op": "gte",
+            "value": 0.3
+          },
+          {
+            "variable": "sparsity",
+            "op": "gt",
+            "value": 0.5
+          },
+          {
+            "variable": "slope",
+            "op": "lte",
+            "value": 0.38
+          },
+          {
+            "variable": "temperatureC",
+            "op": "between",
+            "value": -5,
+            "value2": 11.99
+          }
+        ]
+      },
+      {
+        "zone": "mountain",
+        "priority": 65,
+        "conditions": [
+          {
+            "variable": "treeCoverage",
+            "op": "gte",
+            "value": 0.8
+          },
+          {
+            "variable": "temperatureC",
+            "op": "between",
+            "value": -5,
+            "value2": 11.99
+          },
+          {
+            "variable": "moisture",
+            "op": "lte",
+            "value": 0.95
+          }
+        ]
+      },
+      {
+        "zone": "lowland",
+        "priority": 65,
+        "conditions": [
+          {
+            "variable": "temperatureC",
+            "op": "between",
+            "value": -5,
+            "value2": 11.99
+          },
+          {
+            "variable": "treeCoverage",
+            "op": "between",
+            "value": 0.3,
+            "value2": 0.7
+          },
+          {
+            "variable": "snowy",
+            "op": "eq",
+            "bool": false
+          }
+        ]
+      },
+      {
+        "zone": "lowland",
+        "priority": 65,
+        "conditions": [
+          {
+            "variable": "temperatureC",
+            "op": "between",
+            "value": -5,
+            "value2": 11.99
+          },
+          {
+            "variable": "moisture",
+            "op": "lte",
+            "value": 1.1
+          },
+          {
+            "variable": "treeCoverage",
+            "op": "gte",
+            "value": 0.8
+          },
+          {
+            "variable": "snowy",
+            "op": "eq",
+            "bool": false
+          }
+        ]
+      },
+      {
+        "zone": "lowland",
+        "priority": 65,
+        "conditions": [
+          {
+            "variable": "temperatureC",
+            "op": "between",
+            "value": -5,
+            "value2": 11.99
+          },
+          {
+            "variable": "moisture",
+            "op": "lte",
+            "value": 1.1
+          },
+          {
+            "variable": "treeCoverage",
+            "op": "gte",
+            "value": 0.95
+          },
+          {
+            "variable": "snowy",
+            "op": "eq",
+            "bool": false
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "index": 16,
+    "key": "minecraft:snowy_taiga",
+    "fallbackKey": "minecraft:snowy_taiga",
+    "kind": "OVERWORLD",
+    "color": 3233098,
+    "hardBoundary": false,
+    "blendable": true,
+    "river": false,
+    "frozenRiver": false,
+    "canGenerateOverworld": true,
+    "rules": [
+      {
+        "zone": "mountain",
+        "priority": 75,
+        "conditions": [
+          {
+            "variable": "snowy",
+            "op": "eq",
+            "bool": true
+          },
+          {
+            "variable": "sparsity",
+            "op": "lte",
+            "value": 0.75
+          },
+          {
+            "variable": "treeCoverage",
+            "op": "gte",
+            "value": 0.8
+          }
+        ]
+      },
+      {
+        "zone": "mountain",
+        "priority": 75,
+        "conditions": [
+          {
+            "variable": "temperatureC",
+            "op": "lt",
+            "value": -5
+          },
+          {
+            "variable": "snowy",
+            "op": "eq",
+            "bool": false
+          },
+          {
+            "variable": "sparsity",
+            "op": "lte",
+            "value": 0.75
+          },
+          {
+            "variable": "treeCoverage",
+            "op": "gte",
+            "value": 0.8
+          }
+        ]
+      },
+      {
+        "zone": "lowland",
+        "priority": 75,
+        "conditions": [
+          {
+            "variable": "snowy",
+            "op": "eq",
+            "bool": true
+          },
+          {
+            "variable": "treeCoverage",
+            "op": "gte",
+            "value": 0.3
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "index": 17,
+    "key": "minecraft:savanna",
+    "fallbackKey": "minecraft:savanna",
+    "kind": "OVERWORLD",
+    "color": 12431967,
+    "hardBoundary": false,
+    "blendable": true,
+    "river": false,
+    "frozenRiver": false,
+    "canGenerateOverworld": true,
+    "rules": [
+      {
+        "zone": "lowland",
+        "priority": 75,
+        "conditions": [
+          {
+            "variable": "temperatureC",
+            "op": "between",
+            "value": 20,
+            "value2": 25.99
+          },
+          {
+            "variable": "moisture",
+            "op": "lt",
+            "value": 0.3
+          },
+          {
+            "variable": "snowy",
+            "op": "eq",
+            "bool": false
+          },
+          {
+            "variable": "treeCoverage",
+            "op": "lte",
+            "value": 0.01
+          }
+        ]
+      },
+      {
+        "zone": "lowland",
+        "priority": 75,
+        "conditions": [
+          {
+            "variable": "temperatureC",
+            "op": "gte",
+            "value": 26
+          },
+          {
+            "variable": "moisture",
+            "op": "lt",
+            "value": 0.3
+          },
+          {
+            "variable": "snowy",
+            "op": "eq",
+            "bool": false
+          },
+          {
+            "variable": "treeCoverage",
+            "op": "lte",
+            "value": 0.01
+          }
+        ]
+      },
+      {
+        "zone": "lowland",
+        "priority": 75,
+        "conditions": [
+          {
+            "variable": "temperatureC",
+            "op": "between",
+            "value": 20,
+            "value2": 25.99
+          },
+          {
+            "variable": "moisture",
+            "op": "lt",
+            "value": 0.35
+          },
+          {
+            "variable": "snowy",
+            "op": "eq",
+            "bool": false
+          },
+          {
+            "variable": "treeCoverage",
+            "op": "lte",
+            "value": 0.01
+          }
+        ]
+      },
+      {
+        "zone": "lowland",
+        "priority": 75,
+        "conditions": [
+          {
+            "variable": "temperatureC",
+            "op": "gte",
+            "value": 26
+          },
+          {
+            "variable": "moisture",
+            "op": "lt",
+            "value": 0.35
+          },
+          {
+            "variable": "snowy",
+            "op": "eq",
+            "bool": false
+          },
+          {
+            "variable": "treeCoverage",
+            "op": "lte",
+            "value": 0.01
+          }
+        ]
+      },
+      {
+        "zone": "lowland",
+        "priority": 75,
+        "conditions": [
+          {
+            "variable": "temperatureC",
+            "op": "between",
+            "value": 20,
+            "value2": 25.99
+          },
+          {
+            "variable": "precipitationMm",
+            "op": "lt",
+            "value": 350
+          },
+          {
+            "variable": "snowy",
+            "op": "eq",
+            "bool": false
+          },
+          {
+            "variable": "treeCoverage",
+            "op": "lte",
+            "value": 0.01
+          }
+        ]
+      },
+      {
+        "zone": "lowland",
+        "priority": 75,
+        "conditions": [
+          {
+            "variable": "temperatureC",
+            "op": "gte",
+            "value": 26
+          },
+          {
+            "variable": "precipitationMm",
+            "op": "lt",
+            "value": 350
+          },
+          {
+            "variable": "snowy",
+            "op": "eq",
+            "bool": false
+          },
+          {
+            "variable": "treeCoverage",
+            "op": "lte",
+            "value": 0.01
+          }
+        ]
+      },
+      {
+        "zone": "lowland",
+        "priority": 75,
+        "conditions": [
+          {
+            "variable": "temperatureC",
+            "op": "between",
+            "value": 20,
+            "value2": 25.99
+          },
+          {
+            "variable": "sparsity",
+            "op": "gt",
+            "value": 0.55
+          },
+          {
+            "variable": "treeCoverage",
+            "op": "between",
+            "value": 0.3,
+            "value2": 0.7
+          },
+          {
+            "variable": "snowy",
+            "op": "eq",
+            "bool": false
+          }
+        ]
+      },
+      {
+        "zone": "lowland",
+        "priority": 75,
+        "conditions": [
+          {
+            "variable": "temperatureC",
+            "op": "between",
+            "value": 20,
+            "value2": 25.99
+          },
+          {
+            "variable": "moisture",
+            "op": "lt",
+            "value": 0.65
+          },
+          {
+            "variable": "treeCoverage",
+            "op": "between",
+            "value": 0.3,
+            "value2": 0.7
+          },
+          {
+            "variable": "snowy",
+            "op": "eq",
+            "bool": false
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "index": 18,
+    "key": "minecraft:savanna_plateau",
+    "fallbackKey": "minecraft:savanna",
+    "kind": "OVERWORLD",
+    "color": 10984804,
+    "hardBoundary": false,
+    "blendable": true,
+    "river": false,
+    "frozenRiver": false,
+    "canGenerateOverworld": true,
+    "rules": [
+      {
+        "zone": "mountain",
+        "priority": 65,
+        "conditions": [
+          {
+            "variable": "temperatureC",
+            "op": "between",
+            "value": 20,
+            "value2": 25.99
+          },
+          {
+            "variable": "sparsity",
+            "op": "gt",
+            "value": 0.55
+          },
+          {
+            "variable": "slope",
+            "op": "lte",
+            "value": 0.45
+          }
+        ]
+      },
+      {
+        "zone": "mountain",
+        "priority": 65,
+        "conditions": [
+          {
+            "variable": "temperatureC",
+            "op": "gte",
+            "value": 26
+          },
+          {
+            "variable": "sparsity",
+            "op": "gt",
+            "value": 0.55
+          },
+          {
+            "variable": "slope",
+            "op": "lte",
+            "value": 0.45
+          }
+        ]
+      },
+      {
+        "zone": "lowland",
+        "priority": 65,
+        "conditions": [
+          {
+            "variable": "temperatureC",
+            "op": "between",
+            "value": 20,
+            "value2": 25.99
+          },
+          {
+            "variable": "elevationM",
+            "op": "gt",
+            "value": 900
+          },
+          {
+            "variable": "sparsity",
+            "op": "gt",
+            "value": 0.5
+          },
+          {
+            "variable": "moisture",
+            "op": "lt",
+            "value": 0.75
+          },
+          {
+            "variable": "treeCoverage",
+            "op": "between",
+            "value": 0.3,
+            "value2": 0.7
+          },
+          {
+            "variable": "snowy",
+            "op": "eq",
+            "bool": false
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "index": 19,
+    "key": "minecraft:windswept_hills",
+    "fallbackKey": "minecraft:windswept_hills",
+    "kind": "MOUNTAIN",
+    "color": 6316128,
+    "hardBoundary": false,
+    "blendable": true,
+    "river": false,
+    "frozenRiver": false,
+    "canGenerateOverworld": true,
+    "rules": [
+      {
+        "zone": "mountain",
+        "priority": 70,
+        "conditions": [
+          {
+            "variable": "treeCoverage",
+            "op": "lte",
+            "value": 0.01
+          },
+          {
+            "variable": "treeMoisture",
+            "op": "lt",
+            "value": 0.05
+          },
+          {
+            "variable": "slope",
+            "op": "lte",
+            "value": 0.45
+          },
+          {
+            "variable": "temperatureC",
+            "op": "between",
+            "value": -5,
+            "value2": 19.99
+          }
+        ]
+      },
+      {
+        "zone": "mountain",
+        "priority": 70,
+        "conditions": [
+          {
+            "variable": "treeCoverage",
+            "op": "lte",
+            "value": 0.01
+          },
+          {
+            "variable": "growingSeasonDays",
+            "op": "lt",
+            "value": 60
+          },
+          {
+            "variable": "slope",
+            "op": "lte",
+            "value": 0.45
+          },
+          {
+            "variable": "temperatureC",
+            "op": "between",
+            "value": -5,
+            "value2": 19.99
+          }
+        ]
+      },
+      {
+        "zone": "mountain",
+        "priority": 70,
+        "conditions": [
+          {
+            "variable": "treeCoverage",
+            "op": "lte",
+            "value": 0.01
+          },
+          {
+            "variable": "moisture",
+            "op": "lt",
+            "value": 0.28
+          },
+          {
+            "variable": "slope",
+            "op": "lte",
+            "value": 0.45
+          },
+          {
+            "variable": "temperatureC",
+            "op": "between",
+            "value": -5,
+            "value2": 19.99
+          }
+        ]
+      },
+      {
+        "zone": "mountain",
+        "priority": 70,
+        "conditions": [
+          {
+            "variable": "treeCoverage",
+            "op": "lte",
+            "value": 0.01
+          },
+          {
+            "variable": "precipitationMm",
+            "op": "lt",
+            "value": 300
+          },
+          {
+            "variable": "slope",
+            "op": "lte",
+            "value": 0.45
+          },
+          {
+            "variable": "temperatureC",
+            "op": "between",
+            "value": -5,
+            "value2": 19.99
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "index": 20,
+    "key": "minecraft:windswept_gravelly_hills",
+    "fallbackKey": "minecraft:windswept_hills",
+    "kind": "MOUNTAIN",
+    "color": 8947848,
+    "hardBoundary": false,
+    "blendable": true,
+    "river": false,
+    "frozenRiver": false,
+    "canGenerateOverworld": true,
+    "rules": [
+      {
+        "zone": "mountain",
+        "priority": 55,
+        "conditions": [
+          {
+            "variable": "treeCoverage",
+            "op": "lte",
+            "value": 0.01
+          },
+          {
+            "variable": "treeMoisture",
+            "op": "lt",
+            "value": 0.05
+          },
+          {
+            "variable": "slope",
+            "op": "gt",
+            "value": 0.45
+          },
+          {
+            "variable": "temperatureC",
+            "op": "between",
+            "value": -5,
+            "value2": 19.99
+          }
+        ]
+      },
+      {
+        "zone": "mountain",
+        "priority": 55,
+        "conditions": [
+          {
+            "variable": "treeCoverage",
+            "op": "lte",
+            "value": 0.01
+          },
+          {
+            "variable": "growingSeasonDays",
+            "op": "lt",
+            "value": 60
+          },
+          {
+            "variable": "slope",
+            "op": "gt",
+            "value": 0.45
+          },
+          {
+            "variable": "temperatureC",
+            "op": "between",
+            "value": -5,
+            "value2": 19.99
+          }
+        ]
+      },
+      {
+        "zone": "mountain",
+        "priority": 55,
+        "conditions": [
+          {
+            "variable": "treeCoverage",
+            "op": "lte",
+            "value": 0.01
+          },
+          {
+            "variable": "moisture",
+            "op": "lt",
+            "value": 0.28
+          },
+          {
+            "variable": "slope",
+            "op": "gt",
+            "value": 0.45
+          },
+          {
+            "variable": "temperatureC",
+            "op": "between",
+            "value": -5,
+            "value2": 19.99
+          }
+        ]
+      },
+      {
+        "zone": "mountain",
+        "priority": 55,
+        "conditions": [
+          {
+            "variable": "treeCoverage",
+            "op": "lte",
+            "value": 0.01
+          },
+          {
+            "variable": "precipitationMm",
+            "op": "lt",
+            "value": 300
+          },
+          {
+            "variable": "slope",
+            "op": "gt",
+            "value": 0.45
+          },
+          {
+            "variable": "temperatureC",
+            "op": "between",
+            "value": -5,
+            "value2": 19.99
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "index": 21,
+    "key": "minecraft:windswept_forest",
+    "fallbackKey": "minecraft:windswept_forest",
+    "kind": "MOUNTAIN",
+    "color": 5271632,
+    "hardBoundary": false,
+    "blendable": true,
+    "river": false,
+    "frozenRiver": false,
+    "canGenerateOverworld": true,
+    "rules": [
+      {
+        "zone": "mountain",
+        "priority": 62,
+        "conditions": [
+          {
+            "variable": "treeCoverage",
+            "op": "gte",
+            "value": 0.3
+          },
+          {
+            "variable": "sparsity",
+            "op": "gt",
+            "value": 0.5
+          },
+          {
+            "variable": "slope",
+            "op": "gt",
+            "value": 0.38
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "index": 22,
+    "key": "minecraft:windswept_savanna",
+    "fallbackKey": "minecraft:savanna",
+    "kind": "MOUNTAIN",
+    "color": 15063687,
+    "hardBoundary": false,
+    "blendable": true,
+    "river": false,
+    "frozenRiver": false,
+    "canGenerateOverworld": true,
+    "rules": [
+      {
+        "zone": "mountain",
+        "priority": 62,
+        "conditions": [
+          {
+            "variable": "temperatureC",
+            "op": "between",
+            "value": 20,
+            "value2": 25.99
+          },
+          {
+            "variable": "sparsity",
+            "op": "gt",
+            "value": 0.55
+          },
+          {
+            "variable": "slope",
+            "op": "gt",
+            "value": 0.45
+          }
+        ]
+      },
+      {
+        "zone": "mountain",
+        "priority": 62,
+        "conditions": [
+          {
+            "variable": "temperatureC",
+            "op": "gte",
+            "value": 26
+          },
+          {
+            "variable": "sparsity",
+            "op": "gt",
+            "value": 0.55
+          },
+          {
+            "variable": "slope",
+            "op": "gt",
+            "value": 0.45
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "index": 23,
+    "key": "minecraft:jungle",
+    "fallbackKey": "minecraft:jungle",
+    "kind": "OVERWORLD",
+    "color": 5470985,
+    "hardBoundary": false,
+    "blendable": true,
+    "river": false,
+    "frozenRiver": false,
+    "canGenerateOverworld": true,
+    "rules": [
+      {
+        "zone": "lowland",
+        "priority": 78,
+        "conditions": [
+          {
+            "variable": "temperatureC",
+            "op": "gte",
+            "value": 26
+          },
+          {
+            "variable": "treeCoverage",
+            "op": "gte",
+            "value": 0.8
+          }
+        ]
+      },
+      {
+        "zone": "lowland",
+        "priority": 78,
+        "conditions": [
+          {
+            "variable": "temperatureC",
+            "op": "gte",
+            "value": 26
+          },
+          {
+            "variable": "treeCoverage",
+            "op": "gte",
+            "value": 0.95
+          }
+        ]
+      },
+      {
+        "zone": "lowland",
+        "priority": 78,
+        "conditions": [
+          {
+            "variable": "temperatureC",
+            "op": "between",
+            "value": 18,
+            "value2": 25.99
+          },
+          {
+            "variable": "temperatureSeasonality",
+            "op": "lt",
+            "value": 500
+          },
+          {
+            "variable": "treeCoverage",
+            "op": "gte",
+            "value": 0.95
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "index": 24,
+    "key": "minecraft:sparse_jungle",
+    "fallbackKey": "minecraft:jungle",
+    "kind": "OVERWORLD",
+    "color": 6458135,
+    "hardBoundary": false,
+    "blendable": true,
+    "river": false,
+    "frozenRiver": false,
+    "canGenerateOverworld": true,
+    "rules": [
+      {
+        "zone": "lowland",
+        "priority": 78,
+        "conditions": [
+          {
+            "variable": "temperatureC",
+            "op": "gte",
+            "value": 26
+          },
+          {
+            "variable": "moisture",
+            "op": "gte",
+            "value": 0.45
+          },
+          {
+            "variable": "treeCoverage",
+            "op": "between",
+            "value": 0.3,
+            "value2": 0.7
+          },
+          {
+            "variable": "snowy",
+            "op": "eq",
+            "bool": false
+          }
+        ]
+      },
+      {
+        "zone": "lowland",
+        "priority": 78,
+        "conditions": [
+          {
+            "variable": "temperatureC",
+            "op": "between",
+            "value": 20,
+            "value2": 25.99
+          },
+          {
+            "variable": "treeCoverage",
+            "op": "between",
+            "value": 0.3,
+            "value2": 0.7
+          },
+          {
+            "variable": "snowy",
+            "op": "eq",
+            "bool": false
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "index": 25,
+    "key": "minecraft:bamboo_jungle",
+    "fallbackKey": "minecraft:jungle",
+    "kind": "OVERWORLD",
+    "color": 7769620,
+    "hardBoundary": false,
+    "blendable": true,
+    "river": false,
+    "frozenRiver": false,
+    "canGenerateOverworld": true,
+    "rules": [
+      {
+        "zone": "lowland",
+        "priority": 60,
+        "conditions": [
+          {
+            "variable": "temperatureC",
+            "op": "gte",
+            "value": 26
+          },
+          {
+            "variable": "moisture",
+            "op": "gt",
+            "value": 1.45
+          },
+          {
+            "variable": "treeCoverage",
+            "op": "gte",
+            "value": 0.8
+          }
+        ],
+        "noiseConditions": [
+          {
+            "variable": "variantNoise",
+            "op": "gt",
+            "value": 0.15
+          }
+        ]
+      },
+      {
+        "zone": "lowland",
+        "priority": 60,
+        "conditions": [
+          {
+            "variable": "temperatureC",
+            "op": "gte",
+            "value": 26
+          },
+          {
+            "variable": "moisture",
+            "op": "gt",
+            "value": 1.55
+          },
+          {
+            "variable": "treeCoverage",
+            "op": "gte",
+            "value": 0.95
+          }
+        ],
+        "noiseConditions": [
+          {
+            "variable": "variantNoise",
+            "op": "gt",
+            "value": 0.05
+          }
+        ]
+      },
+      {
+        "zone": "lowland",
+        "priority": 60,
+        "conditions": [
+          {
+            "variable": "temperatureC",
+            "op": "between",
+            "value": 18,
+            "value2": 25.99
+          },
+          {
+            "variable": "temperatureSeasonality",
+            "op": "lt",
+            "value": 500
+          },
+          {
+            "variable": "moisture",
+            "op": "gt",
+            "value": 1.55
+          },
+          {
+            "variable": "treeCoverage",
+            "op": "gte",
+            "value": 0.95
+          }
+        ],
+        "noiseConditions": [
+          {
+            "variable": "variantNoise",
+            "op": "gt",
+            "value": 0.05
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "index": 26,
+    "key": "minecraft:badlands",
+    "fallbackKey": "minecraft:badlands",
+    "kind": "OVERWORLD",
+    "color": 14238997,
+    "hardBoundary": false,
+    "blendable": true,
+    "river": false,
+    "frozenRiver": false,
+    "canGenerateOverworld": true,
+    "rules": [
+      {
+        "zone": "lowland",
+        "priority": 70,
+        "conditions": [
+          {
+            "variable": "temperatureC",
+            "op": "between",
+            "value": 20,
+            "value2": 25.99
+          },
+          {
+            "variable": "moisture",
+            "op": "lt",
+            "value": 0.3
+          },
+          {
+            "variable": "slope",
+            "op": "between",
+            "value": 0.22,
+            "value2": 0.38
+          },
+          {
+            "variable": "snowy",
+            "op": "eq",
+            "bool": false
+          },
+          {
+            "variable": "treeCoverage",
+            "op": "lte",
+            "value": 0.01
+          }
+        ]
+      },
+      {
+        "zone": "lowland",
+        "priority": 70,
+        "conditions": [
+          {
+            "variable": "temperatureC",
+            "op": "gte",
+            "value": 26
+          },
+          {
+            "variable": "moisture",
+            "op": "lt",
+            "value": 0.3
+          },
+          {
+            "variable": "slope",
+            "op": "between",
+            "value": 0.22,
+            "value2": 0.38
+          },
+          {
+            "variable": "snowy",
+            "op": "eq",
+            "bool": false
+          },
+          {
+            "variable": "treeCoverage",
+            "op": "lte",
+            "value": 0.01
+          }
+        ]
+      },
+      {
+        "zone": "lowland",
+        "priority": 70,
+        "conditions": [
+          {
+            "variable": "temperatureC",
+            "op": "between",
+            "value": 20,
+            "value2": 25.99
+          },
+          {
+            "variable": "moisture",
+            "op": "lt",
+            "value": 0.3
+          },
+          {
+            "variable": "snowy",
+            "op": "eq",
+            "bool": false
+          },
+          {
+            "variable": "treeCoverage",
+            "op": "lte",
+            "value": 0.01
+          }
+        ],
+        "noiseConditions": [
+          {
+            "variable": "variantNoise",
+            "op": "between",
+            "value": 0.18,
+            "value2": 0.42
+          }
+        ]
+      },
+      {
+        "zone": "lowland",
+        "priority": 70,
+        "conditions": [
+          {
+            "variable": "temperatureC",
+            "op": "gte",
+            "value": 26
+          },
+          {
+            "variable": "moisture",
+            "op": "lt",
+            "value": 0.3
+          },
+          {
+            "variable": "snowy",
+            "op": "eq",
+            "bool": false
+          },
+          {
+            "variable": "treeCoverage",
+            "op": "lte",
+            "value": 0.01
+          }
+        ],
+        "noiseConditions": [
+          {
+            "variable": "variantNoise",
+            "op": "between",
+            "value": 0.18,
+            "value2": 0.42
+          }
+        ]
+      },
+      {
+        "zone": "lowland",
+        "priority": 70,
+        "conditions": [
+          {
+            "variable": "temperatureC",
+            "op": "gte",
+            "value": 26
+          },
+          {
+            "variable": "moisture",
+            "op": "lt",
+            "value": 0.3
+          },
+          {
+            "variable": "precipitationMm",
+            "op": "lt",
+            "value": 420
+          },
+          {
+            "variable": "snowy",
+            "op": "eq",
+            "bool": false
+          },
+          {
+            "variable": "treeCoverage",
+            "op": "lte",
+            "value": 0.01
+          }
+        ]
+      },
+      {
+        "zone": "lowland",
+        "priority": 70,
+        "conditions": [
+          {
+            "variable": "temperatureC",
+            "op": "gte",
+            "value": 26
+          },
+          {
+            "variable": "moisture",
+            "op": "lt",
+            "value": 0.45
+          },
+          {
+            "variable": "treeCoverage",
+            "op": "between",
+            "value": 0.3,
+            "value2": 0.7
+          },
+          {
+            "variable": "snowy",
+            "op": "eq",
+            "bool": false
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "index": 27,
+    "key": "minecraft:eroded_badlands",
+    "fallbackKey": "minecraft:badlands",
+    "kind": "OVERWORLD",
+    "color": 16739645,
+    "hardBoundary": false,
+    "blendable": true,
+    "river": false,
+    "frozenRiver": false,
+    "canGenerateOverworld": true,
+    "rules": []
+  },
+  {
+    "index": 28,
+    "key": "minecraft:wooded_badlands",
+    "fallbackKey": "minecraft:badlands",
+    "kind": "OVERWORLD",
+    "color": 11573093,
+    "hardBoundary": false,
+    "blendable": true,
+    "river": false,
+    "frozenRiver": false,
+    "canGenerateOverworld": true,
+    "rules": [
+      {
+        "zone": "mountain",
+        "priority": 66,
+        "conditions": [
+          {
+            "variable": "temperatureC",
+            "op": "between",
+            "value": 20,
+            "value2": 25.99
+          },
+          {
+            "variable": "sparsity",
+            "op": "lte",
+            "value": 0.55
+          }
+        ]
+      },
+      {
+        "zone": "mountain",
+        "priority": 66,
+        "conditions": [
+          {
+            "variable": "temperatureC",
+            "op": "gte",
+            "value": 26
+          },
+          {
+            "variable": "sparsity",
+            "op": "lte",
+            "value": 0.55
+          }
+        ]
+      },
+      {
+        "zone": "lowland",
+        "priority": 66,
+        "conditions": [
+          {
+            "variable": "temperatureC",
+            "op": "between",
+            "value": 20,
+            "value2": 25.99
+          },
+          {
+            "variable": "moisture",
+            "op": "lt",
+            "value": 0.3
+          },
+          {
+            "variable": "slope",
+            "op": "gt",
+            "value": 0.38
+          },
+          {
+            "variable": "snowy",
+            "op": "eq",
+            "bool": false
+          },
+          {
+            "variable": "treeCoverage",
+            "op": "lte",
+            "value": 0.01
+          }
+        ]
+      },
+      {
+        "zone": "lowland",
+        "priority": 66,
+        "conditions": [
+          {
+            "variable": "temperatureC",
+            "op": "gte",
+            "value": 26
+          },
+          {
+            "variable": "moisture",
+            "op": "lt",
+            "value": 0.3
+          },
+          {
+            "variable": "slope",
+            "op": "gt",
+            "value": 0.38
+          },
+          {
+            "variable": "snowy",
+            "op": "eq",
+            "bool": false
+          },
+          {
+            "variable": "treeCoverage",
+            "op": "lte",
+            "value": 0.01
+          }
+        ]
+      },
+      {
+        "zone": "lowland",
+        "priority": 66,
+        "conditions": [
+          {
+            "variable": "temperatureC",
+            "op": "between",
+            "value": 20,
+            "value2": 25.99
+          },
+          {
+            "variable": "moisture",
+            "op": "lt",
+            "value": 0.3
+          },
+          {
+            "variable": "snowy",
+            "op": "eq",
+            "bool": false
+          },
+          {
+            "variable": "treeCoverage",
+            "op": "lte",
+            "value": 0.01
+          }
+        ],
+        "noiseConditions": [
+          {
+            "variable": "variantNoise",
+            "op": "gt",
+            "value": 0.42
+          }
+        ]
+      },
+      {
+        "zone": "lowland",
+        "priority": 66,
+        "conditions": [
+          {
+            "variable": "temperatureC",
+            "op": "gte",
+            "value": 26
+          },
+          {
+            "variable": "moisture",
+            "op": "lt",
+            "value": 0.3
+          },
+          {
+            "variable": "snowy",
+            "op": "eq",
+            "bool": false
+          },
+          {
+            "variable": "treeCoverage",
+            "op": "lte",
+            "value": 0.01
+          }
+        ],
+        "noiseConditions": [
+          {
+            "variable": "variantNoise",
+            "op": "gt",
+            "value": 0.42
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "index": 29,
+    "key": "minecraft:meadow",
+    "fallbackKey": "minecraft:meadow",
+    "kind": "OVERWORLD",
+    "color": 6333811,
+    "hardBoundary": false,
+    "blendable": true,
+    "river": false,
+    "frozenRiver": false,
+    "canGenerateOverworld": true,
+    "rules": [
+      {
+        "zone": "mountain",
+        "priority": 68,
+        "conditions": [
+          {
+            "variable": "treeCoverage",
+            "op": "lte",
+            "value": 0.01
+          },
+          {
+            "variable": "temperatureC",
+            "op": "between",
+            "value": -5,
+            "value2": 11.99
+          },
+          {
+            "variable": "moisture",
+            "op": "gte",
+            "value": 0.28
+          },
+          {
+            "variable": "precipitationMm",
+            "op": "gte",
+            "value": 300
+          },
+          {
+            "variable": "treeMoisture",
+            "op": "gte",
+            "value": 0.05
+          },
+          {
+            "variable": "growingSeasonDays",
+            "op": "gte",
+            "value": 60
+          }
+        ]
+      },
+      {
+        "zone": "mountain",
+        "priority": 68,
+        "conditions": [
+          {
+            "variable": "treeCoverage",
+            "op": "gte",
+            "value": 0.3
+          },
+          {
+            "variable": "sparsity",
+            "op": "gt",
+            "value": 0.5
+          },
+          {
+            "variable": "slope",
+            "op": "lte",
+            "value": 0.38
+          },
+          {
+            "variable": "temperatureC",
+            "op": "between",
+            "value": 12,
+            "value2": 19.99
+          }
+        ]
+      },
+      {
+        "zone": "mountain",
+        "priority": 68,
+        "conditions": [
+          {
+            "variable": "treeCoverage",
+            "op": "gte",
+            "value": 0.8
+          },
+          {
+            "variable": "temperatureC",
+            "op": "between",
+            "value": -5,
+            "value2": 19.99
+          }
+        ]
+      },
+      {
+        "zone": "lowland",
+        "priority": 68,
+        "conditions": [
+          {
+            "variable": "elevationM",
+            "op": "gt",
+            "value": 900
+          },
+          {
+            "variable": "treeMoisture",
+            "op": "lt",
+            "value": 0.05
+          },
+          {
+            "variable": "temperatureC",
+            "op": "between",
+            "value": -5,
+            "value2": 19.99
+          },
+          {
+            "variable": "snowy",
+            "op": "eq",
+            "bool": false
+          },
+          {
+            "variable": "treeCoverage",
+            "op": "lte",
+            "value": 0.01
+          },
+          {
+            "variable": "growingSeasonDays",
+            "op": "gte",
+            "value": 60
+          }
+        ]
+      },
+      {
+        "zone": "lowland",
+        "priority": 68,
+        "conditions": [
+          {
+            "variable": "elevationM",
+            "op": "gt",
+            "value": 900
+          },
+          {
+            "variable": "growingSeasonDays",
+            "op": "lt",
+            "value": 60
+          },
+          {
+            "variable": "temperatureC",
+            "op": "between",
+            "value": -5,
+            "value2": 19.99
+          },
+          {
+            "variable": "snowy",
+            "op": "eq",
+            "bool": false
+          },
+          {
+            "variable": "treeCoverage",
+            "op": "lte",
+            "value": 0.01
+          }
+        ]
+      },
+      {
+        "zone": "lowland",
+        "priority": 68,
+        "conditions": [
+          {
+            "variable": "elevationM",
+            "op": "gt",
+            "value": 900
+          },
+          {
+            "variable": "moisture",
+            "op": "lt",
+            "value": 0.35
+          },
+          {
+            "variable": "snowy",
+            "op": "eq",
+            "bool": false
+          },
+          {
+            "variable": "treeCoverage",
+            "op": "lte",
+            "value": 0.01
+          }
+        ]
+      },
+      {
+        "zone": "lowland",
+        "priority": 68,
+        "conditions": [
+          {
+            "variable": "elevationM",
+            "op": "gt",
+            "value": 900
+          },
+          {
+            "variable": "precipitationMm",
+            "op": "lt",
+            "value": 350
+          },
+          {
+            "variable": "snowy",
+            "op": "eq",
+            "bool": false
+          },
+          {
+            "variable": "treeCoverage",
+            "op": "lte",
+            "value": 0.01
+          }
+        ]
+      },
+      {
+        "zone": "lowland",
+        "priority": 68,
+        "conditions": [
+          {
+            "variable": "temperatureC",
+            "op": "between",
+            "value": 5,
+            "value2": 23
+          },
+          {
+            "variable": "moisture",
+            "op": "between",
+            "value": 0.52,
+            "value2": 1.35
+          },
+          {
+            "variable": "precipitationMm",
+            "op": "gte",
+            "value": 380
+          },
+          {
+            "variable": "slope",
+            "op": "lt",
+            "value": 0.38
+          },
+          {
+            "variable": "snowy",
+            "op": "eq",
+            "bool": false
+          },
+          {
+            "variable": "bareSlope",
+            "op": "eq",
+            "bool": false
+          },
+          {
+            "variable": "treeCoverage",
+            "op": "between",
+            "value": 0.3,
+            "value2": 0.7
+          },
+          {
+            "variable": "elevationM",
+            "op": "gt",
+            "value": 850
+          }
+        ],
+        "noiseConditions": [
+          {
+            "variable": "clearingNoise",
+            "op": "gt",
+            "value": 0.6
+          },
+          {
+            "variable": "flowerNoise",
+            "op": "lte",
+            "value": 0.64
+          }
+        ]
+      },
+      {
+        "zone": "lowland",
+        "priority": 68,
+        "conditions": [
+          {
+            "variable": "temperatureC",
+            "op": "between",
+            "value": 5,
+            "value2": 23
+          },
+          {
+            "variable": "moisture",
+            "op": "between",
+            "value": 0.52,
+            "value2": 1.35
+          },
+          {
+            "variable": "precipitationMm",
+            "op": "gte",
+            "value": 380
+          },
+          {
+            "variable": "slope",
+            "op": "lt",
+            "value": 0.38
+          },
+          {
+            "variable": "snowy",
+            "op": "eq",
+            "bool": false
+          },
+          {
+            "variable": "bareSlope",
+            "op": "eq",
+            "bool": false
+          },
+          {
+            "variable": "treeCoverage",
+            "op": "gte",
+            "value": 0.8
+          },
+          {
+            "variable": "elevationM",
+            "op": "gt",
+            "value": 850
+          }
+        ],
+        "noiseConditions": [
+          {
+            "variable": "clearingNoise",
+            "op": "gt",
+            "value": 0.82
+          },
+          {
+            "variable": "flowerNoise",
+            "op": "lte",
+            "value": 0.64
+          }
+        ]
+      },
+      {
+        "zone": "lowland",
+        "priority": 68,
+        "conditions": [
+          {
+            "variable": "temperatureC",
+            "op": "between",
+            "value": 5,
+            "value2": 23
+          },
+          {
+            "variable": "moisture",
+            "op": "between",
+            "value": 0.52,
+            "value2": 1.35
+          },
+          {
+            "variable": "precipitationMm",
+            "op": "gte",
+            "value": 380
+          },
+          {
+            "variable": "slope",
+            "op": "lt",
+            "value": 0.38
+          },
+          {
+            "variable": "snowy",
+            "op": "eq",
+            "bool": false
+          },
+          {
+            "variable": "bareSlope",
+            "op": "eq",
+            "bool": false
+          },
+          {
+            "variable": "treeCoverage",
+            "op": "gte",
+            "value": 0.95
+          },
+          {
+            "variable": "elevationM",
+            "op": "gt",
+            "value": 850
+          }
+        ],
+        "noiseConditions": [
+          {
+            "variable": "clearingNoise",
+            "op": "gt",
+            "value": 0.82
+          },
+          {
+            "variable": "flowerNoise",
+            "op": "lte",
+            "value": 0.64
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "index": 30,
+    "key": "minecraft:cherry_grove",
+    "fallbackKey": "minecraft:flower_forest",
+    "kind": "OVERWORLD",
+    "color": 13666990,
+    "hardBoundary": false,
+    "blendable": true,
+    "river": false,
+    "frozenRiver": false,
+    "canGenerateOverworld": true,
+    "rules": [
+      {
+        "zone": "mountain",
+        "priority": 62,
+        "conditions": [
+          {
+            "variable": "temperatureC",
+            "op": "between",
+            "value": 6,
+            "value2": 18.5
+          },
+          {
+            "variable": "slope",
+            "op": "lte",
+            "value": 0.52
+          },
+          {
+            "variable": "moisture",
+            "op": "between",
+            "value": 0.58,
+            "value2": 0.9
+          },
+          {
+            "variable": "precipitationMm",
+            "op": "between",
+            "value": 360,
+            "value2": 1100
+          },
+          {
+            "variable": "elevationM",
+            "op": "lte",
+            "value": 1000
+          }
+        ],
+        "noiseConditions": [
+          {
+            "variable": "cherryNoise",
+            "op": "gt",
+            "value": 0.18
+          }
+        ]
+      },
+      {
+        "zone": "mountain",
+        "priority": 62,
+        "conditions": [
+          {
+            "variable": "temperatureC",
+            "op": "between",
+            "value": 6,
+            "value2": 18.5
+          },
+          {
+            "variable": "slope",
+            "op": "lte",
+            "value": 0.52
+          },
+          {
+            "variable": "moisture",
+            "op": "between",
+            "value": 0.58,
+            "value2": 0.9
+          },
+          {
+            "variable": "precipitationMm",
+            "op": "between",
+            "value": 1100.01,
+            "value2": 2600
+          },
+          {
+            "variable": "elevationM",
+            "op": "lte",
+            "value": 1000
+          }
+        ],
+        "noiseConditions": [
+          {
+            "variable": "cherryNoise",
+            "op": "gt",
+            "value": 0.15
+          }
+        ]
+      },
+      {
+        "zone": "mountain",
+        "priority": 62,
+        "conditions": [
+          {
+            "variable": "temperatureC",
+            "op": "between",
+            "value": 6,
+            "value2": 18.5
+          },
+          {
+            "variable": "slope",
+            "op": "lte",
+            "value": 0.52
+          },
+          {
+            "variable": "moisture",
+            "op": "between",
+            "value": 0.58,
+            "value2": 0.9
+          },
+          {
+            "variable": "precipitationMm",
+            "op": "between",
+            "value": 360,
+            "value2": 1100
+          },
+          {
+            "variable": "elevationM",
+            "op": "gt",
+            "value": 1000
+          }
+        ],
+        "noiseConditions": [
+          {
+            "variable": "cherryNoise",
+            "op": "gt",
+            "value": 0.15
+          }
+        ]
+      },
+      {
+        "zone": "mountain",
+        "priority": 62,
+        "conditions": [
+          {
+            "variable": "temperatureC",
+            "op": "between",
+            "value": 6,
+            "value2": 18.5
+          },
+          {
+            "variable": "slope",
+            "op": "lte",
+            "value": 0.52
+          },
+          {
+            "variable": "moisture",
+            "op": "between",
+            "value": 0.58,
+            "value2": 0.9
+          },
+          {
+            "variable": "precipitationMm",
+            "op": "between",
+            "value": 1100.01,
+            "value2": 2600
+          },
+          {
+            "variable": "elevationM",
+            "op": "gt",
+            "value": 1000
+          }
+        ],
+        "noiseConditions": [
+          {
+            "variable": "cherryNoise",
+            "op": "gt",
+            "value": 0.12
+          }
+        ]
+      },
+      {
+        "zone": "mountain",
+        "priority": 62,
+        "conditions": [
+          {
+            "variable": "temperatureC",
+            "op": "between",
+            "value": 6,
+            "value2": 18.5
+          },
+          {
+            "variable": "slope",
+            "op": "lte",
+            "value": 0.52
+          },
+          {
+            "variable": "moisture",
+            "op": "between",
+            "value": 0.9001,
+            "value2": 1.35
+          },
+          {
+            "variable": "precipitationMm",
+            "op": "between",
+            "value": 360,
+            "value2": 1100
+          },
+          {
+            "variable": "elevationM",
+            "op": "lte",
+            "value": 1000
+          }
+        ],
+        "noiseConditions": [
+          {
+            "variable": "cherryNoise",
+            "op": "gt",
+            "value": 0.14
+          }
+        ]
+      },
+      {
+        "zone": "mountain",
+        "priority": 62,
+        "conditions": [
+          {
+            "variable": "temperatureC",
+            "op": "between",
+            "value": 6,
+            "value2": 18.5
+          },
+          {
+            "variable": "slope",
+            "op": "lte",
+            "value": 0.52
+          },
+          {
+            "variable": "moisture",
+            "op": "between",
+            "value": 0.9001,
+            "value2": 1.35
+          },
+          {
+            "variable": "precipitationMm",
+            "op": "between",
+            "value": 1100.01,
+            "value2": 2600
+          },
+          {
+            "variable": "elevationM",
+            "op": "lte",
+            "value": 1000
+          }
+        ],
+        "noiseConditions": [
+          {
+            "variable": "cherryNoise",
+            "op": "gt",
+            "value": 0.11
+          }
+        ]
+      },
+      {
+        "zone": "mountain",
+        "priority": 62,
+        "conditions": [
+          {
+            "variable": "temperatureC",
+            "op": "between",
+            "value": 6,
+            "value2": 18.5
+          },
+          {
+            "variable": "slope",
+            "op": "lte",
+            "value": 0.52
+          },
+          {
+            "variable": "moisture",
+            "op": "between",
+            "value": 0.9001,
+            "value2": 1.35
+          },
+          {
+            "variable": "precipitationMm",
+            "op": "between",
+            "value": 360,
+            "value2": 1100
+          },
+          {
+            "variable": "elevationM",
+            "op": "gt",
+            "value": 1000
+          }
+        ],
+        "noiseConditions": [
+          {
+            "variable": "cherryNoise",
+            "op": "gt",
+            "value": 0.11
+          }
+        ]
+      },
+      {
+        "zone": "mountain",
+        "priority": 62,
+        "conditions": [
+          {
+            "variable": "temperatureC",
+            "op": "between",
+            "value": 6,
+            "value2": 18.5
+          },
+          {
+            "variable": "slope",
+            "op": "lte",
+            "value": 0.52
+          },
+          {
+            "variable": "moisture",
+            "op": "between",
+            "value": 0.9001,
+            "value2": 1.35
+          },
+          {
+            "variable": "precipitationMm",
+            "op": "between",
+            "value": 1100.01,
+            "value2": 2600
+          },
+          {
+            "variable": "elevationM",
+            "op": "gt",
+            "value": 1000
+          }
+        ],
+        "noiseConditions": [
+          {
+            "variable": "cherryNoise",
+            "op": "gt",
+            "value": 0.08
+          }
+        ]
+      },
+      {
+        "zone": "mountain",
+        "priority": 62,
+        "conditions": [
+          {
+            "variable": "temperatureC",
+            "op": "between",
+            "value": 6,
+            "value2": 18.5
+          },
+          {
+            "variable": "slope",
+            "op": "lte",
+            "value": 0.52
+          },
+          {
+            "variable": "treeCoverage",
+            "op": "gte",
+            "value": 0.8
+          },
+          {
+            "variable": "moisture",
+            "op": "between",
+            "value": 0.58,
+            "value2": 0.9
+          },
+          {
+            "variable": "precipitationMm",
+            "op": "between",
+            "value": 360,
+            "value2": 1100
+          },
+          {
+            "variable": "elevationM",
+            "op": "lte",
+            "value": 1000
+          }
+        ],
+        "noiseConditions": [
+          {
+            "variable": "cherryNoise",
+            "op": "gt",
+            "value": 0.18
+          }
+        ]
+      },
+      {
+        "zone": "mountain",
+        "priority": 62,
+        "conditions": [
+          {
+            "variable": "temperatureC",
+            "op": "between",
+            "value": 6,
+            "value2": 18.5
+          },
+          {
+            "variable": "slope",
+            "op": "lte",
+            "value": 0.52
+          },
+          {
+            "variable": "treeCoverage",
+            "op": "gte",
+            "value": 0.8
+          },
+          {
+            "variable": "moisture",
+            "op": "between",
+            "value": 0.58,
+            "value2": 0.9
+          },
+          {
+            "variable": "precipitationMm",
+            "op": "between",
+            "value": 1100.01,
+            "value2": 2600
+          },
+          {
+            "variable": "elevationM",
+            "op": "lte",
+            "value": 1000
+          }
+        ],
+        "noiseConditions": [
+          {
+            "variable": "cherryNoise",
+            "op": "gt",
+            "value": 0.15
+          }
+        ]
+      },
+      {
+        "zone": "mountain",
+        "priority": 62,
+        "conditions": [
+          {
+            "variable": "temperatureC",
+            "op": "between",
+            "value": 6,
+            "value2": 18.5
+          },
+          {
+            "variable": "slope",
+            "op": "lte",
+            "value": 0.52
+          },
+          {
+            "variable": "treeCoverage",
+            "op": "gte",
+            "value": 0.8
+          },
+          {
+            "variable": "moisture",
+            "op": "between",
+            "value": 0.58,
+            "value2": 0.9
+          },
+          {
+            "variable": "precipitationMm",
+            "op": "between",
+            "value": 360,
+            "value2": 1100
+          },
+          {
+            "variable": "elevationM",
+            "op": "gt",
+            "value": 1000
+          }
+        ],
+        "noiseConditions": [
+          {
+            "variable": "cherryNoise",
+            "op": "gt",
+            "value": 0.15
+          }
+        ]
+      },
+      {
+        "zone": "mountain",
+        "priority": 62,
+        "conditions": [
+          {
+            "variable": "temperatureC",
+            "op": "between",
+            "value": 6,
+            "value2": 18.5
+          },
+          {
+            "variable": "slope",
+            "op": "lte",
+            "value": 0.52
+          },
+          {
+            "variable": "treeCoverage",
+            "op": "gte",
+            "value": 0.8
+          },
+          {
+            "variable": "moisture",
+            "op": "between",
+            "value": 0.58,
+            "value2": 0.9
+          },
+          {
+            "variable": "precipitationMm",
+            "op": "between",
+            "value": 1100.01,
+            "value2": 2600
+          },
+          {
+            "variable": "elevationM",
+            "op": "gt",
+            "value": 1000
+          }
+        ],
+        "noiseConditions": [
+          {
+            "variable": "cherryNoise",
+            "op": "gt",
+            "value": 0.12
+          }
+        ]
+      },
+      {
+        "zone": "mountain",
+        "priority": 62,
+        "conditions": [
+          {
+            "variable": "temperatureC",
+            "op": "between",
+            "value": 6,
+            "value2": 18.5
+          },
+          {
+            "variable": "slope",
+            "op": "lte",
+            "value": 0.52
+          },
+          {
+            "variable": "treeCoverage",
+            "op": "gte",
+            "value": 0.8
+          },
+          {
+            "variable": "moisture",
+            "op": "between",
+            "value": 0.9001,
+            "value2": 1.35
+          },
+          {
+            "variable": "precipitationMm",
+            "op": "between",
+            "value": 360,
+            "value2": 1100
+          },
+          {
+            "variable": "elevationM",
+            "op": "lte",
+            "value": 1000
+          }
+        ],
+        "noiseConditions": [
+          {
+            "variable": "cherryNoise",
+            "op": "gt",
+            "value": 0.14
+          }
+        ]
+      },
+      {
+        "zone": "mountain",
+        "priority": 62,
+        "conditions": [
+          {
+            "variable": "temperatureC",
+            "op": "between",
+            "value": 6,
+            "value2": 18.5
+          },
+          {
+            "variable": "slope",
+            "op": "lte",
+            "value": 0.52
+          },
+          {
+            "variable": "treeCoverage",
+            "op": "gte",
+            "value": 0.8
+          },
+          {
+            "variable": "moisture",
+            "op": "between",
+            "value": 0.9001,
+            "value2": 1.35
+          },
+          {
+            "variable": "precipitationMm",
+            "op": "between",
+            "value": 1100.01,
+            "value2": 2600
+          },
+          {
+            "variable": "elevationM",
+            "op": "lte",
+            "value": 1000
+          }
+        ],
+        "noiseConditions": [
+          {
+            "variable": "cherryNoise",
+            "op": "gt",
+            "value": 0.11
+          }
+        ]
+      },
+      {
+        "zone": "mountain",
+        "priority": 62,
+        "conditions": [
+          {
+            "variable": "temperatureC",
+            "op": "between",
+            "value": 6,
+            "value2": 18.5
+          },
+          {
+            "variable": "slope",
+            "op": "lte",
+            "value": 0.52
+          },
+          {
+            "variable": "treeCoverage",
+            "op": "gte",
+            "value": 0.8
+          },
+          {
+            "variable": "moisture",
+            "op": "between",
+            "value": 0.9001,
+            "value2": 1.35
+          },
+          {
+            "variable": "precipitationMm",
+            "op": "between",
+            "value": 360,
+            "value2": 1100
+          },
+          {
+            "variable": "elevationM",
+            "op": "gt",
+            "value": 1000
+          }
+        ],
+        "noiseConditions": [
+          {
+            "variable": "cherryNoise",
+            "op": "gt",
+            "value": 0.11
+          }
+        ]
+      },
+      {
+        "zone": "mountain",
+        "priority": 62,
+        "conditions": [
+          {
+            "variable": "temperatureC",
+            "op": "between",
+            "value": 6,
+            "value2": 18.5
+          },
+          {
+            "variable": "slope",
+            "op": "lte",
+            "value": 0.52
+          },
+          {
+            "variable": "treeCoverage",
+            "op": "gte",
+            "value": 0.8
+          },
+          {
+            "variable": "moisture",
+            "op": "between",
+            "value": 0.9001,
+            "value2": 1.35
+          },
+          {
+            "variable": "precipitationMm",
+            "op": "between",
+            "value": 1100.01,
+            "value2": 2600
+          },
+          {
+            "variable": "elevationM",
+            "op": "gt",
+            "value": 1000
+          }
+        ],
+        "noiseConditions": [
+          {
+            "variable": "cherryNoise",
+            "op": "gt",
+            "value": 0.08
+          }
+        ]
+      },
+      {
+        "zone": "lowland",
+        "priority": 62,
+        "conditions": [
+          {
+            "variable": "temperatureC",
+            "op": "between",
+            "value": 12,
+            "value2": 18.5
+          },
+          {
+            "variable": "slope",
+            "op": "lte",
+            "value": 0.52
+          },
+          {
+            "variable": "treeCoverage",
+            "op": "between",
+            "value": 0.3,
+            "value2": 0.7
+          },
+          {
+            "variable": "moisture",
+            "op": "between",
+            "value": 0.58,
+            "value2": 0.9
+          },
+          {
+            "variable": "precipitationMm",
+            "op": "between",
+            "value": 360,
+            "value2": 1100
+          },
+          {
+            "variable": "elevationM",
+            "op": "between",
+            "value": 900,
+            "value2": 1000
+          }
+        ],
+        "noiseConditions": [
+          {
+            "variable": "cherryNoise",
+            "op": "gt",
+            "value": 0.18
+          }
+        ]
+      },
+      {
+        "zone": "lowland",
+        "priority": 62,
+        "conditions": [
+          {
+            "variable": "temperatureC",
+            "op": "between",
+            "value": 12,
+            "value2": 18.5
+          },
+          {
+            "variable": "slope",
+            "op": "lte",
+            "value": 0.52
+          },
+          {
+            "variable": "treeCoverage",
+            "op": "between",
+            "value": 0.3,
+            "value2": 0.7
+          },
+          {
+            "variable": "moisture",
+            "op": "between",
+            "value": 0.58,
+            "value2": 0.9
+          },
+          {
+            "variable": "precipitationMm",
+            "op": "between",
+            "value": 1100.01,
+            "value2": 2600
+          },
+          {
+            "variable": "elevationM",
+            "op": "between",
+            "value": 900,
+            "value2": 1000
+          }
+        ],
+        "noiseConditions": [
+          {
+            "variable": "cherryNoise",
+            "op": "gt",
+            "value": 0.15
+          }
+        ]
+      },
+      {
+        "zone": "lowland",
+        "priority": 62,
+        "conditions": [
+          {
+            "variable": "temperatureC",
+            "op": "between",
+            "value": 12,
+            "value2": 18.5
+          },
+          {
+            "variable": "slope",
+            "op": "lte",
+            "value": 0.52
+          },
+          {
+            "variable": "treeCoverage",
+            "op": "between",
+            "value": 0.3,
+            "value2": 0.7
+          },
+          {
+            "variable": "moisture",
+            "op": "between",
+            "value": 0.58,
+            "value2": 0.9
+          },
+          {
+            "variable": "precipitationMm",
+            "op": "between",
+            "value": 360,
+            "value2": 1100
+          },
+          {
+            "variable": "elevationM",
+            "op": "gt",
+            "value": 1000
+          }
+        ],
+        "noiseConditions": [
+          {
+            "variable": "cherryNoise",
+            "op": "gt",
+            "value": 0.15
+          }
+        ]
+      },
+      {
+        "zone": "lowland",
+        "priority": 62,
+        "conditions": [
+          {
+            "variable": "temperatureC",
+            "op": "between",
+            "value": 12,
+            "value2": 18.5
+          },
+          {
+            "variable": "slope",
+            "op": "lte",
+            "value": 0.52
+          },
+          {
+            "variable": "treeCoverage",
+            "op": "between",
+            "value": 0.3,
+            "value2": 0.7
+          },
+          {
+            "variable": "moisture",
+            "op": "between",
+            "value": 0.58,
+            "value2": 0.9
+          },
+          {
+            "variable": "precipitationMm",
+            "op": "between",
+            "value": 1100.01,
+            "value2": 2600
+          },
+          {
+            "variable": "elevationM",
+            "op": "gt",
+            "value": 1000
+          }
+        ],
+        "noiseConditions": [
+          {
+            "variable": "cherryNoise",
+            "op": "gt",
+            "value": 0.12
+          }
+        ]
+      },
+      {
+        "zone": "lowland",
+        "priority": 62,
+        "conditions": [
+          {
+            "variable": "temperatureC",
+            "op": "between",
+            "value": 12,
+            "value2": 18.5
+          },
+          {
+            "variable": "slope",
+            "op": "lte",
+            "value": 0.52
+          },
+          {
+            "variable": "treeCoverage",
+            "op": "between",
+            "value": 0.3,
+            "value2": 0.7
+          },
+          {
+            "variable": "moisture",
+            "op": "between",
+            "value": 0.9001,
+            "value2": 1.35
+          },
+          {
+            "variable": "precipitationMm",
+            "op": "between",
+            "value": 360,
+            "value2": 1100
+          },
+          {
+            "variable": "elevationM",
+            "op": "between",
+            "value": 900,
+            "value2": 1000
+          }
+        ],
+        "noiseConditions": [
+          {
+            "variable": "cherryNoise",
+            "op": "gt",
+            "value": 0.14
+          }
+        ]
+      },
+      {
+        "zone": "lowland",
+        "priority": 62,
+        "conditions": [
+          {
+            "variable": "temperatureC",
+            "op": "between",
+            "value": 12,
+            "value2": 18.5
+          },
+          {
+            "variable": "slope",
+            "op": "lte",
+            "value": 0.52
+          },
+          {
+            "variable": "treeCoverage",
+            "op": "between",
+            "value": 0.3,
+            "value2": 0.7
+          },
+          {
+            "variable": "moisture",
+            "op": "between",
+            "value": 0.9001,
+            "value2": 1.35
+          },
+          {
+            "variable": "precipitationMm",
+            "op": "between",
+            "value": 1100.01,
+            "value2": 2600
+          },
+          {
+            "variable": "elevationM",
+            "op": "between",
+            "value": 900,
+            "value2": 1000
+          }
+        ],
+        "noiseConditions": [
+          {
+            "variable": "cherryNoise",
+            "op": "gt",
+            "value": 0.11
+          }
+        ]
+      },
+      {
+        "zone": "lowland",
+        "priority": 62,
+        "conditions": [
+          {
+            "variable": "temperatureC",
+            "op": "between",
+            "value": 12,
+            "value2": 18.5
+          },
+          {
+            "variable": "slope",
+            "op": "lte",
+            "value": 0.52
+          },
+          {
+            "variable": "treeCoverage",
+            "op": "between",
+            "value": 0.3,
+            "value2": 0.7
+          },
+          {
+            "variable": "moisture",
+            "op": "between",
+            "value": 0.9001,
+            "value2": 1.35
+          },
+          {
+            "variable": "precipitationMm",
+            "op": "between",
+            "value": 360,
+            "value2": 1100
+          },
+          {
+            "variable": "elevationM",
+            "op": "gt",
+            "value": 1000
+          }
+        ],
+        "noiseConditions": [
+          {
+            "variable": "cherryNoise",
+            "op": "gt",
+            "value": 0.11
+          }
+        ]
+      },
+      {
+        "zone": "lowland",
+        "priority": 62,
+        "conditions": [
+          {
+            "variable": "temperatureC",
+            "op": "between",
+            "value": 12,
+            "value2": 18.5
+          },
+          {
+            "variable": "slope",
+            "op": "lte",
+            "value": 0.52
+          },
+          {
+            "variable": "treeCoverage",
+            "op": "between",
+            "value": 0.3,
+            "value2": 0.7
+          },
+          {
+            "variable": "moisture",
+            "op": "between",
+            "value": 0.9001,
+            "value2": 1.35
+          },
+          {
+            "variable": "precipitationMm",
+            "op": "between",
+            "value": 1100.01,
+            "value2": 2600
+          },
+          {
+            "variable": "elevationM",
+            "op": "gt",
+            "value": 1000
+          }
+        ],
+        "noiseConditions": [
+          {
+            "variable": "cherryNoise",
+            "op": "gt",
+            "value": 0.08
+          }
+        ]
+      },
+      {
+        "zone": "lowland",
+        "priority": 62,
+        "conditions": [
+          {
+            "variable": "temperatureC",
+            "op": "between",
+            "value": 12,
+            "value2": 18.5
+          },
+          {
+            "variable": "slope",
+            "op": "lte",
+            "value": 0.52
+          },
+          {
+            "variable": "treeCoverage",
+            "op": "between",
+            "value": 0.3,
+            "value2": 0.7
+          },
+          {
+            "variable": "moisture",
+            "op": "between",
+            "value": 0.58,
+            "value2": 0.9
+          },
+          {
+            "variable": "precipitationMm",
+            "op": "between",
+            "value": 360,
+            "value2": 1100
+          },
+          {
+            "variable": "elevationM",
+            "op": "gte",
+            "value": 560
+          },
+          {
+            "variable": "elevationM",
+            "op": "lte",
+            "value": 900
+          }
+        ],
+        "noiseConditions": [
+          {
+            "variable": "cherryNoise",
+            "op": "gt",
+            "value": 0.32
+          }
+        ]
+      },
+      {
+        "zone": "lowland",
+        "priority": 62,
+        "conditions": [
+          {
+            "variable": "temperatureC",
+            "op": "between",
+            "value": 12,
+            "value2": 18.5
+          },
+          {
+            "variable": "slope",
+            "op": "lte",
+            "value": 0.52
+          },
+          {
+            "variable": "treeCoverage",
+            "op": "between",
+            "value": 0.3,
+            "value2": 0.7
+          },
+          {
+            "variable": "moisture",
+            "op": "between",
+            "value": 0.58,
+            "value2": 0.9
+          },
+          {
+            "variable": "precipitationMm",
+            "op": "between",
+            "value": 1100.01,
+            "value2": 2600
+          },
+          {
+            "variable": "elevationM",
+            "op": "gte",
+            "value": 560
+          },
+          {
+            "variable": "elevationM",
+            "op": "lte",
+            "value": 900
+          }
+        ],
+        "noiseConditions": [
+          {
+            "variable": "cherryNoise",
+            "op": "gt",
+            "value": 0.29
+          }
+        ]
+      },
+      {
+        "zone": "lowland",
+        "priority": 62,
+        "conditions": [
+          {
+            "variable": "temperatureC",
+            "op": "between",
+            "value": 12,
+            "value2": 18.5
+          },
+          {
+            "variable": "slope",
+            "op": "lte",
+            "value": 0.52
+          },
+          {
+            "variable": "treeCoverage",
+            "op": "between",
+            "value": 0.3,
+            "value2": 0.7
+          },
+          {
+            "variable": "moisture",
+            "op": "between",
+            "value": 0.9001,
+            "value2": 1.35
+          },
+          {
+            "variable": "precipitationMm",
+            "op": "between",
+            "value": 360,
+            "value2": 1100
+          },
+          {
+            "variable": "elevationM",
+            "op": "gte",
+            "value": 560
+          },
+          {
+            "variable": "elevationM",
+            "op": "lte",
+            "value": 900
+          }
+        ],
+        "noiseConditions": [
+          {
+            "variable": "cherryNoise",
+            "op": "gt",
+            "value": 0.28
+          }
+        ]
+      },
+      {
+        "zone": "lowland",
+        "priority": 62,
+        "conditions": [
+          {
+            "variable": "temperatureC",
+            "op": "between",
+            "value": 12,
+            "value2": 18.5
+          },
+          {
+            "variable": "slope",
+            "op": "lte",
+            "value": 0.52
+          },
+          {
+            "variable": "treeCoverage",
+            "op": "between",
+            "value": 0.3,
+            "value2": 0.7
+          },
+          {
+            "variable": "moisture",
+            "op": "between",
+            "value": 0.9001,
+            "value2": 1.35
+          },
+          {
+            "variable": "precipitationMm",
+            "op": "between",
+            "value": 1100.01,
+            "value2": 2600
+          },
+          {
+            "variable": "elevationM",
+            "op": "gte",
+            "value": 560
+          },
+          {
+            "variable": "elevationM",
+            "op": "lte",
+            "value": 900
+          }
+        ],
+        "noiseConditions": [
+          {
+            "variable": "cherryNoise",
+            "op": "gt",
+            "value": 0.25
+          }
+        ]
+      },
+      {
+        "zone": "lowland",
+        "priority": 62,
+        "conditions": [
+          {
+            "variable": "temperatureC",
+            "op": "between",
+            "value": 12,
+            "value2": 18.5
+          },
+          {
+            "variable": "slope",
+            "op": "lte",
+            "value": 0.52
+          },
+          {
+            "variable": "treeCoverage",
+            "op": "between",
+            "value": 0.3,
+            "value2": 0.7
+          },
+          {
+            "variable": "moisture",
+            "op": "between",
+            "value": 0.58,
+            "value2": 0.9
+          },
+          {
+            "variable": "precipitationMm",
+            "op": "between",
+            "value": 360,
+            "value2": 1100
+          },
+          {
+            "variable": "elevationM",
+            "op": "between",
+            "value": 200,
+            "value2": 560
+          },
+          {
+            "variable": "slope",
+            "op": "gte",
+            "value": 0.12
+          }
+        ],
+        "noiseConditions": [
+          {
+            "variable": "cherryNoise",
+            "op": "gt",
+            "value": 0.32
+          }
+        ]
+      },
+      {
+        "zone": "lowland",
+        "priority": 62,
+        "conditions": [
+          {
+            "variable": "temperatureC",
+            "op": "between",
+            "value": 12,
+            "value2": 18.5
+          },
+          {
+            "variable": "slope",
+            "op": "lte",
+            "value": 0.52
+          },
+          {
+            "variable": "treeCoverage",
+            "op": "gte",
+            "value": 0.8
+          },
+          {
+            "variable": "moisture",
+            "op": "between",
+            "value": 0.58,
+            "value2": 0.9
+          },
+          {
+            "variable": "precipitationMm",
+            "op": "between",
+            "value": 360,
+            "value2": 1100
+          },
+          {
+            "variable": "elevationM",
+            "op": "between",
+            "value": 900,
+            "value2": 1000
+          }
+        ],
+        "noiseConditions": [
+          {
+            "variable": "cherryNoise",
+            "op": "gt",
+            "value": 0.18
+          }
+        ]
+      },
+      {
+        "zone": "lowland",
+        "priority": 62,
+        "conditions": [
+          {
+            "variable": "temperatureC",
+            "op": "between",
+            "value": 12,
+            "value2": 18.5
+          },
+          {
+            "variable": "slope",
+            "op": "lte",
+            "value": 0.52
+          },
+          {
+            "variable": "treeCoverage",
+            "op": "gte",
+            "value": 0.8
+          },
+          {
+            "variable": "moisture",
+            "op": "between",
+            "value": 0.58,
+            "value2": 0.9
+          },
+          {
+            "variable": "precipitationMm",
+            "op": "between",
+            "value": 1100.01,
+            "value2": 2600
+          },
+          {
+            "variable": "elevationM",
+            "op": "between",
+            "value": 900,
+            "value2": 1000
+          }
+        ],
+        "noiseConditions": [
+          {
+            "variable": "cherryNoise",
+            "op": "gt",
+            "value": 0.15
+          }
+        ]
+      },
+      {
+        "zone": "lowland",
+        "priority": 62,
+        "conditions": [
+          {
+            "variable": "temperatureC",
+            "op": "between",
+            "value": 12,
+            "value2": 18.5
+          },
+          {
+            "variable": "slope",
+            "op": "lte",
+            "value": 0.52
+          },
+          {
+            "variable": "treeCoverage",
+            "op": "gte",
+            "value": 0.8
+          },
+          {
+            "variable": "moisture",
+            "op": "between",
+            "value": 0.58,
+            "value2": 0.9
+          },
+          {
+            "variable": "precipitationMm",
+            "op": "between",
+            "value": 360,
+            "value2": 1100
+          },
+          {
+            "variable": "elevationM",
+            "op": "gt",
+            "value": 1000
+          }
+        ],
+        "noiseConditions": [
+          {
+            "variable": "cherryNoise",
+            "op": "gt",
+            "value": 0.15
+          }
+        ]
+      },
+      {
+        "zone": "lowland",
+        "priority": 62,
+        "conditions": [
+          {
+            "variable": "temperatureC",
+            "op": "between",
+            "value": 12,
+            "value2": 18.5
+          },
+          {
+            "variable": "slope",
+            "op": "lte",
+            "value": 0.52
+          },
+          {
+            "variable": "treeCoverage",
+            "op": "gte",
+            "value": 0.8
+          },
+          {
+            "variable": "moisture",
+            "op": "between",
+            "value": 0.58,
+            "value2": 0.9
+          },
+          {
+            "variable": "precipitationMm",
+            "op": "between",
+            "value": 1100.01,
+            "value2": 2600
+          },
+          {
+            "variable": "elevationM",
+            "op": "gt",
+            "value": 1000
+          }
+        ],
+        "noiseConditions": [
+          {
+            "variable": "cherryNoise",
+            "op": "gt",
+            "value": 0.12
+          }
+        ]
+      },
+      {
+        "zone": "lowland",
+        "priority": 62,
+        "conditions": [
+          {
+            "variable": "temperatureC",
+            "op": "between",
+            "value": 12,
+            "value2": 18.5
+          },
+          {
+            "variable": "slope",
+            "op": "lte",
+            "value": 0.52
+          },
+          {
+            "variable": "treeCoverage",
+            "op": "gte",
+            "value": 0.8
+          },
+          {
+            "variable": "moisture",
+            "op": "between",
+            "value": 0.9001,
+            "value2": 1.35
+          },
+          {
+            "variable": "precipitationMm",
+            "op": "between",
+            "value": 360,
+            "value2": 1100
+          },
+          {
+            "variable": "elevationM",
+            "op": "between",
+            "value": 900,
+            "value2": 1000
+          }
+        ],
+        "noiseConditions": [
+          {
+            "variable": "cherryNoise",
+            "op": "gt",
+            "value": 0.14
+          }
+        ]
+      },
+      {
+        "zone": "lowland",
+        "priority": 62,
+        "conditions": [
+          {
+            "variable": "temperatureC",
+            "op": "between",
+            "value": 12,
+            "value2": 18.5
+          },
+          {
+            "variable": "slope",
+            "op": "lte",
+            "value": 0.52
+          },
+          {
+            "variable": "treeCoverage",
+            "op": "gte",
+            "value": 0.8
+          },
+          {
+            "variable": "moisture",
+            "op": "between",
+            "value": 0.9001,
+            "value2": 1.35
+          },
+          {
+            "variable": "precipitationMm",
+            "op": "between",
+            "value": 1100.01,
+            "value2": 2600
+          },
+          {
+            "variable": "elevationM",
+            "op": "between",
+            "value": 900,
+            "value2": 1000
+          }
+        ],
+        "noiseConditions": [
+          {
+            "variable": "cherryNoise",
+            "op": "gt",
+            "value": 0.11
+          }
+        ]
+      },
+      {
+        "zone": "lowland",
+        "priority": 62,
+        "conditions": [
+          {
+            "variable": "temperatureC",
+            "op": "between",
+            "value": 12,
+            "value2": 18.5
+          },
+          {
+            "variable": "slope",
+            "op": "lte",
+            "value": 0.52
+          },
+          {
+            "variable": "treeCoverage",
+            "op": "gte",
+            "value": 0.8
+          },
+          {
+            "variable": "moisture",
+            "op": "between",
+            "value": 0.9001,
+            "value2": 1.35
+          },
+          {
+            "variable": "precipitationMm",
+            "op": "between",
+            "value": 360,
+            "value2": 1100
+          },
+          {
+            "variable": "elevationM",
+            "op": "gt",
+            "value": 1000
+          }
+        ],
+        "noiseConditions": [
+          {
+            "variable": "cherryNoise",
+            "op": "gt",
+            "value": 0.11
+          }
+        ]
+      },
+      {
+        "zone": "lowland",
+        "priority": 62,
+        "conditions": [
+          {
+            "variable": "temperatureC",
+            "op": "between",
+            "value": 12,
+            "value2": 18.5
+          },
+          {
+            "variable": "slope",
+            "op": "lte",
+            "value": 0.52
+          },
+          {
+            "variable": "treeCoverage",
+            "op": "gte",
+            "value": 0.8
+          },
+          {
+            "variable": "moisture",
+            "op": "between",
+            "value": 0.9001,
+            "value2": 1.35
+          },
+          {
+            "variable": "precipitationMm",
+            "op": "between",
+            "value": 1100.01,
+            "value2": 2600
+          },
+          {
+            "variable": "elevationM",
+            "op": "gt",
+            "value": 1000
+          }
+        ],
+        "noiseConditions": [
+          {
+            "variable": "cherryNoise",
+            "op": "gt",
+            "value": 0.08
+          }
+        ]
+      },
+      {
+        "zone": "lowland",
+        "priority": 62,
+        "conditions": [
+          {
+            "variable": "temperatureC",
+            "op": "between",
+            "value": 12,
+            "value2": 18.5
+          },
+          {
+            "variable": "slope",
+            "op": "lte",
+            "value": 0.52
+          },
+          {
+            "variable": "treeCoverage",
+            "op": "gte",
+            "value": 0.8
+          },
+          {
+            "variable": "moisture",
+            "op": "between",
+            "value": 0.58,
+            "value2": 0.9
+          },
+          {
+            "variable": "precipitationMm",
+            "op": "between",
+            "value": 360,
+            "value2": 1100
+          },
+          {
+            "variable": "elevationM",
+            "op": "gte",
+            "value": 560
+          },
+          {
+            "variable": "elevationM",
+            "op": "lte",
+            "value": 900
+          }
+        ],
+        "noiseConditions": [
+          {
+            "variable": "cherryNoise",
+            "op": "gt",
+            "value": 0.32
+          }
+        ]
+      },
+      {
+        "zone": "lowland",
+        "priority": 62,
+        "conditions": [
+          {
+            "variable": "temperatureC",
+            "op": "between",
+            "value": 12,
+            "value2": 18.5
+          },
+          {
+            "variable": "slope",
+            "op": "lte",
+            "value": 0.52
+          },
+          {
+            "variable": "treeCoverage",
+            "op": "gte",
+            "value": 0.8
+          },
+          {
+            "variable": "moisture",
+            "op": "between",
+            "value": 0.58,
+            "value2": 0.9
+          },
+          {
+            "variable": "precipitationMm",
+            "op": "between",
+            "value": 1100.01,
+            "value2": 2600
+          },
+          {
+            "variable": "elevationM",
+            "op": "gte",
+            "value": 560
+          },
+          {
+            "variable": "elevationM",
+            "op": "lte",
+            "value": 900
+          }
+        ],
+        "noiseConditions": [
+          {
+            "variable": "cherryNoise",
+            "op": "gt",
+            "value": 0.29
+          }
+        ]
+      },
+      {
+        "zone": "lowland",
+        "priority": 62,
+        "conditions": [
+          {
+            "variable": "temperatureC",
+            "op": "between",
+            "value": 12,
+            "value2": 18.5
+          },
+          {
+            "variable": "slope",
+            "op": "lte",
+            "value": 0.52
+          },
+          {
+            "variable": "treeCoverage",
+            "op": "gte",
+            "value": 0.8
+          },
+          {
+            "variable": "moisture",
+            "op": "between",
+            "value": 0.9001,
+            "value2": 1.35
+          },
+          {
+            "variable": "precipitationMm",
+            "op": "between",
+            "value": 360,
+            "value2": 1100
+          },
+          {
+            "variable": "elevationM",
+            "op": "gte",
+            "value": 560
+          },
+          {
+            "variable": "elevationM",
+            "op": "lte",
+            "value": 900
+          }
+        ],
+        "noiseConditions": [
+          {
+            "variable": "cherryNoise",
+            "op": "gt",
+            "value": 0.28
+          }
+        ]
+      },
+      {
+        "zone": "lowland",
+        "priority": 62,
+        "conditions": [
+          {
+            "variable": "temperatureC",
+            "op": "between",
+            "value": 12,
+            "value2": 18.5
+          },
+          {
+            "variable": "slope",
+            "op": "lte",
+            "value": 0.52
+          },
+          {
+            "variable": "treeCoverage",
+            "op": "gte",
+            "value": 0.8
+          },
+          {
+            "variable": "moisture",
+            "op": "between",
+            "value": 0.9001,
+            "value2": 1.35
+          },
+          {
+            "variable": "precipitationMm",
+            "op": "between",
+            "value": 1100.01,
+            "value2": 2600
+          },
+          {
+            "variable": "elevationM",
+            "op": "gte",
+            "value": 560
+          },
+          {
+            "variable": "elevationM",
+            "op": "lte",
+            "value": 900
+          }
+        ],
+        "noiseConditions": [
+          {
+            "variable": "cherryNoise",
+            "op": "gt",
+            "value": 0.25
+          }
+        ]
+      },
+      {
+        "zone": "lowland",
+        "priority": 62,
+        "conditions": [
+          {
+            "variable": "temperatureC",
+            "op": "between",
+            "value": 12,
+            "value2": 18.5
+          },
+          {
+            "variable": "slope",
+            "op": "lte",
+            "value": 0.52
+          },
+          {
+            "variable": "treeCoverage",
+            "op": "gte",
+            "value": 0.8
+          },
+          {
+            "variable": "moisture",
+            "op": "between",
+            "value": 0.58,
+            "value2": 0.9
+          },
+          {
+            "variable": "precipitationMm",
+            "op": "between",
+            "value": 360,
+            "value2": 1100
+          },
+          {
+            "variable": "elevationM",
+            "op": "between",
+            "value": 200,
+            "value2": 560
+          },
+          {
+            "variable": "slope",
+            "op": "gte",
+            "value": 0.12
+          }
+        ],
+        "noiseConditions": [
+          {
+            "variable": "cherryNoise",
+            "op": "gt",
+            "value": 0.32
+          }
+        ]
+      },
+      {
+        "zone": "lowland",
+        "priority": 62,
+        "conditions": [
+          {
+            "variable": "temperatureC",
+            "op": "between",
+            "value": 12,
+            "value2": 18.5
+          },
+          {
+            "variable": "slope",
+            "op": "lte",
+            "value": 0.52
+          },
+          {
+            "variable": "treeCoverage",
+            "op": "gte",
+            "value": 0.95
+          },
+          {
+            "variable": "moisture",
+            "op": "between",
+            "value": 0.58,
+            "value2": 0.9
+          },
+          {
+            "variable": "precipitationMm",
+            "op": "between",
+            "value": 360,
+            "value2": 1100
+          },
+          {
+            "variable": "elevationM",
+            "op": "between",
+            "value": 900,
+            "value2": 1000
+          }
+        ],
+        "noiseConditions": [
+          {
+            "variable": "cherryNoise",
+            "op": "gt",
+            "value": 0.18
+          }
+        ]
+      },
+      {
+        "zone": "lowland",
+        "priority": 62,
+        "conditions": [
+          {
+            "variable": "temperatureC",
+            "op": "between",
+            "value": 12,
+            "value2": 18.5
+          },
+          {
+            "variable": "slope",
+            "op": "lte",
+            "value": 0.52
+          },
+          {
+            "variable": "treeCoverage",
+            "op": "gte",
+            "value": 0.95
+          },
+          {
+            "variable": "moisture",
+            "op": "between",
+            "value": 0.58,
+            "value2": 0.9
+          },
+          {
+            "variable": "precipitationMm",
+            "op": "between",
+            "value": 1100.01,
+            "value2": 2600
+          },
+          {
+            "variable": "elevationM",
+            "op": "between",
+            "value": 900,
+            "value2": 1000
+          }
+        ],
+        "noiseConditions": [
+          {
+            "variable": "cherryNoise",
+            "op": "gt",
+            "value": 0.15
+          }
+        ]
+      },
+      {
+        "zone": "lowland",
+        "priority": 62,
+        "conditions": [
+          {
+            "variable": "temperatureC",
+            "op": "between",
+            "value": 12,
+            "value2": 18.5
+          },
+          {
+            "variable": "slope",
+            "op": "lte",
+            "value": 0.52
+          },
+          {
+            "variable": "treeCoverage",
+            "op": "gte",
+            "value": 0.95
+          },
+          {
+            "variable": "moisture",
+            "op": "between",
+            "value": 0.9001,
+            "value2": 1.35
+          },
+          {
+            "variable": "precipitationMm",
+            "op": "between",
+            "value": 360,
+            "value2": 1100
+          },
+          {
+            "variable": "elevationM",
+            "op": "between",
+            "value": 900,
+            "value2": 1000
+          }
+        ],
+        "noiseConditions": [
+          {
+            "variable": "cherryNoise",
+            "op": "gt",
+            "value": 0.14
+          }
+        ]
+      },
+      {
+        "zone": "lowland",
+        "priority": 62,
+        "conditions": [
+          {
+            "variable": "temperatureC",
+            "op": "between",
+            "value": 12,
+            "value2": 18.5
+          },
+          {
+            "variable": "slope",
+            "op": "lte",
+            "value": 0.52
+          },
+          {
+            "variable": "treeCoverage",
+            "op": "gte",
+            "value": 0.95
+          },
+          {
+            "variable": "moisture",
+            "op": "between",
+            "value": 0.9001,
+            "value2": 1.35
+          },
+          {
+            "variable": "precipitationMm",
+            "op": "between",
+            "value": 1100.01,
+            "value2": 2600
+          },
+          {
+            "variable": "elevationM",
+            "op": "between",
+            "value": 900,
+            "value2": 1000
+          }
+        ],
+        "noiseConditions": [
+          {
+            "variable": "cherryNoise",
+            "op": "gt",
+            "value": 0.11
+          }
+        ]
+      },
+      {
+        "zone": "lowland",
+        "priority": 62,
+        "conditions": [
+          {
+            "variable": "temperatureC",
+            "op": "between",
+            "value": 12,
+            "value2": 18.5
+          },
+          {
+            "variable": "slope",
+            "op": "lte",
+            "value": 0.52
+          },
+          {
+            "variable": "treeCoverage",
+            "op": "gte",
+            "value": 0.95
+          },
+          {
+            "variable": "moisture",
+            "op": "between",
+            "value": 0.58,
+            "value2": 0.9
+          },
+          {
+            "variable": "precipitationMm",
+            "op": "between",
+            "value": 360,
+            "value2": 1100
+          },
+          {
+            "variable": "elevationM",
+            "op": "gte",
+            "value": 560
+          },
+          {
+            "variable": "elevationM",
+            "op": "lte",
+            "value": 900
+          }
+        ],
+        "noiseConditions": [
+          {
+            "variable": "cherryNoise",
+            "op": "gt",
+            "value": 0.32
+          }
+        ]
+      },
+      {
+        "zone": "lowland",
+        "priority": 62,
+        "conditions": [
+          {
+            "variable": "temperatureC",
+            "op": "between",
+            "value": 12,
+            "value2": 18.5
+          },
+          {
+            "variable": "slope",
+            "op": "lte",
+            "value": 0.52
+          },
+          {
+            "variable": "treeCoverage",
+            "op": "gte",
+            "value": 0.95
+          },
+          {
+            "variable": "moisture",
+            "op": "between",
+            "value": 0.9001,
+            "value2": 1.35
+          },
+          {
+            "variable": "precipitationMm",
+            "op": "between",
+            "value": 360,
+            "value2": 1100
+          },
+          {
+            "variable": "elevationM",
+            "op": "gte",
+            "value": 560
+          },
+          {
+            "variable": "elevationM",
+            "op": "lte",
+            "value": 900
+          }
+        ],
+        "noiseConditions": [
+          {
+            "variable": "cherryNoise",
+            "op": "gt",
+            "value": 0.28
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "index": 31,
+    "key": "minecraft:grove",
+    "fallbackKey": "minecraft:grove",
+    "kind": "MOUNTAIN",
+    "color": 4943192,
+    "hardBoundary": false,
+    "blendable": true,
+    "river": false,
+    "frozenRiver": false,
+    "canGenerateOverworld": true,
+    "rules": [
+      {
+        "zone": "mountain",
+        "priority": 64,
+        "conditions": [
+          {
+            "variable": "snowy",
+            "op": "eq",
+            "bool": true
+          },
+          {
+            "variable": "sparsity",
+            "op": "lte",
+            "value": 0.75
+          },
+          {
+            "variable": "treeCoverage",
+            "op": "between",
+            "value": 0.3,
+            "value2": 0.4
+          }
+        ]
+      },
+      {
+        "zone": "mountain",
+        "priority": 64,
+        "conditions": [
+          {
+            "variable": "snowy",
+            "op": "eq",
+            "bool": true
+          },
+          {
+            "variable": "sparsity",
+            "op": "lte",
+            "value": 0.75
+          },
+          {
+            "variable": "treeCoverage",
+            "op": "between",
+            "value": 0.55,
+            "value2": 0.7
+          }
+        ]
+      },
+      {
+        "zone": "mountain",
+        "priority": 64,
+        "conditions": [
+          {
+            "variable": "temperatureC",
+            "op": "lt",
+            "value": -5
+          },
+          {
+            "variable": "snowy",
+            "op": "eq",
+            "bool": false
+          },
+          {
+            "variable": "sparsity",
+            "op": "lte",
+            "value": 0.75
+          },
+          {
+            "variable": "treeCoverage",
+            "op": "between",
+            "value": 0.3,
+            "value2": 0.4
+          }
+        ]
+      },
+      {
+        "zone": "mountain",
+        "priority": 64,
+        "conditions": [
+          {
+            "variable": "temperatureC",
+            "op": "lt",
+            "value": -5
+          },
+          {
+            "variable": "snowy",
+            "op": "eq",
+            "bool": false
+          },
+          {
+            "variable": "sparsity",
+            "op": "lte",
+            "value": 0.75
+          },
+          {
+            "variable": "treeCoverage",
+            "op": "between",
+            "value": 0.55,
+            "value2": 0.7
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "index": 32,
+    "key": "minecraft:snowy_slopes",
+    "fallbackKey": "minecraft:snowy_slopes",
+    "kind": "MOUNTAIN",
+    "color": 15200496,
+    "hardBoundary": false,
+    "blendable": true,
+    "river": false,
+    "frozenRiver": false,
+    "canGenerateOverworld": true,
+    "rules": [
+      {
+        "zone": "mountain",
+        "priority": 78,
+        "conditions": [
+          {
+            "variable": "snowy",
+            "op": "eq",
+            "bool": true
+          },
+          {
+            "variable": "treeCoverage",
+            "op": "lte",
+            "value": 0.01
+          }
+        ]
+      },
+      {
+        "zone": "mountain",
+        "priority": 78,
+        "conditions": [
+          {
+            "variable": "snowy",
+            "op": "eq",
+            "bool": true
+          },
+          {
+            "variable": "sparsity",
+            "op": "gt",
+            "value": 0.75
+          }
+        ]
+      },
+      {
+        "zone": "mountain",
+        "priority": 78,
+        "conditions": [
+          {
+            "variable": "temperatureC",
+            "op": "lt",
+            "value": -5
+          },
+          {
+            "variable": "snowy",
+            "op": "eq",
+            "bool": false
+          },
+          {
+            "variable": "treeCoverage",
+            "op": "lte",
+            "value": 0.01
+          }
+        ]
+      },
+      {
+        "zone": "mountain",
+        "priority": 78,
+        "conditions": [
+          {
+            "variable": "temperatureC",
+            "op": "lt",
+            "value": -5
+          },
+          {
+            "variable": "snowy",
+            "op": "eq",
+            "bool": false
+          },
+          {
+            "variable": "sparsity",
+            "op": "gt",
+            "value": 0.75
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "index": 33,
+    "key": "minecraft:frozen_peaks",
+    "fallbackKey": "minecraft:frozen_peaks",
+    "kind": "MOUNTAIN",
+    "color": 12574184,
+    "hardBoundary": true,
+    "blendable": false,
+    "river": false,
+    "frozenRiver": false,
+    "canGenerateOverworld": true,
+    "rules": [
+      {
+        "zone": "mountain",
+        "priority": 80,
+        "conditions": [
+          {
+            "variable": "bareSlope",
+            "op": "eq",
+            "bool": true
+          },
+          {
+            "variable": "snowy",
+            "op": "eq",
+            "bool": true
+          },
+          {
+            "variable": "slope",
+            "op": "lte",
+            "value": 1.1
+          },
+          {
+            "variable": "elevationM",
+            "op": "lte",
+            "value": 3300
+          }
+        ]
+      },
+      {
+        "zone": "bareSlope",
+        "priority": 80,
+        "conditions": [
+          {
+            "variable": "snowy",
+            "op": "eq",
+            "bool": true
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "index": 34,
+    "key": "minecraft:jagged_peaks",
+    "fallbackKey": "minecraft:frozen_peaks",
+    "kind": "MOUNTAIN",
+    "color": 14477547,
+    "hardBoundary": true,
+    "blendable": false,
+    "river": false,
+    "frozenRiver": false,
+    "canGenerateOverworld": true,
+    "rules": [
+      {
+        "zone": "mountain",
+        "priority": 75,
+        "conditions": [
+          {
+            "variable": "bareSlope",
+            "op": "eq",
+            "bool": true
+          },
+          {
+            "variable": "snowy",
+            "op": "eq",
+            "bool": true
+          },
+          {
+            "variable": "slope",
+            "op": "gt",
+            "value": 1.1
+          }
+        ]
+      },
+      {
+        "zone": "mountain",
+        "priority": 75,
+        "conditions": [
+          {
+            "variable": "bareSlope",
+            "op": "eq",
+            "bool": true
+          },
+          {
+            "variable": "snowy",
+            "op": "eq",
+            "bool": true
+          },
+          {
+            "variable": "elevationM",
+            "op": "gt",
+            "value": 3300
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "index": 35,
+    "key": "minecraft:stony_peaks",
+    "fallbackKey": "minecraft:stony_peaks",
+    "kind": "MOUNTAIN",
+    "color": 7829367,
+    "hardBoundary": true,
+    "blendable": false,
+    "river": false,
+    "frozenRiver": false,
+    "canGenerateOverworld": true,
+    "rules": [
+      {
+        "zone": "mountain",
+        "priority": 78,
+        "conditions": [
+          {
+            "variable": "bareSlope",
+            "op": "eq",
+            "bool": true
+          },
+          {
+            "variable": "snowy",
+            "op": "eq",
+            "bool": false
+          }
+        ]
+      },
+      {
+        "zone": "bareSlope",
+        "priority": 78,
+        "conditions": [
+          {
+            "variable": "snowy",
+            "op": "eq",
+            "bool": false
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "index": 36,
+    "key": "minecraft:mushroom_fields",
+    "fallbackKey": "minecraft:plains",
+    "kind": "OVERWORLD",
+    "color": 16711935,
+    "hardBoundary": false,
+    "blendable": true,
+    "river": false,
+    "frozenRiver": false,
+    "canGenerateOverworld": true,
+    "rules": []
+  },
+  {
+    "index": 37,
+    "key": "minecraft:pale_garden",
+    "fallbackKey": "minecraft:dark_forest",
+    "kind": "OVERWORLD",
+    "color": 12568758,
+    "hardBoundary": false,
+    "blendable": true,
+    "river": false,
+    "frozenRiver": false,
+    "canGenerateOverworld": true,
+    "rules": [
+      {
+        "zone": "lowland",
+        "priority": 58,
+        "conditions": [
+          {
+            "variable": "temperatureC",
+            "op": "between",
+            "value": 12,
+            "value2": 19.99
+          },
+          {
+            "variable": "moisture",
+            "op": "between",
+            "value": 0.82,
+            "value2": 1.1
+          },
+          {
+            "variable": "precipitationMm",
+            "op": "between",
+            "value": 620,
+            "value2": 1000
+          },
+          {
+            "variable": "elevationM",
+            "op": "between",
+            "value": 250,
+            "value2": 720
+          },
+          {
+            "variable": "slope",
+            "op": "lte",
+            "value": 0.48
+          },
+          {
+            "variable": "sparsity",
+            "op": "lte",
+            "value": 0.58
+          },
+          {
+            "variable": "treeCoverage",
+            "op": "between",
+            "value": 0.3,
+            "value2": 0.7
+          }
+        ],
+        "noiseConditions": [
+          {
+            "variable": "paleNoise",
+            "op": "gt",
+            "value": 0.34
+          }
+        ]
+      },
+      {
+        "zone": "lowland",
+        "priority": 58,
+        "conditions": [
+          {
+            "variable": "temperatureC",
+            "op": "between",
+            "value": 12,
+            "value2": 19.99
+          },
+          {
+            "variable": "moisture",
+            "op": "gt",
+            "value": 1.1
+          },
+          {
+            "variable": "moisture",
+            "op": "lte",
+            "value": 2.4
+          },
+          {
+            "variable": "precipitationMm",
+            "op": "between",
+            "value": 620,
+            "value2": 1000
+          },
+          {
+            "variable": "elevationM",
+            "op": "between",
+            "value": 250,
+            "value2": 720
+          },
+          {
+            "variable": "slope",
+            "op": "lte",
+            "value": 0.48
+          },
+          {
+            "variable": "sparsity",
+            "op": "lte",
+            "value": 0.58
+          },
+          {
+            "variable": "treeCoverage",
+            "op": "between",
+            "value": 0.3,
+            "value2": 0.7
+          }
+        ],
+        "noiseConditions": [
+          {
+            "variable": "paleNoise",
+            "op": "gt",
+            "value": 0.3
+          }
+        ]
+      },
+      {
+        "zone": "lowland",
+        "priority": 58,
+        "conditions": [
+          {
+            "variable": "temperatureC",
+            "op": "between",
+            "value": 12,
+            "value2": 19.99
+          },
+          {
+            "variable": "moisture",
+            "op": "between",
+            "value": 0.82,
+            "value2": 1.1
+          },
+          {
+            "variable": "precipitationMm",
+            "op": "gt",
+            "value": 1000
+          },
+          {
+            "variable": "elevationM",
+            "op": "between",
+            "value": 250,
+            "value2": 720
+          },
+          {
+            "variable": "slope",
+            "op": "lte",
+            "value": 0.48
+          },
+          {
+            "variable": "sparsity",
+            "op": "lte",
+            "value": 0.58
+          },
+          {
+            "variable": "treeCoverage",
+            "op": "between",
+            "value": 0.3,
+            "value2": 0.7
+          }
+        ],
+        "noiseConditions": [
+          {
+            "variable": "paleNoise",
+            "op": "gt",
+            "value": 0.3
+          }
+        ]
+      },
+      {
+        "zone": "lowland",
+        "priority": 58,
+        "conditions": [
+          {
+            "variable": "temperatureC",
+            "op": "between",
+            "value": 12,
+            "value2": 19.99
+          },
+          {
+            "variable": "moisture",
+            "op": "gt",
+            "value": 1.1
+          },
+          {
+            "variable": "moisture",
+            "op": "lte",
+            "value": 2.4
+          },
+          {
+            "variable": "precipitationMm",
+            "op": "gt",
+            "value": 1000
+          },
+          {
+            "variable": "elevationM",
+            "op": "between",
+            "value": 250,
+            "value2": 720
+          },
+          {
+            "variable": "slope",
+            "op": "lte",
+            "value": 0.48
+          },
+          {
+            "variable": "sparsity",
+            "op": "lte",
+            "value": 0.58
+          },
+          {
+            "variable": "treeCoverage",
+            "op": "between",
+            "value": 0.3,
+            "value2": 0.7
+          }
+        ],
+        "noiseConditions": [
+          {
+            "variable": "paleNoise",
+            "op": "gt",
+            "value": 0.26
+          }
+        ]
+      },
+      {
+        "zone": "lowland",
+        "priority": 58,
+        "conditions": [
+          {
+            "variable": "temperatureC",
+            "op": "between",
+            "value": 12,
+            "value2": 19.99
+          },
+          {
+            "variable": "moisture",
+            "op": "between",
+            "value": 0.82,
+            "value2": 1.1
+          },
+          {
+            "variable": "precipitationMm",
+            "op": "between",
+            "value": 620,
+            "value2": 1000
+          },
+          {
+            "variable": "elevationM",
+            "op": "lt",
+            "value": 250
+          },
+          {
+            "variable": "slope",
+            "op": "lte",
+            "value": 0.48
+          },
+          {
+            "variable": "sparsity",
+            "op": "lte",
+            "value": 0.58
+          },
+          {
+            "variable": "treeCoverage",
+            "op": "between",
+            "value": 0.3,
+            "value2": 0.7
+          }
+        ],
+        "noiseConditions": [
+          {
+            "variable": "paleNoise",
+            "op": "gt",
+            "value": 0.32
+          }
+        ]
+      },
+      {
+        "zone": "lowland",
+        "priority": 58,
+        "conditions": [
+          {
+            "variable": "temperatureC",
+            "op": "between",
+            "value": 12,
+            "value2": 19.99
+          },
+          {
+            "variable": "moisture",
+            "op": "gt",
+            "value": 1.1
+          },
+          {
+            "variable": "moisture",
+            "op": "lte",
+            "value": 2.4
+          },
+          {
+            "variable": "precipitationMm",
+            "op": "gt",
+            "value": 1000
+          },
+          {
+            "variable": "elevationM",
+            "op": "lt",
+            "value": 250
+          },
+          {
+            "variable": "slope",
+            "op": "lte",
+            "value": 0.48
+          },
+          {
+            "variable": "sparsity",
+            "op": "lte",
+            "value": 0.58
+          },
+          {
+            "variable": "treeCoverage",
+            "op": "between",
+            "value": 0.3,
+            "value2": 0.7
+          }
+        ],
+        "noiseConditions": [
+          {
+            "variable": "paleNoise",
+            "op": "gt",
+            "value": 0.24
+          }
+        ]
+      },
+      {
+        "zone": "lowland",
+        "priority": 58,
+        "conditions": [
+          {
+            "variable": "temperatureC",
+            "op": "between",
+            "value": 5,
+            "value2": 19.99
+          },
+          {
+            "variable": "moisture",
+            "op": "between",
+            "value": 0.82,
+            "value2": 1.1
+          },
+          {
+            "variable": "precipitationMm",
+            "op": "between",
+            "value": 620,
+            "value2": 1000
+          },
+          {
+            "variable": "elevationM",
+            "op": "between",
+            "value": 250,
+            "value2": 720
+          },
+          {
+            "variable": "slope",
+            "op": "lte",
+            "value": 0.48
+          },
+          {
+            "variable": "sparsity",
+            "op": "lte",
+            "value": 0.58
+          },
+          {
+            "variable": "treeCoverage",
+            "op": "gte",
+            "value": 0.8
+          }
+        ],
+        "noiseConditions": [
+          {
+            "variable": "paleNoise",
+            "op": "gt",
+            "value": 0.02
+          }
+        ]
+      },
+      {
+        "zone": "lowland",
+        "priority": 58,
+        "conditions": [
+          {
+            "variable": "temperatureC",
+            "op": "between",
+            "value": 5,
+            "value2": 19.99
+          },
+          {
+            "variable": "moisture",
+            "op": "gt",
+            "value": 1.1
+          },
+          {
+            "variable": "moisture",
+            "op": "lte",
+            "value": 2.4
+          },
+          {
+            "variable": "precipitationMm",
+            "op": "between",
+            "value": 620,
+            "value2": 1000
+          },
+          {
+            "variable": "elevationM",
+            "op": "between",
+            "value": 250,
+            "value2": 720
+          },
+          {
+            "variable": "slope",
+            "op": "lte",
+            "value": 0.48
+          },
+          {
+            "variable": "sparsity",
+            "op": "lte",
+            "value": 0.58
+          },
+          {
+            "variable": "treeCoverage",
+            "op": "gte",
+            "value": 0.8
+          }
+        ],
+        "noiseConditions": [
+          {
+            "variable": "paleNoise",
+            "op": "gt",
+            "value": -0.02
+          }
+        ]
+      },
+      {
+        "zone": "lowland",
+        "priority": 58,
+        "conditions": [
+          {
+            "variable": "temperatureC",
+            "op": "between",
+            "value": 5,
+            "value2": 19.99
+          },
+          {
+            "variable": "moisture",
+            "op": "between",
+            "value": 0.82,
+            "value2": 1.1
+          },
+          {
+            "variable": "precipitationMm",
+            "op": "gt",
+            "value": 1000
+          },
+          {
+            "variable": "elevationM",
+            "op": "between",
+            "value": 250,
+            "value2": 720
+          },
+          {
+            "variable": "slope",
+            "op": "lte",
+            "value": 0.48
+          },
+          {
+            "variable": "sparsity",
+            "op": "lte",
+            "value": 0.58
+          },
+          {
+            "variable": "treeCoverage",
+            "op": "gte",
+            "value": 0.8
+          }
+        ],
+        "noiseConditions": [
+          {
+            "variable": "paleNoise",
+            "op": "gt",
+            "value": -0.02
+          }
+        ]
+      },
+      {
+        "zone": "lowland",
+        "priority": 58,
+        "conditions": [
+          {
+            "variable": "temperatureC",
+            "op": "between",
+            "value": 5,
+            "value2": 19.99
+          },
+          {
+            "variable": "moisture",
+            "op": "gt",
+            "value": 1.1
+          },
+          {
+            "variable": "moisture",
+            "op": "lte",
+            "value": 2.4
+          },
+          {
+            "variable": "precipitationMm",
+            "op": "gt",
+            "value": 1000
+          },
+          {
+            "variable": "elevationM",
+            "op": "between",
+            "value": 250,
+            "value2": 720
+          },
+          {
+            "variable": "slope",
+            "op": "lte",
+            "value": 0.48
+          },
+          {
+            "variable": "sparsity",
+            "op": "lte",
+            "value": 0.58
+          },
+          {
+            "variable": "treeCoverage",
+            "op": "gte",
+            "value": 0.8
+          }
+        ],
+        "noiseConditions": [
+          {
+            "variable": "paleNoise",
+            "op": "gt",
+            "value": -0.06
+          }
+        ]
+      },
+      {
+        "zone": "lowland",
+        "priority": 58,
+        "conditions": [
+          {
+            "variable": "temperatureC",
+            "op": "between",
+            "value": 5,
+            "value2": 19.99
+          },
+          {
+            "variable": "moisture",
+            "op": "between",
+            "value": 0.82,
+            "value2": 1.1
+          },
+          {
+            "variable": "precipitationMm",
+            "op": "between",
+            "value": 620,
+            "value2": 1000
+          },
+          {
+            "variable": "elevationM",
+            "op": "lt",
+            "value": 250
+          },
+          {
+            "variable": "slope",
+            "op": "lte",
+            "value": 0.48
+          },
+          {
+            "variable": "sparsity",
+            "op": "lte",
+            "value": 0.58
+          },
+          {
+            "variable": "treeCoverage",
+            "op": "gte",
+            "value": 0.8
+          }
+        ],
+        "noiseConditions": [
+          {
+            "variable": "paleNoise",
+            "op": "gt",
+            "value": 0.0
+          }
+        ]
+      },
+      {
+        "zone": "lowland",
+        "priority": 58,
+        "conditions": [
+          {
+            "variable": "temperatureC",
+            "op": "between",
+            "value": 5,
+            "value2": 19.99
+          },
+          {
+            "variable": "moisture",
+            "op": "gt",
+            "value": 1.1
+          },
+          {
+            "variable": "moisture",
+            "op": "lte",
+            "value": 2.4
+          },
+          {
+            "variable": "precipitationMm",
+            "op": "gt",
+            "value": 1000
+          },
+          {
+            "variable": "elevationM",
+            "op": "lt",
+            "value": 250
+          },
+          {
+            "variable": "slope",
+            "op": "lte",
+            "value": 0.48
+          },
+          {
+            "variable": "sparsity",
+            "op": "lte",
+            "value": 0.58
+          },
+          {
+            "variable": "treeCoverage",
+            "op": "gte",
+            "value": 0.8
+          }
+        ],
+        "noiseConditions": [
+          {
+            "variable": "paleNoise",
+            "op": "gt",
+            "value": -0.08
+          }
+        ]
+      },
+      {
+        "zone": "lowland",
+        "priority": 58,
+        "conditions": [
+          {
+            "variable": "temperatureC",
+            "op": "between",
+            "value": 5,
+            "value2": 19.99
+          },
+          {
+            "variable": "moisture",
+            "op": "between",
+            "value": 0.82,
+            "value2": 1.1
+          },
+          {
+            "variable": "precipitationMm",
+            "op": "between",
+            "value": 620,
+            "value2": 1000
+          },
+          {
+            "variable": "elevationM",
+            "op": "between",
+            "value": 250,
+            "value2": 720
+          },
+          {
+            "variable": "slope",
+            "op": "lte",
+            "value": 0.48
+          },
+          {
+            "variable": "sparsity",
+            "op": "lte",
+            "value": 0.58
+          },
+          {
+            "variable": "treeCoverage",
+            "op": "gte",
+            "value": 0.95
+          }
+        ],
+        "noiseConditions": [
+          {
+            "variable": "paleNoise",
+            "op": "gt",
+            "value": 0.02
+          }
+        ]
+      },
+      {
+        "zone": "lowland",
+        "priority": 58,
+        "conditions": [
+          {
+            "variable": "temperatureC",
+            "op": "between",
+            "value": 5,
+            "value2": 19.99
+          },
+          {
+            "variable": "moisture",
+            "op": "gt",
+            "value": 1.1
+          },
+          {
+            "variable": "moisture",
+            "op": "lte",
+            "value": 2.4
+          },
+          {
+            "variable": "precipitationMm",
+            "op": "between",
+            "value": 620,
+            "value2": 1000
+          },
+          {
+            "variable": "elevationM",
+            "op": "between",
+            "value": 250,
+            "value2": 720
+          },
+          {
+            "variable": "slope",
+            "op": "lte",
+            "value": 0.48
+          },
+          {
+            "variable": "sparsity",
+            "op": "lte",
+            "value": 0.58
+          },
+          {
+            "variable": "treeCoverage",
+            "op": "gte",
+            "value": 0.95
+          }
+        ],
+        "noiseConditions": [
+          {
+            "variable": "paleNoise",
+            "op": "gt",
+            "value": -0.02
+          }
+        ]
+      },
+      {
+        "zone": "lowland",
+        "priority": 58,
+        "conditions": [
+          {
+            "variable": "temperatureC",
+            "op": "between",
+            "value": 5,
+            "value2": 19.99
+          },
+          {
+            "variable": "moisture",
+            "op": "between",
+            "value": 0.82,
+            "value2": 1.1
+          },
+          {
+            "variable": "precipitationMm",
+            "op": "gt",
+            "value": 1000
+          },
+          {
+            "variable": "elevationM",
+            "op": "between",
+            "value": 250,
+            "value2": 720
+          },
+          {
+            "variable": "slope",
+            "op": "lte",
+            "value": 0.48
+          },
+          {
+            "variable": "sparsity",
+            "op": "lte",
+            "value": 0.58
+          },
+          {
+            "variable": "treeCoverage",
+            "op": "gte",
+            "value": 0.95
+          }
+        ],
+        "noiseConditions": [
+          {
+            "variable": "paleNoise",
+            "op": "gt",
+            "value": -0.02
+          }
+        ]
+      },
+      {
+        "zone": "lowland",
+        "priority": 58,
+        "conditions": [
+          {
+            "variable": "temperatureC",
+            "op": "between",
+            "value": 5,
+            "value2": 19.99
+          },
+          {
+            "variable": "moisture",
+            "op": "gt",
+            "value": 1.1
+          },
+          {
+            "variable": "moisture",
+            "op": "lte",
+            "value": 2.4
+          },
+          {
+            "variable": "precipitationMm",
+            "op": "gt",
+            "value": 1000
+          },
+          {
+            "variable": "elevationM",
+            "op": "between",
+            "value": 250,
+            "value2": 720
+          },
+          {
+            "variable": "slope",
+            "op": "lte",
+            "value": 0.48
+          },
+          {
+            "variable": "sparsity",
+            "op": "lte",
+            "value": 0.58
+          },
+          {
+            "variable": "treeCoverage",
+            "op": "gte",
+            "value": 0.95
+          }
+        ],
+        "noiseConditions": [
+          {
+            "variable": "paleNoise",
+            "op": "gt",
+            "value": -0.06
+          }
+        ]
+      },
+      {
+        "zone": "lowland",
+        "priority": 58,
+        "conditions": [
+          {
+            "variable": "temperatureC",
+            "op": "between",
+            "value": 5,
+            "value2": 19.99
+          },
+          {
+            "variable": "moisture",
+            "op": "between",
+            "value": 0.82,
+            "value2": 1.1
+          },
+          {
+            "variable": "precipitationMm",
+            "op": "between",
+            "value": 620,
+            "value2": 1000
+          },
+          {
+            "variable": "elevationM",
+            "op": "lt",
+            "value": 250
+          },
+          {
+            "variable": "slope",
+            "op": "lte",
+            "value": 0.48
+          },
+          {
+            "variable": "sparsity",
+            "op": "lte",
+            "value": 0.58
+          },
+          {
+            "variable": "treeCoverage",
+            "op": "gte",
+            "value": 0.95
+          }
+        ],
+        "noiseConditions": [
+          {
+            "variable": "paleNoise",
+            "op": "gt",
+            "value": 0.0
+          }
+        ]
+      },
+      {
+        "zone": "lowland",
+        "priority": 58,
+        "conditions": [
+          {
+            "variable": "temperatureC",
+            "op": "between",
+            "value": 5,
+            "value2": 19.99
+          },
+          {
+            "variable": "moisture",
+            "op": "gt",
+            "value": 1.1
+          },
+          {
+            "variable": "moisture",
+            "op": "lte",
+            "value": 2.4
+          },
+          {
+            "variable": "precipitationMm",
+            "op": "gt",
+            "value": 1000
+          },
+          {
+            "variable": "elevationM",
+            "op": "lt",
+            "value": 250
+          },
+          {
+            "variable": "slope",
+            "op": "lte",
+            "value": 0.48
+          },
+          {
+            "variable": "sparsity",
+            "op": "lte",
+            "value": 0.58
+          },
+          {
+            "variable": "treeCoverage",
+            "op": "gte",
+            "value": 0.95
+          }
+        ],
+        "noiseConditions": [
+          {
+            "variable": "paleNoise",
+            "op": "gt",
+            "value": -0.08
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "index": 38,
+    "key": "minecraft:river",
+    "fallbackKey": "minecraft:river",
+    "kind": "RIVER",
+    "color": 255,
+    "hardBoundary": false,
+    "blendable": false,
+    "river": true,
+    "frozenRiver": false,
+    "canGenerateOverworld": true,
+    "rules": []
+  },
+  {
+    "index": 39,
+    "key": "minecraft:frozen_river",
+    "fallbackKey": "minecraft:frozen_river",
+    "kind": "RIVER",
+    "color": 10526975,
+    "hardBoundary": false,
+    "blendable": false,
+    "river": false,
+    "frozenRiver": true,
+    "canGenerateOverworld": true,
+    "rules": []
+  },
+  {
+    "index": 40,
+    "key": "minecraft:beach",
+    "fallbackKey": "minecraft:beach",
+    "kind": "BEACH",
+    "color": 16440917,
+    "hardBoundary": true,
+    "blendable": false,
+    "river": false,
+    "frozenRiver": false,
+    "canGenerateOverworld": true,
+    "rules": [
+      {
+        "zone": "beach",
+        "priority": 10,
+        "conditions": [
+          {
+            "variable": "slope",
+            "op": "lte",
+            "value": 0.28
+          },
+          {
+            "variable": "snowy",
+            "op": "eq",
+            "bool": false
+          },
+          {
+            "variable": "temperatureC",
+            "op": "gte",
+            "value": 1
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "index": 41,
+    "key": "minecraft:warm_ocean",
+    "fallbackKey": "minecraft:warm_ocean",
+    "kind": "OCEAN",
+    "color": 4445678,
+    "hardBoundary": true,
+    "blendable": false,
+    "river": false,
+    "frozenRiver": false,
+    "canGenerateOverworld": true,
+    "rules": [
+      {
+        "zone": "ocean",
+        "priority": 90,
+        "conditions": [
+          {
+            "variable": "temperatureC",
+            "op": "gte",
+            "value": 26
+          },
+          {
+            "variable": "elevationM",
+            "op": "gte",
+            "value": -250
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "index": 42,
+    "key": "minecraft:lukewarm_ocean",
+    "fallbackKey": "minecraft:lukewarm_ocean",
+    "kind": "OCEAN",
+    "color": 4566514,
+    "hardBoundary": true,
+    "blendable": false,
+    "river": false,
+    "frozenRiver": false,
+    "canGenerateOverworld": true,
+    "rules": [
+      {
+        "zone": "ocean",
+        "priority": 90,
+        "conditions": [
+          {
+            "variable": "temperatureC",
+            "op": "between",
+            "value": 20,
+            "value2": 25.99
+          },
+          {
+            "variable": "elevationM",
+            "op": "gte",
+            "value": -250
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "index": 43,
+    "key": "minecraft:deep_lukewarm_ocean",
+    "fallbackKey": "minecraft:lukewarm_ocean",
+    "kind": "OCEAN",
+    "color": 2789317,
+    "hardBoundary": true,
+    "blendable": false,
+    "river": false,
+    "frozenRiver": false,
+    "canGenerateOverworld": true,
+    "rules": [
+      {
+        "zone": "ocean",
+        "priority": 91,
+        "conditions": [
+          {
+            "variable": "temperatureC",
+            "op": "between",
+            "value": 20,
+            "value2": 25.99
+          },
+          {
+            "variable": "elevationM",
+            "op": "lt",
+            "value": -250
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "index": 44,
+    "key": "minecraft:ocean",
+    "fallbackKey": "minecraft:ocean",
+    "kind": "OCEAN",
+    "color": 112,
+    "hardBoundary": true,
+    "blendable": false,
+    "river": false,
+    "frozenRiver": false,
+    "canGenerateOverworld": true,
+    "rules": [
+      {
+        "zone": "ocean",
+        "priority": 90,
+        "conditions": [
+          {
+            "variable": "temperatureC",
+            "op": "between",
+            "value": 5,
+            "value2": 19.99
+          },
+          {
+            "variable": "elevationM",
+            "op": "gte",
+            "value": -250
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "index": 45,
+    "key": "minecraft:deep_ocean",
+    "fallbackKey": "minecraft:deep_ocean",
+    "kind": "OCEAN",
+    "color": 48,
+    "hardBoundary": true,
+    "blendable": false,
+    "river": false,
+    "frozenRiver": false,
+    "canGenerateOverworld": true,
+    "rules": [
+      {
+        "zone": "ocean",
+        "priority": 91,
+        "conditions": [
+          {
+            "variable": "temperatureC",
+            "op": "between",
+            "value": 5,
+            "value2": 19.99
+          },
+          {
+            "variable": "elevationM",
+            "op": "lt",
+            "value": -250
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "index": 46,
+    "key": "minecraft:cold_ocean",
+    "fallbackKey": "minecraft:cold_ocean",
+    "kind": "OCEAN",
+    "color": 2105456,
+    "hardBoundary": true,
+    "blendable": false,
+    "river": false,
+    "frozenRiver": false,
+    "canGenerateOverworld": true,
+    "rules": [
+      {
+        "zone": "ocean",
+        "priority": 90,
+        "conditions": [
+          {
+            "variable": "temperatureC",
+            "op": "between",
+            "value": -5,
+            "value2": 4.99
+          },
+          {
+            "variable": "elevationM",
+            "op": "gte",
+            "value": -250
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "index": 47,
+    "key": "minecraft:deep_cold_ocean",
+    "fallbackKey": "minecraft:cold_ocean",
+    "kind": "OCEAN",
+    "color": 2105400,
+    "hardBoundary": true,
+    "blendable": false,
+    "river": false,
+    "frozenRiver": false,
+    "canGenerateOverworld": true,
+    "rules": [
+      {
+        "zone": "ocean",
+        "priority": 91,
+        "conditions": [
+          {
+            "variable": "temperatureC",
+            "op": "between",
+            "value": -5,
+            "value2": 4.99
+          },
+          {
+            "variable": "elevationM",
+            "op": "lt",
+            "value": -250
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "index": 48,
+    "key": "minecraft:frozen_ocean",
+    "fallbackKey": "minecraft:frozen_ocean",
+    "kind": "OCEAN",
+    "color": 7368918,
+    "hardBoundary": true,
+    "blendable": false,
+    "river": false,
+    "frozenRiver": false,
+    "canGenerateOverworld": true,
+    "rules": [
+      {
+        "zone": "ocean",
+        "priority": 90,
+        "conditions": [
+          {
+            "variable": "temperatureC",
+            "op": "lt",
+            "value": -5
+          },
+          {
+            "variable": "elevationM",
+            "op": "gte",
+            "value": -250
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "index": 49,
+    "key": "minecraft:deep_frozen_ocean",
+    "fallbackKey": "minecraft:frozen_ocean",
+    "kind": "OCEAN",
+    "color": 4210832,
+    "hardBoundary": true,
+    "blendable": false,
+    "river": false,
+    "frozenRiver": false,
+    "canGenerateOverworld": true,
+    "rules": [
+      {
+        "zone": "ocean",
+        "priority": 91,
+        "conditions": [
+          {
+            "variable": "temperatureC",
+            "op": "lt",
+            "value": -5
+          },
+          {
+            "variable": "elevationM",
+            "op": "lt",
+            "value": -250
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "index": 50,
+    "key": "minecraft:stony_shore",
+    "fallbackKey": "minecraft:stony_shore",
+    "kind": "BEACH",
+    "color": 10658436,
+    "hardBoundary": true,
+    "blendable": false,
+    "river": false,
+    "frozenRiver": false,
+    "canGenerateOverworld": true,
+    "rules": [
+      {
+        "zone": "beach",
+        "priority": 40,
+        "conditions": [
+          {
+            "variable": "slope",
+            "op": "gt",
+            "value": 0.28
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "index": 51,
+    "key": "minecraft:snowy_beach",
+    "fallbackKey": "minecraft:snowy_beach",
+    "kind": "BEACH",
+    "color": 16445632,
+    "hardBoundary": true,
+    "blendable": false,
+    "river": false,
+    "frozenRiver": false,
+    "canGenerateOverworld": true,
+    "rules": [
+      {
+        "zone": "beach",
+        "priority": 40,
+        "conditions": [
+          {
+            "variable": "snowy",
+            "op": "eq",
+            "bool": true
+          },
+          {
+            "variable": "slope",
+            "op": "lte",
+            "value": 0.28
+          }
+        ]
+      },
+      {
+        "zone": "beach",
+        "priority": 40,
+        "conditions": [
+          {
+            "variable": "temperatureC",
+            "op": "lt",
+            "value": 1
+          },
+          {
+            "variable": "slope",
+            "op": "lte",
+            "value": 0.28
+          },
+          {
+            "variable": "snowy",
+            "op": "eq",
+            "bool": false
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "index": 52,
+    "key": "minecraft:lush_caves",
+    "fallbackKey": "minecraft:lush_caves",
+    "kind": "CAVE",
+    "color": 7375408,
+    "hardBoundary": false,
+    "blendable": false,
+    "river": false,
+    "frozenRiver": false,
+    "canGenerateOverworld": true,
+    "rules": []
+  },
+  {
+    "index": 53,
+    "key": "minecraft:dripstone_caves",
+    "fallbackKey": "minecraft:dripstone_caves",
+    "kind": "CAVE",
+    "color": 7298896,
+    "hardBoundary": false,
+    "blendable": false,
+    "river": false,
+    "frozenRiver": false,
+    "canGenerateOverworld": true,
+    "rules": []
+  },
+  {
+    "index": 54,
+    "key": "minecraft:deep_dark",
+    "fallbackKey": "minecraft:deep_dark",
+    "kind": "CAVE",
+    "color": 1118495,
+    "hardBoundary": false,
+    "blendable": false,
+    "river": false,
+    "frozenRiver": false,
+    "canGenerateOverworld": true,
+    "rules": []
+  },
+  {
+    "index": 55,
+    "key": "minecraft:nether_wastes",
+    "fallbackKey": "minecraft:nether_wastes",
+    "kind": "NETHER",
+    "color": 12532539,
+    "hardBoundary": false,
+    "blendable": false,
+    "river": false,
+    "frozenRiver": false,
+    "canGenerateOverworld": false,
+    "rules": []
+  },
+  {
+    "index": 56,
+    "key": "minecraft:crimson_forest",
+    "fallbackKey": "minecraft:crimson_forest",
+    "kind": "NETHER",
+    "color": 14485512,
+    "hardBoundary": false,
+    "blendable": false,
+    "river": false,
+    "frozenRiver": false,
+    "canGenerateOverworld": false,
+    "rules": []
+  },
+  {
+    "index": 57,
+    "key": "minecraft:warped_forest",
+    "fallbackKey": "minecraft:warped_forest",
+    "kind": "NETHER",
+    "color": 4821115,
+    "hardBoundary": false,
+    "blendable": false,
+    "river": false,
+    "frozenRiver": false,
+    "canGenerateOverworld": false,
+    "rules": []
+  },
+  {
+    "index": 58,
+    "key": "minecraft:soul_sand_valley",
+    "fallbackKey": "minecraft:soul_sand_valley",
+    "kind": "NETHER",
+    "color": 6174768,
+    "hardBoundary": false,
+    "blendable": false,
+    "river": false,
+    "frozenRiver": false,
+    "canGenerateOverworld": false,
+    "rules": []
+  },
+  {
+    "index": 59,
+    "key": "minecraft:basalt_deltas",
+    "fallbackKey": "minecraft:basalt_deltas",
+    "kind": "NETHER",
+    "color": 4208182,
+    "hardBoundary": false,
+    "blendable": false,
+    "river": false,
+    "frozenRiver": false,
+    "canGenerateOverworld": false,
+    "rules": []
+  },
+  {
+    "index": 60,
+    "key": "minecraft:the_end",
+    "fallbackKey": "minecraft:the_end",
+    "kind": "END",
+    "color": 8421631,
+    "hardBoundary": false,
+    "blendable": false,
+    "river": false,
+    "frozenRiver": false,
+    "canGenerateOverworld": false,
+    "rules": []
+  },
+  {
+    "index": 61,
+    "key": "minecraft:end_highlands",
+    "fallbackKey": "minecraft:end_highlands",
+    "kind": "END",
+    "color": 13158655,
+    "hardBoundary": false,
+    "blendable": false,
+    "river": false,
+    "frozenRiver": false,
+    "canGenerateOverworld": false,
+    "rules": []
+  },
+  {
+    "index": 62,
+    "key": "minecraft:end_midlands",
+    "fallbackKey": "minecraft:end_midlands",
+    "kind": "END",
+    "color": 10526975,
+    "hardBoundary": false,
+    "blendable": false,
+    "river": false,
+    "frozenRiver": false,
+    "canGenerateOverworld": false,
+    "rules": []
+  },
+  {
+    "index": 63,
+    "key": "minecraft:small_end_islands",
+    "fallbackKey": "minecraft:small_end_islands",
+    "kind": "END",
+    "color": 6316224,
+    "hardBoundary": false,
+    "blendable": false,
+    "river": false,
+    "frozenRiver": false,
+    "canGenerateOverworld": false,
+    "rules": []
+  },
+  {
+    "index": 64,
+    "key": "minecraft:end_barrens",
+    "fallbackKey": "minecraft:end_barrens",
+    "kind": "END",
+    "color": 4210816,
+    "hardBoundary": false,
+    "blendable": false,
+    "river": false,
+    "frozenRiver": false,
+    "canGenerateOverworld": false,
+    "rules": []
+  },
+  {
+    "index": 65,
+    "key": "minecraft:the_void",
+    "fallbackKey": "minecraft:the_void",
+    "kind": "VOID",
+    "color": 0,
+    "hardBoundary": false,
+    "blendable": false,
+    "river": false,
+    "frozenRiver": false,
+    "canGenerateOverworld": false,
+    "rules": []
+  }
+]

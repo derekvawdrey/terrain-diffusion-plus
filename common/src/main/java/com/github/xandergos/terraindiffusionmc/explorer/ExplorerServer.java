@@ -1,6 +1,6 @@
 package com.github.xandergos.terraindiffusionmc.explorer;
 
-import com.github.xandergos.terraindiffusionmc.biome.TerrainBiomeCatalog;
+import com.github.xandergos.terraindiffusionmc.biome.TerrainBiomeRegistry;
 import com.github.xandergos.terraindiffusionmc.config.TerrainDiffusionConfig;
 import com.github.xandergos.terraindiffusionmc.infinitetensor.FloatTensor;
 import com.github.xandergos.terraindiffusionmc.pipeline.LocalTerrainProvider;
@@ -147,8 +147,8 @@ public final class ExplorerServer {
             int scale = WorldScaleManager.getCurrentScale();
             resp.put("scale", scale);
             resp.put("block_sources_below_775m", WorldScaleManager.shouldBlockLowAltitudeSources());
-            resp.put("biomes", TerrainBiomeCatalog.indexToKeyMap());
-            resp.put("biome_colors", TerrainBiomeCatalog.indexToColorMap());
+            resp.put("biomes", TerrainBiomeRegistry.instance().indexToKeyMap());
+            resp.put("biome_colors", TerrainBiomeRegistry.instance().indexToColorMap());
             if (!Double.isNaN(COMMAND_ORIGIN_X) && !Double.isNaN(COMMAND_ORIGIN_Z)) {
                 double safeScale = Math.max(1.0, scale);
                 Map<String, Object> origin = new LinkedHashMap<>();
@@ -455,7 +455,7 @@ public final class ExplorerServer {
             int intensity = Byte.toUnsignedInt(waterMask[index]);
             if (intensity == 0) continue;
             float alpha = 0.28f + 0.42f * (intensity / 255.0f);
-            boolean frozen = biomes != null && biomes[index] == TerrainBiomeCatalog.FROZEN_RIVER;
+            boolean frozen = biomes != null && TerrainBiomeRegistry.instance().isFrozenRiver(biomes[index]);
             float red = frozen ? 0.72f : 0.08f;
             float green = frozen ? 0.88f : 0.36f;
             float blue = frozen ? 0.96f : 0.78f;
@@ -538,7 +538,7 @@ public final class ExplorerServer {
     private static float[][] applyBiomeColors(short[] biomeIndexes, int H, int W) {
         float[][] rgba = new float[4][H * W];
         for (int i = 0; i < H * W; i++) {
-            int color = TerrainBiomeCatalog.colorForIndex(biomeIndexes[i]);
+            int color = TerrainBiomeRegistry.instance().colorForIndex(biomeIndexes[i]);
             rgba[0][i] = ((color >> 16) & 0xFF) / 255f;
             rgba[1][i] = ((color >> 8) & 0xFF) / 255f;
             rgba[2][i] = (color & 0xFF) / 255f;

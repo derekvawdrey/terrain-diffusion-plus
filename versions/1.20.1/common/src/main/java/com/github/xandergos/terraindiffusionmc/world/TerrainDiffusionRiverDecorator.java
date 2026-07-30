@@ -72,8 +72,7 @@ public final class TerrainDiffusionRiverDecorator {
                 }
 
                 boolean frozen = data.biomeIndexes != null
-                        && data.biomeIndexes[dataZ][dataX]
-                        == com.github.xandergos.terraindiffusionmc.biome.TerrainBiomeCatalog.FROZEN_RIVER;
+                        && com.github.xandergos.terraindiffusionmc.biome.TerrainBiomeRegistry.instance().isFrozenRiver(data.biomeIndexes[dataZ][dataX]);
                 if (frozen) {
                     pos.set(worldX, surfaceY, worldZ);
                     BlockState current = chunk.getBlockState(pos);

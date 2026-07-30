@@ -2,7 +2,7 @@ package com.github.xandergos.terraindiffusionmc.biome;
 
 /**
  * Noise fields referenced by rule {@code noiseConditions}, keyed by name in
- * {@link #value(String)}. A plain record avoids allocating a {@code Map} per
+ * {@link #value(TerrainBiomeCondition.Variable)}. A plain record avoids allocating a {@code Map} per
  * classified pixel.
  */
 public record TerrainBiomeNoiseSample(

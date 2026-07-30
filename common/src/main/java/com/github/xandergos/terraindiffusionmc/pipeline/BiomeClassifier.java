@@ -1,7 +1,6 @@
 package com.github.xandergos.terraindiffusionmc.pipeline;
 
 import com.github.xandergos.terraindiffusionmc.biome.BiomeRuleEngine;
-import com.github.xandergos.terraindiffusionmc.biome.TerrainBiomeCatalog;
 import com.github.xandergos.terraindiffusionmc.biome.TerrainBiomeNoiseSample;
 import com.github.xandergos.terraindiffusionmc.biome.TerrainBiomeRegistry;
 import com.github.xandergos.terraindiffusionmc.biome.TerrainClimateSample;
@@ -21,7 +20,6 @@ import com.github.xandergos.terraindiffusionmc.hydrology.HydrologyParallel;
 public final class BiomeClassifier {
 
     private static final int DETAIL_SHORELINE_PADDING = 24;
-    private static final int BIOME_INDEX_COUNT = TerrainBiomeCatalog.THE_VOID + 1;
 
     private static final TerrainBiomeRegistry REGISTRY = TerrainBiomeRegistry.instance();
     private static final BiomeRuleEngine ENGINE = new BiomeRuleEngine(REGISTRY);
@@ -138,7 +136,7 @@ public final class BiomeClassifier {
     private static void smoothIsolatedTransitions(short[] biomes, int H, int W) {
         short[] src = biomes.clone();
         HydrologyParallel.forEachRow(1, H - 1, W, r -> {
-            int[] counts = new int[BIOME_INDEX_COUNT];
+            int[] counts = new int[REGISTRY.indexUpperBound()];
             short[] touched = new short[9];
             for (int c = 1; c < W - 1; c++) {
                 int idx = r * W + c;
@@ -174,7 +172,7 @@ public final class BiomeClassifier {
         // less blocky transitions without touching coast/ocean/peak boundaries.
         short[] localSource = src;
         HydrologyParallel.forEachRow(1, H - 1, W, r -> {
-            int[] counts = new int[BIOME_INDEX_COUNT];
+            int[] counts = new int[REGISTRY.indexUpperBound()];
             short[] touched = new short[9];
             for (int c = 1; c < W - 1; c++) {
                 int idx = r * W + c;
@@ -205,7 +203,7 @@ public final class BiomeClassifier {
         src = biomes.clone();
         short[] broadSource = src;
         HydrologyParallel.forEachRow(2, H - 2, W, r -> {
-            int[] counts = new int[BIOME_INDEX_COUNT];
+            int[] counts = new int[REGISTRY.indexUpperBound()];
             short[] touched = new short[25];
             for (int c = 2; c < W - 2; c++) {
                 int idx = r * W + c;

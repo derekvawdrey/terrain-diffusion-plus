@@ -37,6 +37,7 @@ public final class TerrainBiomeRegistry {
     private Map<Short, TerrainBiomeSettlement> byIndex;
     private Map<String, TerrainBiomeSettlement> byKey;
     private List<TerrainBiomeSettlement> overworldCandidates;
+    private int indexUpperBound = 2;
     private boolean built = false;
 
     private TerrainBiomeRegistry() {
@@ -116,17 +117,22 @@ public final class TerrainBiomeRegistry {
         Map<Short, TerrainBiomeSettlement> indexMap = new LinkedHashMap<>();
         Map<String, TerrainBiomeSettlement> keyMap = new LinkedHashMap<>();
         List<TerrainBiomeSettlement> overworld = new ArrayList<>();
+        short maxIndex = 0;
 
         for (TerrainBiomeSettlement s : settlements) {
             indexMap.put(s.index(), s);
             keyMap.put(s.key(), s);
             if (s.canGenerateOverworld()) overworld.add(s);
+            if (s.index() > maxIndex) maxIndex = s.index();
             resolveRuleConditions(s);
         }
 
         byIndex = Collections.unmodifiableMap(indexMap);
         byKey = Collections.unmodifiableMap(keyMap);
         overworldCandidates = Collections.unmodifiableList(overworld);
+        // +1 so index-sized scratch arrays (e.g. BiomeClassifier's local majority counts) can
+        // safely use any registered index, including custom catalogs beyond the bundled one.
+        indexUpperBound = Math.max(maxIndex + 1, 2);
         built = true;
     }
 
@@ -215,6 +221,15 @@ public final class TerrainBiomeRegistry {
     public short defaultBiomeIndex() {
         TerrainBiomeSettlement plains = byIndex.get((short) 1);
         return plains != null ? plains.index() : (short) 1;
+    }
+
+    /**
+     * One past the highest registered biome index. Sized for index-keyed scratch arrays;
+     * always covers every currently registered settlement, including custom catalogs
+     * (config-dir overrides or mod {@link #register}) that go beyond the bundled default.
+     */
+    public int indexUpperBound() {
+        return indexUpperBound;
     }
 
     /** Returns the index of the river biome. */

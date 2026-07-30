@@ -142,7 +142,8 @@ public final class BiomeClassifier {
                 boolean coastline = isCoastlineCandidate(elev, H, W, r, c, elev[idx], slopeRatio[idx]);
                 out[idx] = classifyPixel(elev[idx], climate, H, W, idx, tempNoise[idx],
                         precipNoiseFact[idx], snowNoise[idx], variantNoise[idx], cherryNoise[idx], paleNoise[idx],
-                        clearingNoise[idx], flowerNoise[idx], regionNoise[idx], slopeRatio[idx], coastline);
+                        clearingNoise[idx], flowerNoise[idx], regionNoise[idx], slopeRatio[idx], coastline,
+                        j0 + c, i0 + r);
             }
         });
         smoothIsolatedTransitions(out, H, W);
@@ -270,7 +271,8 @@ public final class BiomeClassifier {
 
     private static short classifyPixel(float elevation, float[] climate, int H, int W, int idx,
                                         float tempNoise, float precipNoiseFactor, float snowNoise,
-                                        float variantNoise, float cherryNoise, float paleNoise, float clearingNoise, float flowerNoise, float regionNoise, float slope, boolean coastline) {
+                                        float variantNoise, float cherryNoise, float paleNoise, float clearingNoise, float flowerNoise, float regionNoise, float slope, boolean coastline,
+                                        float worldX, float worldZ) {
         float altM = Math.max(0f, elevation);
 
         float temp = climate[idx] + tempNoise;
@@ -357,17 +359,17 @@ public final class BiomeClassifier {
         short biome;
 
         if (isOcean) {
-            biome = ENGINE.select("ocean", sample, noiseValues, defaultIndex);
+            biome = ENGINE.select("ocean", sample, noiseValues, defaultIndex, worldX, worldZ);
         } else if (beachBand && !mountains) {
-            biome = ENGINE.select("beach", sample, noiseValues, defaultIndex);
+            biome = ENGINE.select("beach", sample, noiseValues, defaultIndex, worldX, worldZ);
         } else if (mountains) {
-            biome = ENGINE.select("mountain", sample, noiseValues, defaultIndex);
+            biome = ENGINE.select("mountain", sample, noiseValues, defaultIndex, worldX, worldZ);
         } else {
-            biome = ENGINE.select("lowland", sample, noiseValues, defaultIndex);
+            biome = ENGINE.select("lowland", sample, noiseValues, defaultIndex, worldX, worldZ);
         }
 
         if (slopeBare && !isOcean && !mountains) {
-            biome = ENGINE.select("bareSlope", sample, noiseValues, biome);
+            biome = ENGINE.select("bareSlope", sample, noiseValues, biome, worldX, worldZ);
         }
 
         return biome;

@@ -20,7 +20,7 @@ public final class FluvialRiverNetwork {
     private static final Logger LOG = LoggerFactory.getLogger(FluvialRiverNetwork.class);
     private static final float SEA_LEVEL_METERS = 0.0f;
     private static final float MIN_VISIBLE_FLOW = 0.18f;
-    private static final float RILL_FLOW = 0.08f;
+    private static final float RILL_FLOW = 0.16f;
     private static final float LAKE_MIN_DEPTH_M = 0.75f;
     private static final float MIN_CHANNEL_RADIUS_PX = 0.26f;
     private static final float MAX_CHANNEL_RADIUS_PX = 16.0f;
@@ -72,7 +72,7 @@ public final class FluvialRiverNetwork {
         float[] accumulation = accumulateRunoff(elevation, climate, flood.downstream, flood.order,
                 flood.orderSize, height, width, pixelSizeM);
         long t2 = System.nanoTime();
-        boolean[] visible = selectVisibleNetwork(elevation, accumulation, flood.downstream, flood.order,
+        boolean[] visible = selectVisibleNetwork(elevation, climate, accumulation, flood.downstream, flood.order,
                 flood.orderSize, height, width, i0, j0, blockSourcesBelowElevation, minimumSourceElevationM);
         long t3 = System.nanoTime();
 
@@ -184,6 +184,38 @@ public final class FluvialRiverNetwork {
         return MIN_RIVER_DENSITY + (1f - MIN_RIVER_DENSITY) * smooth;
     }
 
+    /** Below this annual precipitation, rivers are gated down to {@link #PRECIP_DENSITY_FLOOR}. */
+    private static final float PRECIP_LOW_MM = 700.0f;
+
+    /** Above this annual precipitation, the precipitation gate no longer suppresses rivers. */
+    private static final float PRECIP_HIGH_MM = 1200.0f;
+
+    /** Density multiplier at 0mm precipitation: effective flow threshold is ~8x normal there. */
+    private static final float PRECIP_DENSITY_FLOOR = 0.12f;
+
+    /** Density multiplier right at {@link #PRECIP_LOW_MM}: effective flow threshold is ~2.5x normal there. */
+    private static final float PRECIP_DENSITY_MID = 0.4f;
+
+    /**
+     * Multiplier (0..1) on how easily a cell qualifies as a river, driven directly by local
+     * annual precipitation. Rivers are heavily suppressed below {@link #PRECIP_LOW_MM}, mildly
+     * suppressed between {@link #PRECIP_LOW_MM} and {@link #PRECIP_HIGH_MM}, and unaffected above
+     * {@link #PRECIP_HIGH_MM}. This is deliberately separate from {@link #riverDensity}, which
+     * only encodes large-scale regional variety unrelated to climate.
+     */
+    private static float precipitationDensity(float precipMm) {
+        if (precipMm <= 0.0f) return PRECIP_DENSITY_FLOOR;
+        if (precipMm < PRECIP_LOW_MM) {
+            float smooth = smoothstep(clamp01(precipMm / PRECIP_LOW_MM));
+            return PRECIP_DENSITY_FLOOR + (PRECIP_DENSITY_MID - PRECIP_DENSITY_FLOOR) * smooth;
+        }
+        if (precipMm < PRECIP_HIGH_MM) {
+            float smooth = smoothstep(clamp01((precipMm - PRECIP_LOW_MM) / (PRECIP_HIGH_MM - PRECIP_LOW_MM)));
+            return PRECIP_DENSITY_MID + (1.0f - PRECIP_DENSITY_MID) * smooth;
+        }
+        return 1.0f;
+    }
+
     /** Grid spacing (pixels) between direct {@link #riverDensity} samples; see {@link RiverDensityField}. */
     private static final int REGION_DENSITY_STRIDE = 64;
 
@@ -239,18 +271,20 @@ public final class FluvialRiverNetwork {
         }
     }
 
-    private static boolean[] selectVisibleNetwork(float[] elevation, float[] accumulation, int[] downstream,
-                                                   int[] order, int orderSize, int height, int width,
-                                                   int i0, int j0,
+    private static boolean[] selectVisibleNetwork(float[] elevation, float[] climate, float[] accumulation,
+                                                   int[] downstream, int[] order, int orderSize,
+                                                   int height, int width, int i0, int j0,
                                                    boolean blockLowSources, float minimumSourceElevationM) {
         int n = elevation.length;
         boolean[] candidate = new boolean[n];
         boolean[] hasCandidateUpstream = new boolean[n];
         RiverDensityField density = RiverDensityField.build(i0, j0, height, width);
+        boolean hasClimate = climate != null && climate.length >= 4 * n;
         HydrologyParallel.forEachIndex(0, n, idx -> {
             int r = idx / width;
             int c = idx - r * width;
-            float threshold = RILL_FLOW / density.sample(r, c);
+            float precipDensity = hasClimate ? precipitationDensity(climate[2 * n + idx]) : 1.0f;
+            float threshold = RILL_FLOW / (density.sample(r, c) * precipDensity);
             candidate[idx] = elevation[idx] > SEA_LEVEL_METERS && accumulation[idx] >= threshold;
         });
         HydrologyParallel.forEachIndex(0, n, idx -> {

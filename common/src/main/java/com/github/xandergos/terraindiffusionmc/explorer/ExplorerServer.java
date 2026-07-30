@@ -202,6 +202,7 @@ public final class ExplorerServer {
      */
     private static void handleCoarsePng(HttpExchange ex) throws IOException {
         if (!ex.getRequestMethod().equalsIgnoreCase("GET")) { send405(ex); return; }
+        boolean headersSent = false;
         try {
             Map<String, String> q = parseQuery(ex.getRequestURI());
             int channel = getInt(q, "channel", 0);
@@ -262,11 +263,12 @@ public final class ExplorerServer {
             ex.getResponseHeaders().set("X-Vmin", String.format("%.3f", vmin));
             ex.getResponseHeaders().set("X-Vmax", String.format("%.3f", vmax));
             ex.getResponseHeaders().set("Access-Control-Expose-Headers", "X-Vmin, X-Vmax");
+            headersSent = true;
             ex.sendResponseHeaders(200, png.length);
             ex.getResponseBody().write(png);
         } catch (Exception e) {
-            LOG.error("coarse.png error", e);
-            sendError(ex, 400, e.getMessage());
+            logHandlerError("coarse.png", e);
+            if (!headersSent) sendError(ex, 400, e.getMessage());
         } finally {
             ex.close();
         }
@@ -328,6 +330,7 @@ public final class ExplorerServer {
      */
     private static void handleDetailPng(HttpExchange ex) throws IOException {
         if (!ex.getRequestMethod().equalsIgnoreCase("GET")) { send405(ex); return; }
+        boolean headersSent = false;
         try {
             Map<String, String> q = parseQuery(ex.getRequestURI());
             int ci         = getInt(q, "ci", 0);
@@ -375,11 +378,12 @@ public final class ExplorerServer {
             byte[] png = toPng(rgba, H, W);
             setNoStoreHeaders(ex);
             ex.getResponseHeaders().set("Content-Type", "image/png");
+            headersSent = true;
             ex.sendResponseHeaders(200, png.length);
             ex.getResponseBody().write(png);
         } catch (Exception e) {
-            LOG.error("detail.png error", e);
-            sendError(ex, 400, e.getMessage());
+            logHandlerError("detail.png", e);
+            if (!headersSent) sendError(ex, 400, e.getMessage());
         } finally {
             ex.close();
         }
@@ -392,6 +396,7 @@ public final class ExplorerServer {
      */
     private static void handleDetailRaw(HttpExchange ex) throws IOException {
         if (!ex.getRequestMethod().equalsIgnoreCase("GET")) { send405(ex); return; }
+        boolean headersSent = false;
         try {
             Map<String, String> q = parseQuery(ex.getRequestURI());
             int ci         = getInt(q, "ci", 0);
@@ -438,11 +443,12 @@ public final class ExplorerServer {
             ex.getResponseHeaders().set("Access-Control-Expose-Headers",
                     "X-Height, X-Width, X-Has-Temp, X-Has-Biome, X-Has-Water, "
                             + "X-Temp-Encoding, X-Water-Surface-Encoding");
+            headersSent = true;
             ex.sendResponseHeaders(200, payload.length);
             ex.getResponseBody().write(payload);
         } catch (Exception e) {
-            LOG.error("detail_raw error", e);
-            sendError(ex, 400, e.getMessage());
+            logHandlerError("detail_raw", e);
+            if (!headersSent) sendError(ex, 400, e.getMessage());
         } finally {
             ex.close();
         }
@@ -570,6 +576,21 @@ public final class ExplorerServer {
         Map<String, String> err = new HashMap<>();
         err.put("error", msg != null ? msg : "unknown error");
         sendJson(ex, status, err);
+    }
+
+    /**
+     * The explorer UI cancels in-flight requests whenever the user pans away before a slow
+     * detail/coarse image finishes streaming, which surfaces here as a "Broken pipe" IOException.
+     * That's an expected client hangup, not a server bug, so it's logged quietly instead of at
+     * ERROR with a full stack trace.
+     */
+    private static void logHandlerError(String endpoint, Exception e) {
+        if (e instanceof IOException && e.getMessage() != null
+                && (e.getMessage().contains("Broken pipe") || e.getMessage().contains("Connection reset"))) {
+            LOG.debug("{}: client disconnected mid-response", endpoint);
+        } else {
+            LOG.error("{} error", endpoint, e);
+        }
     }
 
     private static void send405(HttpExchange ex) throws IOException {

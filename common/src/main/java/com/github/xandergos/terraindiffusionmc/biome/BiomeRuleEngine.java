@@ -35,10 +35,10 @@ public final class BiomeRuleEngine {
      * to make runner-ups (e.g. modded biomes shadowed by broad vanilla rules) rarer;
      * lower it to make them more prevalent.
      */
-    private static final float COMPETITION_RANK_PENALTY = 0.35f;
+    private static final float COMPETITION_RANK_PENALTY = 0.8f;
 
     /** World-space wavelength of {@link #competitionNoise}'s field, in blocks. */
-    private static final float COMPETITION_NOISE_WAVELENGTH = 400f;
+    private static final float COMPETITION_NOISE_WAVELENGTH = 900f;
 
     private final TerrainBiomeRegistry registry;
 

@@ -121,12 +121,28 @@ public final class TerrainBiomeRegistry {
             indexMap.put(s.index(), s);
             keyMap.put(s.key(), s);
             if (s.canGenerateOverworld()) overworld.add(s);
+            resolveRuleConditions(s);
         }
 
         byIndex = Collections.unmodifiableMap(indexMap);
         byKey = Collections.unmodifiableMap(keyMap);
         overworldCandidates = Collections.unmodifiableList(overworld);
         built = true;
+    }
+
+    /**
+     * Resolves each rule's condition variables to enums once, here on the single-threaded
+     * build path, so the classifier's per-pixel hot path never has to.
+     */
+    private void resolveRuleConditions(TerrainBiomeSettlement settlement) {
+        for (TerrainBiomeRule rule : settlement.rules()) {
+            for (TerrainBiomeCondition condition : rule.conditions()) {
+                condition.resolve();
+            }
+            for (TerrainBiomeCondition condition : rule.noiseConditions()) {
+                condition.resolve();
+            }
+        }
     }
 
     // ---- Legacy TerrainBiomeCatalog-compatible API ----

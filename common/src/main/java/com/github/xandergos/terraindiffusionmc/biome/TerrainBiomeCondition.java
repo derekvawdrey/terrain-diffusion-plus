@@ -2,8 +2,6 @@ package com.github.xandergos.terraindiffusionmc.biome;
 
 import com.google.gson.annotations.SerializedName;
 
-import java.util.Map;
-
 /**
  * A single condition on a climate variable or boolean flag.
  *
@@ -25,6 +23,18 @@ public final class TerrainBiomeCondition {
         BETWEEN
     }
 
+    /**
+     * The {@code variable} string resolved once at registry build time, so hot-path
+     * evaluation switches on an enum ordinal instead of hashing/comparing a String.
+     */
+    public enum Variable {
+        ELEVATION_M, TEMPERATURE_C, TEMPERATURE_SEASONALITY, PRECIPITATION_MM, PRECIPITATION_CV,
+        MOISTURE, ARIDITY, TREE_MOISTURE, TREE_COVERAGE, SPARSITY, SLOPE, GROWING_SEASON_DAYS,
+        OCEAN, SNOWY, BARE_SLOPE, MOUNTAIN, LOWLAND,
+        VARIANT_NOISE, CHERRY_NOISE, PALE_NOISE, CLEARING_NOISE, FLOWER_NOISE,
+        UNKNOWN
+    }
+
     @SerializedName("variable")
     private String variable;
 
@@ -39,6 +49,9 @@ public final class TerrainBiomeCondition {
 
     @SerializedName("bool")
     private Boolean boolValue;
+
+    /** Populated by {@link #resolve()}; Gson leaves transient fields at their default. */
+    private transient Variable resolvedVariable;
 
     public String variable() {
         return variable;
@@ -60,16 +73,51 @@ public final class TerrainBiomeCondition {
         return boolValue;
     }
 
+    /** Resolves {@link #variable} to its enum once. Called from single-threaded registry build. */
+    void resolve() {
+        resolvedVariable = variable == null ? Variable.UNKNOWN : switch (variable) {
+            case "elevationM" -> Variable.ELEVATION_M;
+            case "temperatureC" -> Variable.TEMPERATURE_C;
+            case "temperatureSeasonality" -> Variable.TEMPERATURE_SEASONALITY;
+            case "precipitationMm" -> Variable.PRECIPITATION_MM;
+            case "precipitationCv" -> Variable.PRECIPITATION_CV;
+            case "moisture" -> Variable.MOISTURE;
+            case "aridity" -> Variable.ARIDITY;
+            case "treeMoisture" -> Variable.TREE_MOISTURE;
+            case "treeCoverage" -> Variable.TREE_COVERAGE;
+            case "sparsity" -> Variable.SPARSITY;
+            case "slope" -> Variable.SLOPE;
+            case "growingSeasonDays" -> Variable.GROWING_SEASON_DAYS;
+            case "ocean" -> Variable.OCEAN;
+            case "snowy" -> Variable.SNOWY;
+            case "bareSlope" -> Variable.BARE_SLOPE;
+            case "mountain" -> Variable.MOUNTAIN;
+            case "lowland" -> Variable.LOWLAND;
+            case "variantNoise" -> Variable.VARIANT_NOISE;
+            case "cherryNoise" -> Variable.CHERRY_NOISE;
+            case "paleNoise" -> Variable.PALE_NOISE;
+            case "clearingNoise" -> Variable.CLEARING_NOISE;
+            case "flowerNoise" -> Variable.FLOWER_NOISE;
+            default -> Variable.UNKNOWN;
+        };
+    }
+
+    /** Resolved variable enum. {@link #resolve()} must have run first (registry build does this). */
+    public Variable resolvedVariable() {
+        if (resolvedVariable == null) resolve();
+        return resolvedVariable;
+    }
+
     /**
      * Evaluate this condition against a climate sample.
      */
     public boolean evaluate(TerrainClimateSample sample) {
         if (boolValue != null) {
-            boolean actual = getBooleanValue(sample, variable);
+            boolean actual = getBooleanValue(sample);
             return actual == boolValue;
         }
 
-        float actual = getNumericValue(sample, variable);
+        float actual = getNumericValue(sample);
         return evaluateNumeric(actual);
     }
 
@@ -85,31 +133,31 @@ public final class TerrainBiomeCondition {
         }
     }
 
-    private float getNumericValue(TerrainClimateSample sample, String var) {
-        return switch (var) {
-            case "elevationM" -> sample.elevationM();
-            case "temperatureC" -> sample.temperatureC();
-            case "temperatureSeasonality" -> sample.temperatureSeasonality();
-            case "precipitationMm" -> sample.precipitationMm();
-            case "precipitationCv" -> sample.precipitationCv();
-            case "moisture" -> sample.moisture();
-            case "aridity" -> sample.aridity();
-            case "treeMoisture" -> sample.treeMoisture();
-            case "treeCoverage" -> sample.treeCoverage();
-            case "sparsity" -> sample.sparsity();
-            case "slope" -> sample.slope();
-            case "growingSeasonDays" -> sample.growingSeasonDays();
+    private float getNumericValue(TerrainClimateSample sample) {
+        return switch (resolvedVariable()) {
+            case ELEVATION_M -> sample.elevationM();
+            case TEMPERATURE_C -> sample.temperatureC();
+            case TEMPERATURE_SEASONALITY -> sample.temperatureSeasonality();
+            case PRECIPITATION_MM -> sample.precipitationMm();
+            case PRECIPITATION_CV -> sample.precipitationCv();
+            case MOISTURE -> sample.moisture();
+            case ARIDITY -> sample.aridity();
+            case TREE_MOISTURE -> sample.treeMoisture();
+            case TREE_COVERAGE -> sample.treeCoverage();
+            case SPARSITY -> sample.sparsity();
+            case SLOPE -> sample.slope();
+            case GROWING_SEASON_DAYS -> sample.growingSeasonDays();
             default -> Float.NaN;
         };
     }
 
-    private boolean getBooleanValue(TerrainClimateSample sample, String var) {
-        return switch (var) {
-            case "ocean" -> sample.ocean();
-            case "snowy" -> sample.snowy();
-            case "bareSlope" -> sample.bareSlope();
-            case "mountain" -> sample.mountain();
-            case "lowland" -> sample.lowland();
+    private boolean getBooleanValue(TerrainClimateSample sample) {
+        return switch (resolvedVariable()) {
+            case OCEAN -> sample.ocean();
+            case SNOWY -> sample.snowy();
+            case BARE_SLOPE -> sample.bareSlope();
+            case MOUNTAIN -> sample.mountain();
+            case LOWLAND -> sample.lowland();
             default -> false;
         };
     }

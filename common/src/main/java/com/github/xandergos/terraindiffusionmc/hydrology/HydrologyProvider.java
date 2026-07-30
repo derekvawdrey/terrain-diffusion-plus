@@ -69,6 +69,17 @@ public final class HydrologyProvider {
     private final LinkedHashMap<TileKey, HydrologyTile> cache = new LinkedHashMap<>(16, 0.75f, true);
     private long retainedBytes;
 
+    /**
+     * Per-tile-key locks so two threads racing to generate the *same* missing tile (e.g. an
+     * explorer request and a chunk-gen request landing on the same tile at once) don't do the
+     * work twice. Deliberately not a single global lock: {@link HydrologyParallel}'s pool
+     * already handles concurrent {@code invoke()} calls from multiple external threads fine
+     * (callers park rather than spin), and serializing across *different* tiles would make
+     * latency-sensitive explorer requests queue behind unrelated, possibly large, background
+     * world-gen tile generations.
+     */
+    private final ConcurrentHashMap<TileKey, Object> generationLocks = new ConcurrentHashMap<>();
+
     public HydrologyProvider(TileGenerator generator) {
         this.generator = generator;
         this.tileSize = TerrainDiffusionConfig.hydrologyTileSize();
@@ -166,18 +177,31 @@ public final class HydrologyProvider {
             return loaded;
         }
 
-        int coreI0 = tileOrigin(tileI);
-        int coreJ0 = tileOrigin(tileJ);
-        HydrologyTile generated = generator.generate(coreI0, coreJ0, tileSize, halo, scale, blockLowAltitudeSources);
-        validateTile(generated, coreI0, coreJ0);
+        Object lock = generationLocks.computeIfAbsent(key, k -> new Object());
+        try {
+            synchronized (lock) {
+                // Another thread may have generated this exact tile while we waited for the lock.
+                synchronized (this) {
+                    HydrologyTile raced = cache.get(key);
+                    if (raced != null) return raced;
+                }
 
-        synchronized (this) {
-            HydrologyTile raced = cache.get(key);
-            if (raced != null) return raced;
-            retain(key, generated);
+                int coreI0 = tileOrigin(tileI);
+                int coreJ0 = tileOrigin(tileJ);
+                HydrologyTile generated = generator.generate(coreI0, coreJ0, tileSize, halo, scale, blockLowAltitudeSources);
+                validateTile(generated, coreI0, coreJ0);
+
+                synchronized (this) {
+                    HydrologyTile raced = cache.get(key);
+                    if (raced != null) return raced;
+                    retain(key, generated);
+                }
+                persistTileAsync(key, generated);
+                return generated;
+            }
+        } finally {
+            generationLocks.remove(key, lock);
         }
-        persistTileAsync(key, generated);
-        return generated;
     }
 
     private void retain(TileKey key, HydrologyTile tile) {

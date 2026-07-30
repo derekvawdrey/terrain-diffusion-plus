@@ -67,18 +67,17 @@ public final class TerrainBiomeRule {
 
     /**
      * Check if all noise conditions are satisfied.
-     * @param noiseValues map of noise name -> float value
      */
-    public boolean matchesNoise(java.util.Map<String, Float> noiseValues) {
+    public boolean matchesNoise(TerrainBiomeNoiseSample noiseValues) {
         for (TerrainBiomeCondition cond : noiseConditions()) {
             if (!evaluateNoiseCondition(cond, noiseValues)) return false;
         }
         return true;
     }
 
-    private boolean evaluateNoiseCondition(TerrainBiomeCondition cond, java.util.Map<String, Float> noiseValues) {
-        Float val = noiseValues.get(cond.variable());
-        if (val == null) return false;
+    private boolean evaluateNoiseCondition(TerrainBiomeCondition cond, TerrainBiomeNoiseSample noiseValues) {
+        float val = noiseValues.value(cond.resolvedVariable());
+        if (Float.isNaN(val)) return false;
 
         switch (cond.operator()) {
             case EQ:    return val == cond.numericValue();

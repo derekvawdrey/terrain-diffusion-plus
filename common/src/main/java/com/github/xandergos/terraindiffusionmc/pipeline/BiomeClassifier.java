@@ -2,12 +2,10 @@ package com.github.xandergos.terraindiffusionmc.pipeline;
 
 import com.github.xandergos.terraindiffusionmc.biome.BiomeRuleEngine;
 import com.github.xandergos.terraindiffusionmc.biome.TerrainBiomeCatalog;
+import com.github.xandergos.terraindiffusionmc.biome.TerrainBiomeNoiseSample;
 import com.github.xandergos.terraindiffusionmc.biome.TerrainBiomeRegistry;
 import com.github.xandergos.terraindiffusionmc.biome.TerrainClimateSample;
 import com.github.xandergos.terraindiffusionmc.hydrology.HydrologyParallel;
-
-import java.util.HashMap;
-import java.util.Map;
 
 /**
  * Climate-based biome classifier.
@@ -337,12 +335,8 @@ public final class BiomeClassifier {
                 treeMoisture, aridity, treeMoisture, treeCoverage, sparsity, slope, growingSeason,
                 isOcean, hasSnow, slopeBare, mountains, lowland);
 
-        Map<String, Float> noiseValues = new HashMap<>();
-        noiseValues.put("variantNoise", variantNoise);
-        noiseValues.put("cherryNoise", cherryNoise);
-        noiseValues.put("paleNoise", paleNoise);
-        noiseValues.put("clearingNoise", clearingNoise);
-        noiseValues.put("flowerNoise", flowerNoise);
+        TerrainBiomeNoiseSample noiseValues = new TerrainBiomeNoiseSample(
+                variantNoise, cherryNoise, paleNoise, clearingNoise, flowerNoise);
 
         short defaultIndex = REGISTRY.defaultBiomeIndex();
         short biome;

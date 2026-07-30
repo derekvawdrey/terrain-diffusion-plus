@@ -1,6 +1,7 @@
 package com.github.xandergos.terraindiffusionmc.pipeline;
 
 import com.github.xandergos.terraindiffusionmc.config.TerrainDiffusionConfig;
+import com.github.xandergos.terraindiffusionmc.hydrology.HydrologyParallel;
 import com.github.xandergos.terraindiffusionmc.infinitetensor.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -489,35 +490,38 @@ public final class WorldPipeline implements AutoCloseable {
         // Residual slice (2, pH, pW)
         FloatTensor resSlice = residual.getSlice(new int[]{0, pi1, pj1}, new int[]{2, pi2, pj2});
         float[][] residualP = new float[pH][pW];
-        for (int r = 0; r < pH; r++)
+        HydrologyParallel.forEachRow(0, pH, pW, r -> {
             for (int c = 0; c < pW; c++) {
                 float w = resSlice.data[pH * pW + r * pW + c];
                 float v = (w > 1e-6f) ? resSlice.data[r * pW + c] / w : 0f;
                 residualP[r][c] = v * RESIDUAL_STD + RESIDUAL_MEAN;
             }
+        });
 
         // Latent slice (6, lH, lW)
         int lH = pH / lc, lW = pW / lc;
         FloatTensor latSlice = latents.getSlice(
                 new int[]{0, pi1 / lc, pj1 / lc}, new int[]{6, pi2 / lc, pj2 / lc});
         float[][] lowfreqP = new float[lH][lW];
-        for (int r = 0; r < lH; r++)
+        HydrologyParallel.forEachRow(0, lH, lW, r -> {
             for (int c = 0; c < lW; c++) {
                 float w = latSlice.data[5 * lH * lW + r * lW + c];
                 float v = (w > 1e-6f) ? latSlice.data[4 * lH * lW + r * lW + c] / w : 0f;
                 lowfreqP[r][c] = v * LOWFREQ_STD + LOWFREQ_MEAN;
             }
+        });
 
         float[][] newLowres = LaplacianUtils.laplacianDenoise(residualP, lowfreqP, sigma);
         float[][] elevP = LaplacianUtils.laplacianDecode(residualP, newLowres);
 
         int oi = i1 - pi1, oj = j1 - pj1, H = i2 - i1, W = j2 - j1;
         float[] flat = new float[H * W];
-        for (int r = 0; r < H; r++)
+        HydrologyParallel.forEachRow(0, H, W, r -> {
             for (int c = 0; c < W; c++) {
                 float es = elevP[oi + r][oj + c];
                 flat[r * W + c] = (float) (Math.signum(es) * es * es);
             }
+        });
         return flat;
     }
 
@@ -544,18 +548,21 @@ public final class WorldPipeline implements AutoCloseable {
 
         // Unnormalize all 6 coarse channels
         float[][] coarseMap = new float[6][cH * cW];
-        for (int ch = 0; ch < 6; ch++)
-            for (int px = 0; px < cH * cW; px++) {
-                float w = coarseSlice.data[6 * cH * cW + px];
-                coarseMap[ch][px] = (w > 1e-6f) ? coarseSlice.data[ch * cH * cW + px] / w : 0f;
-            }
+        int coarsePlane = cH * cW;
+        HydrologyParallel.forEachIndex(0, 6 * coarsePlane, index -> {
+            int ch = index / coarsePlane;
+            int px = index - ch * coarsePlane;
+            float w = coarseSlice.data[6 * coarsePlane + px];
+            coarseMap[ch][px] = (w > 1e-6f)
+                    ? coarseSlice.data[ch * coarsePlane + px] / w : 0f;
+        });
 
         // Coarse elevation (undo sqrt): max(0, v)^2  — ocean pixels clamp to 0, matching Python
         float[] coarseElev = new float[cH * cW];
-        for (int px = 0; px < cH * cW; px++) {
+        HydrologyParallel.forEachIndex(0, cH * cW, px -> {
             float v = Math.max(0f, coarseMap[0][px]);
             coarseElev[px] = v * v;
-        }
+        });
 
         // Windowed lapse-rate regression
         float[][][] lbt = LaplacianUtils.localBaselineTemperature(
@@ -573,7 +580,7 @@ public final class WorldPipeline implements AutoCloseable {
 
         // Bilinear upsample to native resolution
         float[] climate = new float[5 * H * W];
-        for (int r = 0; r < H; r++) {
+        HydrologyParallel.forEachRow(0, H, W, r -> {
             // fractional index into lbt/centralCoarse arrays (matches Python's u = (ii+0.5)/S - ci1 + 0.5)
             float gridY    = (i1 + r + 0.5f) / S - ci1 + 0.5f;
             float cenGridY = gridY;
@@ -591,7 +598,7 @@ public final class WorldPipeline implements AutoCloseable {
                 climate[3 * H * W + r * W + c] = bilinearSample2D(centralCoarse[5], cenH, cenW, cenGridY, cenGridX);
                 climate[4 * H * W + r * W + c] = beta;
             }
-        }
+        });
         return climate;
     }
 
@@ -615,9 +622,11 @@ public final class WorldPipeline implements AutoCloseable {
     static float[] flatten3D(float[][][] arr) {
         int C = arr.length, H = arr[0].length, W = arr[0][0].length;
         float[] out = new float[C * H * W];
-        for (int c = 0; c < C; c++)
-            for (int r = 0; r < H; r++)
-                System.arraycopy(arr[c][r], 0, out, c * H * W + r * W, W);
+        HydrologyParallel.forEachIndex(0, C * H, index -> {
+            int channel = index / H;
+            int row = index - channel * H;
+            System.arraycopy(arr[channel][row], 0, out, channel * H * W + row * W, W);
+        });
         return out;
     }
 
@@ -628,24 +637,27 @@ public final class WorldPipeline implements AutoCloseable {
 
     static float[] nearestUpsample(float[] src, int C, int sH, int sW, int dH, int dW) {
         float[] dst = new float[C * dH * dW];
-        for (int c = 0; c < C; c++)
-            for (int r = 0; r < dH; r++) {
+        HydrologyParallel.forEachIndex(0, C * dH, index -> {
+                int c = index / dH;
+                int r = index - c * dH;
                 int sr = r * sH / dH;
                 for (int col = 0; col < dW; col++)
                     dst[c * dH * dW + r * dW + col] = src[c * sH * sW + sr * sW + col * sW / dW];
-            }
+        });
         return dst;
     }
 
     static float[][] to2D(float[] flat, int H, int W) {
         float[][] a = new float[H][W];
-        for (int r = 0; r < H; r++) System.arraycopy(flat, r * W, a[r], 0, W);
+        HydrologyParallel.forEachRow(0, H, W, r ->
+                System.arraycopy(flat, r * W, a[r], 0, W));
         return a;
     }
 
     static float[][] cropArray(float[][] src, int r0, int c0, int H, int W) {
         float[][] out = new float[H][W];
-        for (int r = 0; r < H; r++) System.arraycopy(src[r + r0], c0, out[r], 0, W);
+        HydrologyParallel.forEachRow(0, H, W, r ->
+                System.arraycopy(src[r + r0], c0, out[r], 0, W));
         return out;
     }
 

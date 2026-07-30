@@ -1,8 +1,10 @@
 package com.github.xandergos.terraindiffusionmc.pipeline;
 
 import com.github.xandergos.terraindiffusionmc.biome.BiomeRuleEngine;
+import com.github.xandergos.terraindiffusionmc.biome.TerrainBiomeCatalog;
 import com.github.xandergos.terraindiffusionmc.biome.TerrainBiomeRegistry;
 import com.github.xandergos.terraindiffusionmc.biome.TerrainClimateSample;
+import com.github.xandergos.terraindiffusionmc.hydrology.HydrologyParallel;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -21,6 +23,7 @@ import java.util.Map;
 public final class BiomeClassifier {
 
     private static final int DETAIL_SHORELINE_PADDING = 24;
+    private static final int BIOME_INDEX_COUNT = TerrainBiomeCatalog.THE_VOID + 1;
 
     private static final TerrainBiomeRegistry REGISTRY = TerrainBiomeRegistry.instance();
     private static final BiomeRuleEngine ENGINE = new BiomeRuleEngine(REGISTRY);
@@ -80,7 +83,7 @@ public final class BiomeClassifier {
                                     float[] elevPadded, int H, int W, float pixelSizeM) {
         short[] out = new short[H * W];
         short defaultBiome = REGISTRY.defaultBiomeIndex();
-        for (int i = 0; i < H * W; i++) out[i] = defaultBiome;
+        HydrologyParallel.forEachIndex(0, H * W, index -> out[index] = defaultBiome);
 
         if (climate == null || climate.length < 4 * H * W) {
             return out;
@@ -95,7 +98,7 @@ public final class BiomeClassifier {
         float[] clearingNoise = new float[H * W];
         float[] flowerNoise = new float[H * W];
 
-        for (int r = 0; r < H; r++) {
+        HydrologyParallel.forEachRow(0, H, W, r -> {
             for (int c = 0; c < W; c++) {
                 int idx = r * W + c;
                 float nx = j0 + c, ny = i0 + r;
@@ -116,11 +119,11 @@ public final class BiomeClassifier {
                 clearingNoise[idx] = FOREST_CLEARING_NOISE.GetNoise(nx, ny);
                 flowerNoise[idx] = FLOWER_PATCH_NOISE.GetNoise(nx, ny);
             }
-        }
+        });
 
         float[] slopeRatio = computeSlopeRatio(elevPadded, H, W, pixelSizeM);
 
-        for (int r = 0; r < H; r++) {
+        HydrologyParallel.forEachRow(0, H, W, r -> {
             for (int c = 0; c < W; c++) {
                 int idx = r * W + c;
                 boolean coastline = isCoastlineCandidate(elev, H, W, r, c, elev[idx], slopeRatio[idx]);
@@ -128,7 +131,7 @@ public final class BiomeClassifier {
                         precipNoiseFact[idx], snowNoise[idx], variantNoise[idx], cherryNoise[idx], paleNoise[idx],
                         clearingNoise[idx], flowerNoise[idx], slopeRatio[idx], coastline);
             }
-        }
+        });
         smoothIsolatedTransitions(out, H, W);
         smoothOrganicTransitions(out, H, W);
         return out;
@@ -136,111 +139,120 @@ public final class BiomeClassifier {
 
     private static void smoothIsolatedTransitions(short[] biomes, int H, int W) {
         short[] src = biomes.clone();
-        for (int r = 1; r < H - 1; r++) {
+        HydrologyParallel.forEachRow(1, H - 1, W, r -> {
+            int[] counts = new int[BIOME_INDEX_COUNT];
+            short[] touched = new short[9];
             for (int c = 1; c < W - 1; c++) {
                 int idx = r * W + c;
                 short current = src[idx];
                 if (REGISTRY.isHardBoundary(current)) continue;
 
-                int same = 0;
+                int touchedCount = collectBiomeCounts(
+                        src, W, r, c, 1, false, counts, touched);
+                int same = counts[current];
                 short best = current;
                 int bestCount = 0;
-                for (int dr = -1; dr <= 1; dr++) {
-                    for (int dc = -1; dc <= 1; dc++) {
-                        short candidate = src[(r + dr) * W + (c + dc)];
-                        if (candidate == current) same++;
-                        if (REGISTRY.isHardBoundary(candidate)) continue;
-                        int count = 0;
-                        for (int er = -1; er <= 1; er++) {
-                            for (int ec = -1; ec <= 1; ec++) {
-                                if (src[(r + er) * W + (c + ec)] == candidate) count++;
-                            }
-                        }
-                        if (count > bestCount) {
-                            bestCount = count;
-                            best = candidate;
-                        }
+                for (int candidateIndex = 0; candidateIndex < touchedCount; candidateIndex++) {
+                    short candidate = touched[candidateIndex];
+                    int count = counts[candidate];
+                    if (count > bestCount) {
+                        bestCount = count;
+                        best = candidate;
                     }
                 }
 
                 if (same <= 2 && best != current && bestCount >= 5) {
                     biomes[idx] = best;
                 }
+                clearBiomeCounts(counts, touched, touchedCount);
             }
-        }
+        });
     }
 
     private static void smoothOrganicTransitions(short[] biomes, int H, int W) {
         short[] src = biomes.clone();
 
-        for (int r = 1; r < H - 1; r++) {
+        // 3x3 local majority. This rounds off jagged edges and creates
+        // less blocky transitions without touching coast/ocean/peak boundaries.
+        short[] localSource = src;
+        HydrologyParallel.forEachRow(1, H - 1, W, r -> {
+            int[] counts = new int[BIOME_INDEX_COUNT];
+            short[] touched = new short[9];
             for (int c = 1; c < W - 1; c++) {
                 int idx = r * W + c;
-                short current = src[idx];
+                short current = localSource[idx];
                 if (!REGISTRY.isBlendableLandBiome(current)) continue;
 
+                int touchedCount = collectBiomeCounts(
+                        localSource, W, r, c, 1, true, counts, touched);
                 short best = current;
                 int bestCount = 0;
-                int currentCount = 0;
-                for (int dr = -1; dr <= 1; dr++) {
-                    for (int dc = -1; dc <= 1; dc++) {
-                        short candidate = src[(r + dr) * W + (c + dc)];
-                        if (!REGISTRY.isBlendableLandBiome(candidate)) continue;
-                        int count = 0;
-                        for (int er = -1; er <= 1; er++) {
-                            for (int ec = -1; ec <= 1; ec++) {
-                                short neighbour = src[(r + er) * W + (c + ec)];
-                                if (neighbour == candidate) count++;
-                            }
-                        }
-                        if (candidate == current) currentCount = Math.max(currentCount, count);
-                        if (count > bestCount) {
-                            bestCount = count;
-                            best = candidate;
-                        }
+                int currentCount = counts[current];
+                for (int candidateIndex = 0; candidateIndex < touchedCount; candidateIndex++) {
+                    short candidate = touched[candidateIndex];
+                    int count = counts[candidate];
+                    if (count > bestCount) {
+                        bestCount = count;
+                        best = candidate;
                     }
                 }
 
                 if (best != current && bestCount >= 6 && currentCount <= 3) {
                     biomes[idx] = best;
                 }
+                clearBiomeCounts(counts, touched, touchedCount);
             }
-        }
+        });
 
         src = biomes.clone();
-        for (int r = 2; r < H - 2; r++) {
+        short[] broadSource = src;
+        HydrologyParallel.forEachRow(2, H - 2, W, r -> {
+            int[] counts = new int[BIOME_INDEX_COUNT];
+            short[] touched = new short[25];
             for (int c = 2; c < W - 2; c++) {
                 int idx = r * W + c;
-                short current = src[idx];
+                short current = broadSource[idx];
                 if (!REGISTRY.isBlendableLandBiome(current)) continue;
 
+                int touchedCount = collectBiomeCounts(
+                        broadSource, W, r, c, 2, true, counts, touched);
                 short best = current;
                 int bestCount = 0;
-                int currentCount = 0;
-                for (int dr = -2; dr <= 2; dr++) {
-                    for (int dc = -2; dc <= 2; dc++) {
-                        short candidate = src[(r + dr) * W + (c + dc)];
-                        if (!REGISTRY.isBlendableLandBiome(candidate)) continue;
-                        int count = 0;
-                        for (int er = -2; er <= 2; er++) {
-                            for (int ec = -2; ec <= 2; ec++) {
-                                short neighbour = src[(r + er) * W + (c + ec)];
-                                if (neighbour == candidate) count++;
-                            }
-                        }
-                        if (candidate == current) currentCount = Math.max(currentCount, count);
-                        if (count > bestCount) {
-                            bestCount = count;
-                            best = candidate;
-                        }
+                int currentCount = counts[current];
+                for (int candidateIndex = 0; candidateIndex < touchedCount; candidateIndex++) {
+                    short candidate = touched[candidateIndex];
+                    int count = counts[candidate];
+                    if (count > bestCount) {
+                        bestCount = count;
+                        best = candidate;
                     }
                 }
 
                 if (best != current && bestCount >= 15 && currentCount <= 7) {
                     biomes[idx] = best;
                 }
+                clearBiomeCounts(counts, touched, touchedCount);
+            }
+        });
+    }
+
+    private static int collectBiomeCounts(short[] source, int width, int row, int col, int radius,
+                                          boolean blendableOnly, int[] counts, short[] touched) {
+        int touchedCount = 0;
+        for (int dr = -radius; dr <= radius; dr++) {
+            for (int dc = -radius; dc <= radius; dc++) {
+                short candidate = source[(row + dr) * width + col + dc];
+                if (blendableOnly ? !REGISTRY.isBlendableLandBiome(candidate) : REGISTRY.isHardBoundary(candidate)) {
+                    continue;
+                }
+                if (counts[candidate]++ == 0) touched[touchedCount++] = candidate;
             }
         }
+        return touchedCount;
+    }
+
+    private static void clearBiomeCounts(int[] counts, short[] touched, int touchedCount) {
+        for (int index = 0; index < touchedCount; index++) counts[touched[index]] = 0;
     }
 
     private static short classifyPixel(float elevation, float[] climate, int H, int W, int idx,
@@ -389,7 +401,7 @@ public final class BiomeClassifier {
         int PW = W + 2;
         float[] sx = {-1,0,1, -2,0,2, -1,0,1};
         float[] sy = {-1,-2,-1, 0,0,0, 1,2,1};
-        for (int r = 0; r < H; r++) {
+        HydrologyParallel.forEachRow(0, H, W, r -> {
             for (int c = 0; c < W; c++) {
                 float dx = 0, dy = 0;
                 for (int kr = 0; kr < 3; kr++)
@@ -401,7 +413,7 @@ public final class BiomeClassifier {
                 dx /= 8f; dy /= 8f;
                 slope[r * W + c] = (float) Math.sqrt(dx * dx + dy * dy) / pixelSizeM;
             }
-        }
+        });
         return slope;
     }
 

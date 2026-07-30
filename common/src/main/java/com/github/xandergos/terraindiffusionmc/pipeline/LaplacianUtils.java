@@ -1,5 +1,7 @@
 package com.github.xandergos.terraindiffusionmc.pipeline;
 
+import com.github.xandergos.terraindiffusionmc.hydrology.HydrologyParallel;
+
 /**
  * Port of terrain_diffusion/data/laplacian_encoder.py.
  *
@@ -19,9 +21,10 @@ public final class LaplacianUtils {
         int H = residual.length, W = residual[0].length;
         float[][] lowresUp = bilinearResize(lowres, H, W);
         float[][] result = new float[H][W];
-        for (int r = 0; r < H; r++)
+        HydrologyParallel.forEachRow(0, H, W, r -> {
             for (int c = 0; c < W; c++)
                 result[r][c] = residual[r][c] + lowresUp[r][c];
+        });
         return result;
     }
 
@@ -38,9 +41,10 @@ public final class LaplacianUtils {
         // Step 1: decode with extrapolation
         float[][] lowresUpEx = bilinearResizeExtrapolated(lowres, H, W);
         float[][] decoded = new float[H][W];
-        for (int r = 0; r < H; r++)
+        HydrologyParallel.forEachRow(0, H, W, r -> {
             for (int c = 0; c < W; c++)
                 decoded[r][c] = residual[r][c] + lowresUpEx[r][c];
+        });
 
         // Step 2: laplacian_encode(decoded, lW, sigma)
         // = downsample to (lH, lW), blur, return blurred as new_lowres
@@ -54,7 +58,7 @@ public final class LaplacianUtils {
     public static float[][] bilinearResize(float[][] src, int dstH, int dstW) {
         int srcH = src.length, srcW = src[0].length;
         float[][] dst = new float[dstH][dstW];
-        for (int r = 0; r < dstH; r++) {
+        HydrologyParallel.forEachRow(0, dstH, dstW, r -> {
             float srcR = ((r + 0.5f) * srcH / dstH) - 0.5f;
             int r0 = (int) Math.floor(srcR);
             int r1 = r0 + 1;
@@ -73,7 +77,7 @@ public final class LaplacianUtils {
                         + wr * (1 - wc) * src[r1][c0]
                         + wr * wc * src[r1][c1];
             }
-        }
+        });
         return dst;
     }
 
@@ -87,9 +91,10 @@ public final class LaplacianUtils {
         float[][] padded = new float[sH + 2][sW + 2];
 
         // Copy interior
-        for (int r = 0; r < sH; r++)
+        HydrologyParallel.forEachRow(0, sH, sW, r -> {
             for (int c = 0; c < sW; c++)
                 padded[r + 1][c + 1] = src[r][c];
+        });
 
         // Extrapolate rows
         for (int c = 1; c <= sW; c++) {
@@ -97,10 +102,10 @@ public final class LaplacianUtils {
             padded[sH + 1][c] = (sH > 1) ? 2 * src[sH - 1][c - 1] - src[sH - 2][c - 1] : src[sH - 1][c - 1];
         }
         // Extrapolate cols (on already-padded rows)
-        for (int r = 0; r < sH + 2; r++) {
+        HydrologyParallel.forEachRow(0, sH + 2, sW + 2, r -> {
             padded[r][0] = (sW > 1) ? 2 * padded[r][1] - padded[r][2] : padded[r][1];
             padded[r][sW + 1] = (sW > 1) ? 2 * padded[r][sW] - padded[r][sW - 1] : padded[r][sW];
-        }
+        });
 
         // Resize padded array: scale by (dstH/sH) in each dim, crop center
         int newH = (int) Math.round(dstH + 2.0 * dstH / sH);
@@ -110,9 +115,10 @@ public final class LaplacianUtils {
         int padH = (int) Math.round((double) dstH / sH);
         int padW = (int) Math.round((double) dstW / sW);
         float[][] cropped = new float[dstH][dstW];
-        for (int r = 0; r < dstH; r++)
+        HydrologyParallel.forEachRow(0, dstH, dstW, r -> {
             for (int c = 0; c < dstW; c++)
                 cropped[r][c] = resized[r + padH][c + padW];
+        });
         return cropped;
     }
 
@@ -140,7 +146,7 @@ public final class LaplacianUtils {
 
         // Horizontal pass
         float[][] tmp = new float[H][W];
-        for (int r = 0; r < H; r++) {
+        HydrologyParallel.forEachRow(0, H, W, r -> {
             for (int c = 0; c < W; c++) {
                 float sum = 0;
                 for (int ki = 0; ki < ks; ki++) {
@@ -149,11 +155,11 @@ public final class LaplacianUtils {
                 }
                 tmp[r][c] = sum;
             }
-        }
+        });
 
         // Vertical pass
         float[][] result = new float[H][W];
-        for (int r = 0; r < H; r++) {
+        HydrologyParallel.forEachRow(0, H, W, r -> {
             for (int c = 0; c < W; c++) {
                 float sum = 0;
                 for (int ki = 0; ki < ks; ki++) {
@@ -162,7 +168,7 @@ public final class LaplacianUtils {
                 }
                 result[r][c] = sum;
             }
-        }
+        });
         return result;
     }
 
@@ -185,7 +191,7 @@ public final class LaplacianUtils {
         float betaMin = -0.012f, betaMax = 0.0f;
         float eps = 1e-6f;
 
-        for (int r = 0; r < outH; r++) {
+        HydrologyParallel.forEachRow(0, outH, outW * win * win, r -> {
             for (int c = 0; c < outW; c++) {
                 // Compute windowed weighted averages (weight = land mask = e > 0)
                 double muT = 0, muE = 0, muE2 = 0, muET = 0, sumW = 0;
@@ -213,7 +219,7 @@ public final class LaplacianUtils {
                 result[0][r][c] = (float) (Tc - beta * ec);
                 result[1][r][c] = (float) beta;
             }
-        }
+        });
         return result;
     }
 }

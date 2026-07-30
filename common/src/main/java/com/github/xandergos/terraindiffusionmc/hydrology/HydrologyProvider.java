@@ -36,12 +36,12 @@ public final class HydrologyProvider {
     private static final Logger LOG = LoggerFactory.getLogger(HydrologyProvider.class);
 
     /** Increment when generated hydrology or compact encoding becomes semantically incompatible. */
-    private static final int ALGORITHM_VERSION = 7;
+    private static final int ALGORITHM_VERSION = 8;
     private static final int DISK_FORMAT_VERSION = 2;
     private static final int DISK_MAGIC = 0x54444859; // TDHY
     /** Keeps the initial explorer viewport centered on a canonical grid boundary-compatible origin. */
     private static final int GRID_ORIGIN = -512;
-    private static final int IO_BUFFER_SIZE = 64 * 1024;
+    private static final int IO_BUFFER_SIZE = 4 * 1024 * 1024;
 
     private static final ExecutorService DISK_WRITER = Executors.newSingleThreadExecutor(r -> {
         Thread thread = new Thread(r, "terrain-diffusion-hydrology-cache-writer");
@@ -232,7 +232,7 @@ public final class HydrologyProvider {
         int copyWidth = copyJ2 - copyJ1;
         int srcCol = copyJ1 - tile.originJ;
         int dstCol = copyJ1 - requestJ1;
-        for (int worldI = copyI1; worldI < copyI2; worldI++) {
+        HydrologyParallel.forEachRow(copyI1, copyI2, copyWidth, worldI -> {
             int srcRow = worldI - tile.originI;
             int dstRow = worldI - requestI1;
             int srcOffset = srcRow * tile.width + srcCol;
@@ -247,7 +247,7 @@ public final class HydrologyProvider {
             if (biomeIndexes != null) {
                 System.arraycopy(tile.biomeIndexes, srcOffset, biomeIndexes, dstOffset, copyWidth);
             }
-        }
+        });
     }
 
     private HydrologyTile loadTileFromDisk(TileKey key) {
@@ -372,11 +372,12 @@ public final class HydrologyProvider {
             int valuesInChunk = Math.min(buffer.length / 2, length - valueOffset);
             int bytesInChunk = valuesInChunk * 2;
             in.readFully(buffer, 0, bytesInChunk);
-            for (int i = 0; i < valuesInChunk; i++) {
+            int targetOffset = valueOffset;
+            HydrologyParallel.forEachIndex(0, valuesInChunk, i -> {
                 int byteOffset = i * 2;
-                values[valueOffset + i] = (short) (((buffer[byteOffset] & 0xFF) << 8)
+                values[targetOffset + i] = (short) (((buffer[byteOffset] & 0xFF) << 8)
                         | (buffer[byteOffset + 1] & 0xFF));
-            }
+            });
             valueOffset += valuesInChunk;
         }
         return values;
@@ -387,12 +388,13 @@ public final class HydrologyProvider {
         int valueOffset = 0;
         while (valueOffset < values.length) {
             int valuesInChunk = Math.min(buffer.length / 2, values.length - valueOffset);
-            for (int i = 0; i < valuesInChunk; i++) {
-                short value = values[valueOffset + i];
+            int sourceOffset = valueOffset;
+            HydrologyParallel.forEachIndex(0, valuesInChunk, i -> {
+                short value = values[sourceOffset + i];
                 int byteOffset = i * 2;
                 buffer[byteOffset] = (byte) (value >>> 8);
                 buffer[byteOffset + 1] = (byte) value;
-            }
+            });
             out.write(buffer, 0, valuesInChunk * 2);
             valueOffset += valuesInChunk;
         }

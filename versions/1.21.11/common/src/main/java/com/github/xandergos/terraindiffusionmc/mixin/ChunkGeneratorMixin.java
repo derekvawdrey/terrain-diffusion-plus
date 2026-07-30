@@ -20,9 +20,9 @@ public abstract class ChunkGeneratorMixin {
 
     @Inject(method = "applyBiomeDecoration(Lnet/minecraft/world/level/WorldGenLevel;"
             + "Lnet/minecraft/world/level/chunk/ChunkAccess;"
-            + "Lnet/minecraft/world/level/StructureManager;)V", at = @At("TAIL"))
-    private void terrainDiffusion$finalizeRiverColumns(WorldGenLevel level, ChunkAccess chunk,
-                                                        StructureManager structureManager, CallbackInfo ci) {
+            + "Lnet/minecraft/world/level/StructureManager;)V", at = @At("HEAD"))
+    private void terrainDiffusion$placeRiverColumns(WorldGenLevel level, ChunkAccess chunk,
+                                                     StructureManager structureManager, CallbackInfo ci) {
         if (getBiomeSource() instanceof TerrainDiffusionBiomeSource) {
             TerrainDiffusionRiverDecorator.decorate(chunk);
         }

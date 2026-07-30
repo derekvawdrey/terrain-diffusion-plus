@@ -3,6 +3,7 @@ package com.github.xandergos.terraindiffusionmc.pipeline;
 import com.github.xandergos.terraindiffusionmc.config.TerrainDiffusionConfig;
 import com.github.xandergos.terraindiffusionmc.hydrology.DetailedRiverCarver;
 import com.github.xandergos.terraindiffusionmc.hydrology.FluvialRiverNetwork;
+import com.github.xandergos.terraindiffusionmc.hydrology.HydrologyParallel;
 import com.github.xandergos.terraindiffusionmc.hydrology.HydrologyProvider;
 import com.github.xandergos.terraindiffusionmc.infinitetensor.FloatTensor;
 import com.github.xandergos.terraindiffusionmc.world.WorldScaleManager;
@@ -480,7 +481,7 @@ public final class LocalTerrainProvider {
         float[] channelLoad = topology.channelLoad();
         float[] lakeDepth = topology.lakeDepth();
         float[] waterSurface = topology.waterSurface();
-        for (int row = 0; row < coreSize; row++) {
+        HydrologyParallel.forEachRow(0, coreSize, coreSize, row -> {
             int sourceOffset = (halo + row) * analysisWidth + halo;
             int targetOffset = row * coreSize;
             for (int col = 0; col < coreSize; col++) {
@@ -494,10 +495,11 @@ public final class LocalTerrainProvider {
                         ? clampWaterElevationToShort(surface)
                         : HeightmapData.NO_FLUVIAL_WATER;
             }
-        }
+        });
 
-        LOG.info("Generated canonical hydrology tile at ({}, {}) size {} scale {} with halo {} ({} MiB compact)",
+        LOG.info("Generated canonical hydrology tile at ({}, {}) size {} scale {} with halo {}, {} workers ({} MiB compact)",
                 coreJ0, coreI0, coreSize, scale, halo,
+                HydrologyParallel.workerThreads(),
                 (compactElevation.length * 7L) / (1024L * 1024L));
         return new HydrologyProvider.HydrologyTile(
                 coreI0,
@@ -572,7 +574,7 @@ public final class LocalTerrainProvider {
         float ampC = 100f * pixelSizeM / NATIVE_RESOLUTION;
         float ampF = 70f  * pixelSizeM / NATIVE_RESOLUTION;
 
-        for (int r = 0; r < H; r++) {
+        HydrologyParallel.forEachRow(0, H, W, r -> {
             for (int c = 0; c < W; c++) {
                 int idx = r * W + c;
                 float e = elevSmooth[idx];
@@ -587,7 +589,7 @@ public final class LocalTerrainProvider {
                         + ELEV_NOISE_COARSE.GetNoise(nx, ny) * ampC * sf
                         + ELEV_NOISE_FINE.GetNoise(nx, ny)   * ampF * sf;
             }
-        }
+        });
         return elevOut;
     }
 
@@ -595,7 +597,7 @@ public final class LocalTerrainProvider {
         final float[] SOBEL_X = {-1,0,1, -2,0,2, -1,0,1};
         final float[] SOBEL_Y = {-1,-2,-1, 0,0,0, 1,2,1};
         float[] result = new float[H * W];
-        for (int r = 0; r < H; r++) {
+        HydrologyParallel.forEachRow(0, H, W, r -> {
             for (int c = 0; c < W; c++) {
                 float dx = 0, dy = 0;
                 for (int k = 0; k < 9; k++) {
@@ -606,7 +608,7 @@ public final class LocalTerrainProvider {
                 dx /= 8f; dy /= 8f;
                 result[r * W + c] = (float) Math.sqrt(dx * dx + dy * dy);
             }
-        }
+        });
         return result;
     }
 
@@ -616,30 +618,35 @@ public final class LocalTerrainProvider {
         if (climNative == null) return null;
         float[] result = new float[4 * H * W];
         for (int ch = 0; ch < 4; ch++) {
+            int channel = ch;
             float[][] chNative = new float[nH][nW];
-            for (int r = 0; r < nH; r++)
-                System.arraycopy(climNative, ch * nH * nW + r * nW, chNative[r], 0, nW);
+            HydrologyParallel.forEachRow(0, nH, nW, r ->
+                    System.arraycopy(climNative, channel * nH * nW + r * nW,
+                            chNative[r], 0, nW));
             float[][] chUp = LaplacianUtils.bilinearResize(chNative, upH, upW);
-            for (int r = 0; r < H; r++)
+            HydrologyParallel.forEachRow(0, H, W, r -> {
                 for (int c = 0; c < W; c++)
-                    result[ch * H * W + r * W + c] = chUp[cropI1 + r][cropJ1 + c];
+                    result[channel * H * W + r * W + c] =
+                            chUp[cropI1 + r][cropJ1 + c];
+            });
         }
         return result;
     }
 
     private static float[] cropFlat(float[][] src, int r0, int c0, int H, int W, int srcH, int srcW) {
         float[] out = new float[H * W];
-        for (int r = 0; r < H; r++) {
+        HydrologyParallel.forEachRow(0, H, W, r -> {
             int sr = Math.max(0, Math.min(srcH - 1, r0 + r));
             for (int c = 0; c < W; c++)
                 out[r * W + c] = src[sr][Math.max(0, Math.min(srcW - 1, c0 + c))];
-        }
+        });
         return out;
     }
 
     private static float[][] to2D(float[] flat, int H, int W) {
         float[][] a = new float[H][W];
-        for (int r = 0; r < H; r++) System.arraycopy(flat, r * W, a[r], 0, W);
+        HydrologyParallel.forEachRow(0, H, W, r ->
+                System.arraycopy(flat, r * W, a[r], 0, W));
         return a;
     }
 
@@ -650,26 +657,28 @@ public final class LocalTerrainProvider {
         float[] out = new float[channels * H * W];
         int outPlane = H * W;
         for (int ch = 0; ch < channels; ch++) {
-            for (int r = 0; r < H; r++) {
+            int channel = ch;
+            HydrologyParallel.forEachRow(0, H, W, r -> {
                 int sr = Math.max(0, Math.min(srcH - 1, row0 + r));
                 for (int c = 0; c < W; c++) {
                     int sc = Math.max(0, Math.min(srcW - 1, col0 + c));
-                    out[ch * outPlane + r * W + c] = src[ch * srcPlane + sr * srcW + sc];
+                    out[channel * outPlane + r * W + c] =
+                            src[channel * srcPlane + sr * srcW + sc];
                 }
-            }
+            });
         }
         return out;
     }
 
     private static float[] padElevationOnePixel(float[] src, int H, int W) {
         float[] out = new float[(H + 2) * (W + 2)];
-        for (int r = 0; r < H + 2; r++) {
+        HydrologyParallel.forEachRow(0, H + 2, W + 2, r -> {
             int sr = Math.max(0, Math.min(H - 1, r - 1));
             for (int c = 0; c < W + 2; c++) {
                 int sc = Math.max(0, Math.min(W - 1, c - 1));
                 out[r * (W + 2) + c] = src[sr * W + sc];
             }
-        }
+        });
         return out;
     }
 
@@ -679,7 +688,7 @@ public final class LocalTerrainProvider {
         short[][] biomeIndexes = new short[H][W];
         short[][] riverWater = waterMask != null ? new short[H][W] : null;
         short[][] riverWaterSurface = waterSurface != null ? new short[H][W] : null;
-        for (int row = 0; row < H; row++) {
+        HydrologyParallel.forEachRow(0, H, W, row -> {
             int offset = row * W;
             System.arraycopy(elevFlat, offset, heightmap[row], 0, W);
             if (biomeFlat != null) System.arraycopy(biomeFlat, offset, biomeIndexes[row], 0, W);
@@ -688,23 +697,23 @@ public final class LocalTerrainProvider {
                 if (riverWater != null) riverWater[row][col] = (short) (waterMask[index] & 0xFF);
                 if (riverWaterSurface != null) riverWaterSurface[row][col] = waterSurface[index];
             }
-        }
+        });
         return new HeightmapData(heightmap, biomeIndexes, riverWater, riverWaterSurface, W, H);
     }
 
     private static float[] shortsToFloats(short[] values) {
         float[] out = new float[values.length];
-        for (int index = 0; index < values.length; index++) out[index] = values[index];
+        HydrologyParallel.forEachIndex(0, values.length, index -> out[index] = values[index]);
         return out;
     }
 
     private static float[] decodeWaterSurface(short[] values) {
         if (values == null) return null;
         float[] out = new float[values.length];
-        for (int index = 0; index < values.length; index++) {
+        HydrologyParallel.forEachIndex(0, values.length, index -> {
             short value = values[index];
             out[index] = value == HeightmapData.NO_FLUVIAL_WATER ? Float.NaN : value;
-        }
+        });
         return out;
     }
 
@@ -718,7 +727,7 @@ public final class LocalTerrainProvider {
         short[][] biomeIndexes = new short[H][W];
         short[][] riverWater = waterMask != null ? new short[H][W] : null;
         short[][] riverWaterSurface = waterSurface != null ? new short[H][W] : null;
-        for (int r = 0; r < H; r++) {
+        HydrologyParallel.forEachRow(0, H, W, r -> {
             for (int c = 0; c < W; c++) {
                 int idx = r * W + c;
                 float e = elevFlat[idx];
@@ -734,7 +743,7 @@ public final class LocalTerrainProvider {
                             : HeightmapData.NO_FLUVIAL_WATER;
                 }
             }
-        }
+        });
         return new HeightmapData(heightmap, biomeIndexes, riverWater, riverWaterSurface, W, H);
     }
 

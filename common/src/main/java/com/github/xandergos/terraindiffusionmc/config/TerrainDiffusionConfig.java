@@ -21,7 +21,10 @@ public final class TerrainDiffusionConfig {
     private static final int DEFAULT_TERRAIN_REGION_CACHE_MAX_ENTRIES = 32;
     private static final int DEFAULT_PIPELINE_TENSOR_CACHE_MAX_MIB = 64;
     private static final int DEFAULT_HYDROLOGY_TILE_SIZE = 2048;
+    private static final int MAX_HYDROLOGY_TILE_SIZE = 8192;
     private static final int DEFAULT_HYDROLOGY_ANALYSIS_HALO = 128;
+    private static final int DEFAULT_HYDROLOGY_WORKER_THREADS = 0;
+    private static final int MAX_HYDROLOGY_WORKER_THREADS = 64;
     private static final int DEFAULT_HYDROLOGY_CACHE_MAX_MIB = 160;
     private static final int DEFAULT_HYDROLOGY_CACHE_MAX_ENTRIES = 5;
     private static final boolean DEFAULT_HYDROLOGY_DISK_CACHE_ENABLED = true;
@@ -101,7 +104,7 @@ public final class TerrainDiffusionConfig {
     /** Side length of a canonical hydrology tile in output pixels/blocks. */
     public static int hydrologyTileSize() {
         int configured = readInt("hydrology.tile_size", DEFAULT_HYDROLOGY_TILE_SIZE);
-        if (configured < 256 || configured > 4096 || !isPowerOfTwo(configured)) {
+        if (configured < 256 || configured > MAX_HYDROLOGY_TILE_SIZE || !isPowerOfTwo(configured)) {
             System.err.println("Invalid hydrology.tile_size: " + configured
                     + ", using default " + DEFAULT_HYDROLOGY_TILE_SIZE);
             return DEFAULT_HYDROLOGY_TILE_SIZE;
@@ -119,6 +122,20 @@ public final class TerrainDiffusionConfig {
             return max;
         }
         return configured;
+    }
+
+    /** CPU workers used by independent hydrology passes. Zero selects all logical CPUs except one. */
+    public static int hydrologyWorkerThreads() {
+        int available = Math.max(1, Runtime.getRuntime().availableProcessors());
+        int automatic = Math.max(1, available - 1);
+        int configured = readInt("hydrology.worker_threads", DEFAULT_HYDROLOGY_WORKER_THREADS);
+        if (configured == 0) return automatic;
+        if (configured < 0 || configured > MAX_HYDROLOGY_WORKER_THREADS) {
+            System.err.println("Invalid hydrology.worker_threads: " + configured
+                    + ", using automatic value " + automatic);
+            return automatic;
+        }
+        return Math.min(configured, available);
     }
 
     /** Maximum retained canonical hydrology tiles, in bytes. */
@@ -161,6 +178,7 @@ public final class TerrainDiffusionConfig {
             PROPERTIES.setProperty("pipeline_cache.tensor_max_mib", String.valueOf(DEFAULT_PIPELINE_TENSOR_CACHE_MAX_MIB));
             PROPERTIES.setProperty("hydrology.tile_size", String.valueOf(DEFAULT_HYDROLOGY_TILE_SIZE));
             PROPERTIES.setProperty("hydrology.analysis_halo", String.valueOf(DEFAULT_HYDROLOGY_ANALYSIS_HALO));
+            PROPERTIES.setProperty("hydrology.worker_threads", String.valueOf(DEFAULT_HYDROLOGY_WORKER_THREADS));
             PROPERTIES.setProperty("hydrology.cache.max_mib", String.valueOf(DEFAULT_HYDROLOGY_CACHE_MAX_MIB));
             PROPERTIES.setProperty("hydrology.cache.max_entries", String.valueOf(DEFAULT_HYDROLOGY_CACHE_MAX_ENTRIES));
             PROPERTIES.setProperty("hydrology.disk_cache.enabled", String.valueOf(DEFAULT_HYDROLOGY_DISK_CACHE_ENABLED));

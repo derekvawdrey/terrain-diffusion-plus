@@ -26,11 +26,11 @@ public final class DetailedRiverCarver {
         float[] bedTarget = new float[n];
         Arrays.fill(bedTarget, Float.NaN);
 
-        for (int idx = 0; idx < n; idx++) {
+        HydrologyParallel.forEachIndex(0, n, idx -> {
             float profile = topology.channelProfile()[idx];
             float lakeDepth = topology.lakeDepth()[idx];
             float surface = topology.waterSurface()[idx];
-            if (!Float.isFinite(surface)) continue;
+            if (!Float.isFinite(surface)) return;
 
             float depthBlocks;
             if (lakeDepth >= LAKE_MIN_DEPTH_M) {
@@ -54,16 +54,16 @@ public final class DetailedRiverCarver {
                 float target = surface - depthBlocks * metresPerBlock;
                 bedTarget[idx] = Math.max(target,
                         detailedElevation[idx] - maximumCutBlocks * metresPerBlock);
-                continue;
+                return;
             } else {
-                continue;
+                return;
             }
             bedTarget[idx] = surface - depthBlocks * metresPerBlock;
-        }
+        });
 
         for (int pass = 0; pass < BED_SMOOTHING_PASSES; pass++) {
             float[] source = bedTarget.clone();
-            for (int r = 1; r < height - 1; r++) {
+            HydrologyParallel.forEachRow(1, height - 1, width, r -> {
                 for (int c = 1; c < width - 1; c++) {
                     int idx = r * width + c;
                     if (!Float.isFinite(source[idx])) continue;
@@ -80,12 +80,12 @@ public final class DetailedRiverCarver {
                     bedTarget[idx] = Math.max(source[idx],
                             Math.min(source[idx] + metresPerBlock * 0.30f, smoothed));
                 }
-            }
+            });
         }
 
-        for (int idx = 0; idx < n; idx++) {
+        HydrologyParallel.forEachIndex(0, n, idx -> {
             if (Float.isFinite(bedTarget[idx])) adjusted[idx] = Math.min(adjusted[idx], bedTarget[idx]);
-        }
+        });
         softenChannelBanks(adjusted, detailedElevation, topology.channelProfile(), height, width);
         return new CarvedTerrain(adjusted, bedTarget);
     }
@@ -98,7 +98,7 @@ public final class DetailedRiverCarver {
                                            float[] profile, int height, int width) {
         for (int pass = 0; pass < BANK_SOFTENING_PASSES; pass++) {
             float[] source = adjusted.clone();
-            for (int r = 1; r < height - 1; r++) {
+            HydrologyParallel.forEachRow(1, height - 1, width, r -> {
                 for (int c = 1; c < width - 1; c++) {
                     int idx = r * width + c;
                     float bankPosition = clamp01(profile[idx] / 0.34f);
@@ -118,7 +118,7 @@ public final class DetailedRiverCarver {
                     float softened = source[idx] + (average - source[idx]) * (0.13f * bankBand);
                     adjusted[idx] = Math.min(naturalElevation[idx], softened);
                 }
-            }
+            });
         }
     }
 
@@ -153,10 +153,10 @@ public final class DetailedRiverCarver {
     public record CarvedTerrain(float[] adjustedElevation, float[] bedTarget) {
         public float[] cropAdjustedElevation(int row0, int col0, int cropHeight, int cropWidth, int sourceWidth) {
             float[] out = new float[Math.multiplyExact(cropHeight, cropWidth)];
-            for (int row = 0; row < cropHeight; row++) {
+            HydrologyParallel.forEachRow(0, cropHeight, cropWidth, row -> {
                 System.arraycopy(adjustedElevation, (row0 + row) * sourceWidth + col0,
                         out, row * cropWidth, cropWidth);
-            }
+            });
             return out;
         }
     }

@@ -1,5 +1,7 @@
 package com.github.xandergos.terraindiffusionmc.infinitetensor;
 
+import com.github.xandergos.terraindiffusionmc.hydrology.HydrologyParallel;
+
 import java.util.Arrays;
 
 /**
@@ -66,7 +68,7 @@ public class FloatTensor {
             iterStrides[d] = iterStrides[d + 1] * count[d + 1];
         }
 
-        for (int flat = 0; flat < total; flat++) {
+        HydrologyParallel.forEachIndex(0, total, flat -> {
             int dstFlat = 0, srcFlat = 0;
             for (int d = 0; d < n; d++) {
                 int idx = (flat / iterStrides[d]) % count[d];
@@ -74,7 +76,7 @@ public class FloatTensor {
                 srcFlat += (srcRegion[d][0] + idx) * src.strides[d];
             }
             data[dstFlat] += src.data[srcFlat];
-        }
+        });
     }
 
     /**

@@ -10,7 +10,7 @@ import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.chunk.ChunkAccess;
 import net.minecraft.world.level.levelgen.Heightmap;
 
-/** Finalises generated river/lake columns after vanilla features have run. */
+/** Places generated river/lake columns before vanilla biome features run. */
 public final class TerrainDiffusionRiverDecorator {
     /** Ignore only the sub-block antialias fringe; the centre of every selected headwater remains. */
     private static final int MIN_WATER_MASK = 8;
@@ -152,11 +152,44 @@ public final class TerrainDiffusionRiverDecorator {
     }
 
     private static BlockState frozenSurface(long seed, int x, int z) {
-        // Coarse-cell hashing creates connected patches rather than single-block confetti.
-        int roll = hash(seed ^ 0xBB67AE8584CAA73BL, Math.floorDiv(x, 4), Math.floorDiv(z, 4)) & 255;
-        if (roll < 8) return Blocks.BLUE_ICE.defaultBlockState();
-        if (roll < 48) return Blocks.PACKED_ICE.defaultBlockState();
+        // Blended value-noise contours form deterministic, connected patches without
+        // exposing the square sampling grid at the surface.
+        float coarse = valueNoise(seed ^ 0xA54FF53A5F1D36F1L, x, z, 19);
+        float diagonal = valueNoise(seed ^ 0x510E527FADE682D1L, x + z, z - x, 11);
+        float detail = valueNoise(seed ^ 0x1F83D9ABFB41BD6BL, x, z, 5);
+        float patch = coarse * 0.62f + diagonal * 0.28f + detail * 0.10f;
+        if (patch < 0.235f) return Blocks.BLUE_ICE.defaultBlockState();
+        if (patch < 0.365f) return Blocks.PACKED_ICE.defaultBlockState();
         return Blocks.ICE.defaultBlockState();
+    }
+
+    private static float valueNoise(long seed, int x, int z, int spacing) {
+        int cellX = Math.floorDiv(x, spacing);
+        int cellZ = Math.floorDiv(z, spacing);
+        float fx = Math.floorMod(x, spacing) / (float) spacing;
+        float fz = Math.floorMod(z, spacing) / (float) spacing;
+        fx = smoothstep(fx);
+        fz = smoothstep(fz);
+
+        float northWest = unitHash(seed, cellX, cellZ);
+        float northEast = unitHash(seed, cellX + 1, cellZ);
+        float southWest = unitHash(seed, cellX, cellZ + 1);
+        float southEast = unitHash(seed, cellX + 1, cellZ + 1);
+        float north = lerp(northWest, northEast, fx);
+        float south = lerp(southWest, southEast, fx);
+        return lerp(north, south, fz);
+    }
+
+    private static float unitHash(long seed, int x, int z) {
+        return ((hash(seed, x, z) >>> 8) & 0x00FFFFFF) / 16777215.0f;
+    }
+
+    private static float smoothstep(float value) {
+        return value * value * (3.0f - 2.0f * value);
+    }
+
+    private static float lerp(float first, float second, float amount) {
+        return first + (second - first) * amount;
     }
 
     private static int hash(long seed, int x, int z) {

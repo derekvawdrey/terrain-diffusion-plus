@@ -24,6 +24,7 @@ public final class FluvialRiverNetwork {
     private static final float EPS = 1e-5f;
     private static final float CHANNEL_SAMPLE_STEP_PX = 0.20f;
     private static final int RIVER_BIOME_DILATION_BLOCKS = 2;
+    private static final int CHANNEL_LOCK_COUNT = 4096;
     private static final int[] DR = {-1,-1,-1, 0,0, 1,1,1};
     private static final int[] DC = {-1, 0, 1,-1,1,-1,0,1};
     private static final float[] DISTANCE_PIXELS = {
@@ -83,19 +84,19 @@ public final class FluvialRiverNetwork {
         int maskHeight = height + margin * 2;
         int maskWidth = width + margin * 2;
         boolean[] influence = new boolean[Math.multiplyExact(maskHeight, maskWidth)];
-        for (int r = 0; r < maskHeight; r++) {
+        HydrologyParallel.forEachRow(0, maskHeight, maskWidth, r -> {
             int sourceRow = row0 + r - margin;
-            if (sourceRow < 0 || sourceRow >= rivers.height()) continue;
+            if (sourceRow < 0 || sourceRow >= rivers.height()) return;
             for (int c = 0; c < maskWidth; c++) {
                 int sourceCol = col0 + c - margin;
                 if (sourceCol < 0 || sourceCol >= rivers.width()) continue;
                 influence[r * maskWidth + c] = Float.isFinite(
                         rivers.waterSurface()[sourceRow * rivers.width() + sourceCol]);
             }
-        }
+        });
         for (int pass = 0; pass < margin; pass++) {
             boolean[] source = influence.clone();
-            for (int r = 0; r < maskHeight; r++) {
+            HydrologyParallel.forEachRow(0, maskHeight, maskWidth, r -> {
                 for (int c = 0; c < maskWidth; c++) {
                     int index = r * maskWidth + c;
                     if (source[index]) continue;
@@ -109,10 +110,10 @@ public final class FluvialRiverNetwork {
                         }
                     }
                 }
-            }
+            });
         }
 
-        for (int r = 0; r < height; r++) {
+        HydrologyParallel.forEachRow(0, height, width, r -> {
             int targetOffset = r * width;
             int maskOffset = (r + margin) * maskWidth + margin;
             for (int c = 0; c < width; c++) {
@@ -123,7 +124,7 @@ public final class FluvialRiverNetwork {
                 float temp = climate != null && climate.length >= n ? climate[targetIndex] : 8.0f;
                 biomes[targetIndex] = temp < 0.0f ? TerrainBiomeRegistry.instance().frozenRiverBiomeIndex() : TerrainBiomeRegistry.instance().riverBiomeIndex();
             }
-        }
+        });
     }
 
     public static byte encodeWaterMask(float channelProfile, float channelLoad, float lakeDepth) {
@@ -140,17 +141,19 @@ public final class FluvialRiverNetwork {
         int n = elevation.length;
         boolean[] candidate = new boolean[n];
         boolean[] hasCandidateUpstream = new boolean[n];
-        for (int idx = 0; idx < n; idx++) {
-            candidate[idx] = elevation[idx] > SEA_LEVEL_METERS && accumulation[idx] >= RILL_FLOW;
+        HydrologyParallel.forEachIndex(0, n, idx ->
+                candidate[idx] = elevation[idx] > SEA_LEVEL_METERS && accumulation[idx] >= RILL_FLOW);
+        HydrologyParallel.forEachIndex(0, n, idx -> {
             if (candidate[idx] && downstream[idx] >= 0) {
+                // Concurrent writes are idempotent: every writer stores the same true value.
                 hasCandidateUpstream[downstream[idx]] = true;
             }
-        }
+        });
         if (!blockLowSources) return candidate;
 
         boolean[] visible = new boolean[n];
-        for (int idx = 0; idx < n; idx++) {
-            if (!candidate[idx]) continue;
+        HydrologyParallel.forEachIndex(0, n, idx -> {
+            if (!candidate[idx]) return;
             int r = idx / width;
             int c = idx - r * width;
             boolean borderContinuation = r <= 1 || c <= 1 || r >= height - 2 || c >= width - 2;
@@ -158,7 +161,7 @@ public final class FluvialRiverNetwork {
             if (borderContinuation || (source && elevation[idx] >= minimumSourceElevationM)) {
                 visible[idx] = true;
             }
-        }
+        });
         // Priority-flood order reversed runs from headwaters toward outlets.
         for (int oi = orderSize - 1; oi >= 0; oi--) {
             int idx = order[oi];
@@ -171,16 +174,16 @@ public final class FluvialRiverNetwork {
 
     private static void rasterizeLakes(float[] elevation, float[] filledSurface, float[] accumulation,
                                        float[] lake, float[] load, float[] waterSurface) {
-        for (int idx = 0; idx < elevation.length; idx++) {
-            if (elevation[idx] <= SEA_LEVEL_METERS) continue;
+        HydrologyParallel.forEachIndex(0, elevation.length, idx -> {
+            if (elevation[idx] <= SEA_LEVEL_METERS) return;
             float depth = filledSurface[idx] - elevation[idx];
-            if (depth < LAKE_MIN_DEPTH_M) continue;
+            if (depth < LAKE_MIN_DEPTH_M) return;
             float flowGate = clamp01(accumulation[idx] / MIN_VISIBLE_FLOW);
-            if (flowGate <= 0.05f && depth < 3.0f) continue;
+            if (flowGate <= 0.05f && depth < 3.0f) return;
             lake[idx] = depth * (0.35f + 0.65f * flowGate);
             load[idx] = Math.max(load[idx], flowGate);
             waterSurface[idx] = filledSurface[idx];
-        }
+        });
     }
 
     private static void rasterizeHermiteChannels(long seed, int i0, int j0,
@@ -190,43 +193,58 @@ public final class FluvialRiverNetwork {
                                                   int height, int width, float pixelSizeM) {
         int n = height * width;
         float[] radius = new float[n];
-        for (int idx = 0; idx < n; idx++) {
-            if (!visible[idx]) continue;
+        HydrologyParallel.forEachIndex(0, n, idx -> {
+            if (!visible[idx]) return;
             radius[idx] = radiusPixels(accumulation[idx], elevation[idx]);
-        }
+        });
         CenterlineGeometry geometry = smoothCenterlineGeometry(
                 seed, i0, j0, surface, downstream, accumulation, visible,
                 height, width, pixelSizeM);
 
-        for (int idx = 0; idx < n; idx++) {
-            if (!visible[idx]) continue;
-            int down = downstream[idx];
-            if (down < 0 || !visible[down]) {
-                stampChannelPoint(geometry.row()[idx], geometry.col()[idx],
-                        surface[idx], accumulation[idx], radius[idx],
-                        profile, load, waterSurface, height, width);
-                continue;
+        Object[] channelLocks = null;
+        if (HydrologyParallel.isEnabled()) {
+            channelLocks = new Object[CHANNEL_LOCK_COUNT];
+            for (int index = 0; index < channelLocks.length; index++) {
+                channelLocks[index] = new Object();
             }
+        }
+        Object[] locks = channelLocks;
+        HydrologyParallel.forEachIndex(0, n, idx -> rasterizeChannelSegment(
+                idx, surface, downstream, accumulation, visible, radius, geometry,
+                profile, load, waterSurface, height, width, locks));
+    }
 
-            float flow0 = accumulation[idx];
-            float flow1 = accumulation[down];
-            float downstreamSurface = Math.min(surface[idx], surface[down]);
-            float distance = (float) Math.hypot(
-                    geometry.row()[down] - geometry.row()[idx],
-                    geometry.col()[down] - geometry.col()[idx]);
-            int samples = Math.max(1, (int) Math.ceil(distance / CHANNEL_SAMPLE_STEP_PX));
-            for (int sample = 0; sample <= samples; sample++) {
-                float t = sample / (float) samples;
-                float rr = hermite(geometry.row()[idx], geometry.tangentRow()[idx],
-                        geometry.row()[down], geometry.tangentRow()[down], t);
-                float cc = hermite(geometry.col()[idx], geometry.tangentCol()[idx],
-                        geometry.col()[down], geometry.tangentCol()[down], t);
-                float flow = lerp(flow0, flow1, t);
-                float level = lerp(surface[idx], downstreamSurface, t);
-                float sectionRadius = lerp(radius[idx], radius[down], t);
-                stampChannelPoint(rr, cc, level, flow, sectionRadius,
-                        profile, load, waterSurface, height, width);
-            }
+    private static void rasterizeChannelSegment(
+            int idx, float[] surface, int[] downstream, float[] accumulation, boolean[] visible,
+            float[] radius, CenterlineGeometry geometry, float[] profile, float[] load,
+            float[] waterSurface, int height, int width, Object[] locks) {
+        if (!visible[idx]) return;
+        int down = downstream[idx];
+        if (down < 0 || !visible[down]) {
+            stampChannelPoint(geometry.row()[idx], geometry.col()[idx],
+                    surface[idx], accumulation[idx], radius[idx],
+                    profile, load, waterSurface, height, width, locks);
+            return;
+        }
+
+        float flow0 = accumulation[idx];
+        float flow1 = accumulation[down];
+        float downstreamSurface = Math.min(surface[idx], surface[down]);
+        float distance = (float) Math.hypot(
+                geometry.row()[down] - geometry.row()[idx],
+                geometry.col()[down] - geometry.col()[idx]);
+        int samples = Math.max(1, (int) Math.ceil(distance / CHANNEL_SAMPLE_STEP_PX));
+        for (int sample = 0; sample <= samples; sample++) {
+            float t = sample / (float) samples;
+            float rr = hermite(geometry.row()[idx], geometry.tangentRow()[idx],
+                    geometry.row()[down], geometry.tangentRow()[down], t);
+            float cc = hermite(geometry.col()[idx], geometry.tangentCol()[idx],
+                    geometry.col()[down], geometry.tangentCol()[down], t);
+            float flow = lerp(flow0, flow1, t);
+            float level = lerp(surface[idx], downstreamSurface, t);
+            float sectionRadius = lerp(radius[idx], radius[down], t);
+            stampChannelPoint(rr, cc, level, flow, sectionRadius,
+                    profile, load, waterSurface, height, width, locks);
         }
     }
 
@@ -254,30 +272,36 @@ public final class FluvialRiverNetwork {
         float[] colA = new float[n];
         float[] rowB = new float[n];
         float[] colB = new float[n];
-        for (int idx = 0; idx < n; idx++) {
-            if (!visible[idx]) continue;
+        HydrologyParallel.forEachIndex(0, n, idx -> {
+            if (!visible[idx]) return;
             int row = idx / width;
             rowA[idx] = row + 0.5f;
             colA[idx] = idx - row * width + 0.5f;
-        }
+        });
 
         float[] sourceRow = rowA;
         float[] sourceCol = colA;
         float[] targetRow = rowB;
         float[] targetCol = colB;
         for (int pass = 0; pass < 3; pass++) {
-            for (int idx = 0; idx < n; idx++) {
-                if (!visible[idx]) continue;
-                float row = sourceRow[idx];
-                float col = sourceCol[idx];
+            float[] passSourceRow = sourceRow;
+            float[] passSourceCol = sourceCol;
+            float[] passTargetRow = targetRow;
+            float[] passTargetCol = targetCol;
+            HydrologyParallel.forEachIndex(0, n, idx -> {
+                if (!visible[idx]) return;
+                float row = passSourceRow[idx];
+                float col = passSourceCol[idx];
                 int up = dominantUpstream[idx];
                 int down = downstream[idx];
                 if (up >= 0 && down >= 0 && visible[down]) {
-                    row = sourceRow[idx] * 0.38f + sourceRow[up] * 0.31f + sourceRow[down] * 0.31f;
-                    col = sourceCol[idx] * 0.38f + sourceCol[up] * 0.31f + sourceCol[down] * 0.31f;
+                    row = passSourceRow[idx] * 0.38f
+                            + passSourceRow[up] * 0.31f + passSourceRow[down] * 0.31f;
+                    col = passSourceCol[idx] * 0.38f
+                            + passSourceCol[up] * 0.31f + passSourceCol[down] * 0.31f;
                 }
-                setClampedCenter(targetRow, targetCol, idx, row, col, height, width);
-            }
+                setClampedCenter(passTargetRow, passTargetCol, idx, row, col, height, width);
+            });
             float[] swap = sourceRow;
             sourceRow = targetRow;
             targetRow = swap;
@@ -307,24 +331,28 @@ public final class FluvialRiverNetwork {
         // After three passes targetRow/targetCol are the unused pair, so reuse them as tangents.
         Arrays.fill(targetRow, 0.0f);
         Arrays.fill(targetCol, 0.0f);
-        for (int idx = 0; idx < n; idx++) {
-            if (!visible[idx]) continue;
+        float[] finalSourceRow = sourceRow;
+        float[] finalSourceCol = sourceCol;
+        float[] tangentRow = targetRow;
+        float[] tangentCol = targetCol;
+        HydrologyParallel.forEachIndex(0, n, idx -> {
+            if (!visible[idx]) return;
             int up = dominantUpstream[idx];
             int down = downstream[idx];
             boolean hasUp = up >= 0 && visible[up];
             boolean hasDown = down >= 0 && visible[down];
             if (hasUp && hasDown) {
-                targetRow[idx] = (sourceRow[down] - sourceRow[up]) * 0.50f;
-                targetCol[idx] = (sourceCol[down] - sourceCol[up]) * 0.50f;
+                tangentRow[idx] = (finalSourceRow[down] - finalSourceRow[up]) * 0.50f;
+                tangentCol[idx] = (finalSourceCol[down] - finalSourceCol[up]) * 0.50f;
             } else if (hasDown) {
-                targetRow[idx] = sourceRow[down] - sourceRow[idx];
-                targetCol[idx] = sourceCol[down] - sourceCol[idx];
+                tangentRow[idx] = finalSourceRow[down] - finalSourceRow[idx];
+                tangentCol[idx] = finalSourceCol[down] - finalSourceCol[idx];
             } else if (hasUp) {
-                targetRow[idx] = sourceRow[idx] - sourceRow[up];
-                targetCol[idx] = sourceCol[idx] - sourceCol[up];
+                tangentRow[idx] = finalSourceRow[idx] - finalSourceRow[up];
+                tangentCol[idx] = finalSourceCol[idx] - finalSourceCol[up];
             }
-            clampVectorLength(targetRow, targetCol, idx, 1.35f);
-        }
+            clampVectorLength(tangentRow, tangentCol, idx, 1.35f);
+        });
         return new CenterlineGeometry(sourceRow, sourceCol, targetRow, targetCol);
     }
 
@@ -355,7 +383,7 @@ public final class FluvialRiverNetwork {
 
     private static void stampChannelPoint(float centerR, float centerC, float surface, float flow,
                                           float radius, float[] profile, float[] load,
-                                          float[] waterSurface, int height, int width) {
+                                          float[] waterSurface, int height, int width, Object[] locks) {
         int minR = Math.max(0, (int) Math.floor(centerR - radius - 0.75f));
         int maxR = Math.min(height - 1, (int) Math.ceil(centerR + radius + 0.75f));
         int minC = Math.max(0, (int) Math.floor(centerC - radius - 0.75f));
@@ -370,15 +398,31 @@ public final class FluvialRiverNetwork {
                 if (x <= 0.0f) continue;
                 float section = smoothstep(x);
                 int target = r * width + c;
-                boolean strongerSection = section > profile[target] + EPS;
-                boolean sameSectionWithMoreFlow = Math.abs(section - profile[target]) <= EPS
-                        && normalizedLoad > load[target];
-                if (strongerSection || sameSectionWithMoreFlow) {
-                    profile[target] = section;
-                    load[target] = Math.max(load[target], normalizedLoad);
-                    waterSurface[target] = surface;
+                if (locks == null) {
+                    updateChannelCell(target, section, normalizedLoad, surface,
+                            profile, load, waterSurface);
+                } else {
+                    synchronized (locks[target & (locks.length - 1)]) {
+                        updateChannelCell(target, section, normalizedLoad, surface,
+                                profile, load, waterSurface);
+                    }
                 }
             }
+        }
+    }
+
+    private static void updateChannelCell(int target, float section, float normalizedLoad, float surface,
+                                          float[] profile, float[] load, float[] waterSurface) {
+        int sectionOrder = Float.compare(section, profile[target]);
+        boolean strongerSection = sectionOrder > 0;
+        boolean exactTieWithLowerSurface = sectionOrder == 0
+                && (!Float.isFinite(waterSurface[target]) || surface < waterSurface[target]);
+        // Load aggregation is commutative, and exact section ties choose the downstream
+        // (lower) surface. The result therefore stays identical across thread schedules.
+        load[target] = Math.max(load[target], normalizedLoad);
+        if (strongerSection || exactTieWithLowerSurface) {
+            profile[target] = section;
+            waterSurface[target] = surface;
         }
     }
 
@@ -478,10 +522,10 @@ public final class FluvialRiverNetwork {
         int n = height * width;
         float[] accumulation = new float[n];
         float cellAreaKm2 = (pixelSizeM * pixelSizeM) / 1_000_000.0f;
-        for (int idx = 0; idx < n; idx++) {
+        HydrologyParallel.forEachIndex(0, n, idx -> {
             accumulation[idx] = elevation[idx] <= SEA_LEVEL_METERS ? 0.0f
                     : localRunoff(idx, elevation[idx], climate, n) * cellAreaKm2;
-        }
+        });
         for (int oi = orderSize - 1; oi >= 0; oi--) {
             int idx = order[oi];
             int down = downstream[idx];

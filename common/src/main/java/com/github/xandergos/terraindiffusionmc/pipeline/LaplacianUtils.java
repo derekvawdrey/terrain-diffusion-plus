@@ -244,15 +244,31 @@ public final class LaplacianUtils {
     }
 
     /**
+     * {@link BiomeClassifier#sampleRegionNoise} is a 2-octave FBm Perlin field (gain 0.5) whose
+     * actual amplitude never reaches +-1.0 -- empirically measured (9M-sample scan over a 120km
+     * window) to top out around +-0.73. {@link #warmRegionBetaMax} normalizes against this real
+     * ceiling rather than 1.0, so its nominal cap is actually reachable at the warmest spots
+     * instead of asymptotically approached.
+     */
+    private static final float REGION_NOISE_MAX = 0.73f;
+
+    /** Below this |regionNoise|, elevation never warms temperature (betaMax = 0). */
+    private static final float WARM_REGION_THRESHOLD = 0.2f;
+
+    /** Lapse-rate slope cap at the warmest regions, in C per meter (+0.008 = +8C/km). */
+    private static final float WARM_REGION_BETA_MAX_CAP = 0.008f;
+
+    /**
      * Upper clamp on the lapse-rate slope for this world position. 0 everywhere except inside
-     * the tropical/arid "special region" belts (|regionNoise| beyond 0.3, matching the thresholds
-     * already used to gate rare BoP biomes), where it ramps up to +0.004 (~+4C/km), letting
-     * mountains in those regions get warmer with elevation instead of always colder.
+     * the tropical/arid "special region" belts (|regionNoise| beyond {@link #WARM_REGION_THRESHOLD},
+     * matching the thresholds already used to gate rare BoP biomes), where it ramps up to
+     * {@link #WARM_REGION_BETA_MAX_CAP}, letting mountains in those regions get warmer with
+     * elevation instead of always colder.
      */
     private static float warmRegionBetaMax(float worldX, float worldZ) {
         float n = Math.abs(BiomeClassifier.sampleRegionNoise(worldX, worldZ));
-        float t = Math.max(0f, Math.min(1f, (n - 0.3f) / 0.7f));
+        float t = Math.max(0f, Math.min(1f, (n - WARM_REGION_THRESHOLD) / (REGION_NOISE_MAX - WARM_REGION_THRESHOLD)));
         float smooth = t * t * (3f - 2f * t);
-        return smooth * 0.004f;
+        return smooth * WARM_REGION_BETA_MAX_CAP;
     }
 }

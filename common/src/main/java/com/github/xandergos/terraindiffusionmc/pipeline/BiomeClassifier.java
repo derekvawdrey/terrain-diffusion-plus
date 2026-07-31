@@ -322,11 +322,22 @@ public final class BiomeClassifier {
             treesRainforest = false;
         }
         if (slopeBare) {
-            treesNone = true;
-            treesSparse = false;
-            treesForest = false;
-            treesDense = false;
-            treesRainforest = false;
+            // Slopes just past the bare threshold in moist/temperate climates sometimes keep
+            // clinging scrub or trees instead of going fully barren, so mountainsides aren't
+            // uniformly rock. Gated by variantNoise for spatially coherent patches (not pixel
+            // jitter) and capped well short of true near-vertical terrain.
+            boolean staysVegetated = slope < bareThreshold + 0.35f && treeMoisture > 0.15f
+                    && variantNoise > 0.3f;
+            if (staysVegetated) {
+                slopeBare = false;
+                if (treesForest || treesDense || treesRainforest) treesSparse = true;
+            } else {
+                treesNone = true;
+                treesSparse = false;
+                treesForest = false;
+                treesDense = false;
+                treesRainforest = false;
+            }
         }
 
         float treeCoverage;

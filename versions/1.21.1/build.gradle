@@ -224,6 +224,7 @@ subprojects { subproject ->
             maven { name = 'NeoForge'; url = uri('https://maven.neoforged.net/releases') }
             maven { name = 'Forge'; url = uri('https://maven.minecraftforge.net') }
             maven { name = 'ParchmentMC'; url = uri('https://maven.parchmentmc.org') }
+            maven { name = 'Modrinth'; url = uri('https://api.modrinth.com/maven') }
             flatDir { dirs rootProject.file('libs') }
         }
 
@@ -296,6 +297,13 @@ subprojects { subproject ->
                 def onnxNotation = rootProject.ext.terrainDiffusionOnnxNotation(subproject.ext.terrainDiffusionBuildVariant)
                 implementation onnxNotation
                 include onnxNotation
+
+                // YUNG's Better Caves (LGPL-3.0) + its required YUNG's API, bundled jar-in-jar so caves
+                // work out of the box. See NOTICE.md for attribution/license details.
+                modImplementation 'maven.modrinth:yungs-api:1.21.1-Fabric-5.1.6'
+                include 'maven.modrinth:yungs-api:1.21.1-Fabric-5.1.6'
+                modImplementation 'maven.modrinth:yungs-better-caves:1.21.1-Fabric-3.1.4'
+                include 'maven.modrinth:yungs-better-caves:1.21.1-Fabric-3.1.4'
             }
 
             subproject.tasks.named('build') {
@@ -316,6 +324,25 @@ subprojects { subproject ->
                     version {
                         strictly "[${onnxModule.version}]"
                         prefer onnxModule.version
+                    }
+                }
+
+                if (subproject.name == 'neoforge') {
+                    // YUNG's Better Caves (LGPL-3.0) + its required YUNG's API, bundled jar-in-jar so caves
+                    // work out of the box. See NOTICE.md for attribution/license details.
+                    additionalRuntimeClasspath 'maven.modrinth:yungs-api:1.21.1-NeoForge-5.1.6'
+                    jarJar(implementation('maven.modrinth:yungs-api')) {
+                        version {
+                            strictly '[1.21.1-NeoForge-5.1.6]'
+                            prefer '1.21.1-NeoForge-5.1.6'
+                        }
+                    }
+                    additionalRuntimeClasspath 'maven.modrinth:yungs-better-caves:1.21.1-NeoForge-3.1.4'
+                    jarJar(implementation('maven.modrinth:yungs-better-caves')) {
+                        version {
+                            strictly '[1.21.1-NeoForge-3.1.4]'
+                            prefer '1.21.1-NeoForge-3.1.4'
+                        }
                     }
                 }
             }

@@ -1,0 +1,7 @@
+{
+  "oct3_gain050": {"octaves": 3, "gain": 0.5000, "maxAbs": 0.786745, "min": -0.786745, "max": 0.771938, "usedBy": ["tempNoiseCoarse", "snowNoiseCoarse"]},
+  "oct2_gain050": {"octaves": 2, "gain": 0.5000, "maxAbs": 0.807837, "min": -0.803125, "max": 0.807837, "usedBy": ["tempNoiseFine", "snowNoiseFine", "regionNoise"]},
+  "oct5_gain050": {"octaves": 5, "gain": 0.5000, "maxAbs": 0.731739, "min": -0.717284, "max": 0.731739, "usedBy": ["precipNoise"]},
+  "oct3_gain055": {"octaves": 3, "gain": 0.5500, "maxAbs": 0.779769, "min": -0.779769, "max": 0.768161, "usedBy": ["variantNoise", "cherryNoise", "paleNoise"]},
+  "oct3_gain054": {"octaves": 3, "gain": 0.5400, "maxAbs": 0.781112, "min": -0.781112, "max": 0.768861, "usedBy": ["clearingNoise", "flowerNoise"]}
+}

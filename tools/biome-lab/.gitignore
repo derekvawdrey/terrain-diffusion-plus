@@ -1,0 +1,11 @@
+# Compiled java/NoiseProbe.java output -- rebuild with:
+#   javac -d out java/FastNoiseLite.java java/NoiseProbe.java
+out/
+
+# Python bytecode cache
+__pycache__/
+*.pyc
+
+# Default report output / ad-hoc fix output from local runs
+biome_lab_report.md
+*.fixed.json

@@ -253,10 +253,10 @@ public final class LaplacianUtils {
     private static final float REGION_NOISE_MAX = 0.73f;
 
     /** Below this |regionNoise|, elevation never warms temperature (betaMax = 0). */
-    private static final float WARM_REGION_THRESHOLD = 0.15f;
+    private static final float WARM_REGION_THRESHOLD = 0.05f;
 
-    /** Lapse-rate slope cap at the warmest regions, in C per meter (+0.014 = +14C/km). */
-    private static final float WARM_REGION_BETA_MAX_CAP = 0.014f;
+    /** Lapse-rate slope cap at the warmest regions, in C per meter (+0.024 = +24C/km). */
+    private static final float WARM_REGION_BETA_MAX_CAP = 0.024f;
 
     /**
      * Upper clamp on the lapse-rate slope for this world position. 0 everywhere except inside

@@ -30,6 +30,7 @@ public final class TerrainDiffusionConfig {
     private static final int DEFAULT_HYDROLOGY_CACHE_MAX_MIB = 160;
     private static final int DEFAULT_HYDROLOGY_CACHE_MAX_ENTRIES = 5;
     private static final boolean DEFAULT_HYDROLOGY_DISK_CACHE_ENABLED = true;
+    private static final boolean DEFAULT_SURFACE_FEATURES_ENABLED = true;
 
     static {
         loadDefaults();
@@ -180,6 +181,11 @@ public final class TerrainDiffusionConfig {
         return readString("hydrology.disk_cache.namespace", "default");
     }
 
+    /** Global kill switch for procedural surface structures (boulders, hoodoos, arches, ...). */
+    public static boolean surfaceFeaturesEnabled() {
+        return readBoolean("surface_features.enabled", DEFAULT_SURFACE_FEATURES_ENABLED);
+    }
+
     private static void loadDefaults() {
         boolean loadedFromResource = false;
         try (InputStream in = TerrainDiffusionConfig.class.getResourceAsStream(RESOURCE_PATH)) {
@@ -205,6 +211,7 @@ public final class TerrainDiffusionConfig {
             PROPERTIES.setProperty("hydrology.cache.max_entries", String.valueOf(DEFAULT_HYDROLOGY_CACHE_MAX_ENTRIES));
             PROPERTIES.setProperty("hydrology.disk_cache.enabled", String.valueOf(DEFAULT_HYDROLOGY_DISK_CACHE_ENABLED));
             PROPERTIES.setProperty("hydrology.disk_cache.namespace", "default");
+            PROPERTIES.setProperty("surface_features.enabled", String.valueOf(DEFAULT_SURFACE_FEATURES_ENABLED));
         }
     }
 

@@ -2,6 +2,7 @@ package com.github.xandergos.terraindiffusionmc.mixin;
 
 import com.github.xandergos.terraindiffusionmc.world.TerrainDiffusionBiomeSource;
 import com.github.xandergos.terraindiffusionmc.world.TerrainDiffusionRiverDecorator;
+import com.github.xandergos.terraindiffusionmc.world.surface.SurfaceFeatureDecorator;
 import net.minecraft.world.level.StructureManager;
 import net.minecraft.world.level.WorldGenLevel;
 import net.minecraft.world.level.biome.BiomeSource;
@@ -21,10 +22,11 @@ public abstract class ChunkGeneratorMixin {
     @Inject(method = "applyBiomeDecoration(Lnet/minecraft/world/level/WorldGenLevel;"
             + "Lnet/minecraft/world/level/chunk/ChunkAccess;"
             + "Lnet/minecraft/world/level/StructureManager;)V", at = @At("HEAD"))
-    private void terrainDiffusion$placeRiverColumns(WorldGenLevel level, ChunkAccess chunk,
-                                                     StructureManager structureManager, CallbackInfo ci) {
+    private void terrainDiffusion$decorateTerrain(WorldGenLevel level, ChunkAccess chunk,
+                                                   StructureManager structureManager, CallbackInfo ci) {
         if (getBiomeSource() instanceof TerrainDiffusionBiomeSource) {
             TerrainDiffusionRiverDecorator.decorate(chunk);
+            SurfaceFeatureDecorator.decorate(chunk);
         }
     }
 }

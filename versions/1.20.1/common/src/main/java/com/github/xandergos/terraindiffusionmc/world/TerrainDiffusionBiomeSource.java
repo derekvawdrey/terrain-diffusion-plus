@@ -126,7 +126,7 @@ public class TerrainDiffusionBiomeSource extends BiomeSource {
             int localX = Math.max(0, Math.min(data.width  - 1, blockX - blockStartX));
             int localZ = Math.max(0, Math.min(data.height - 1, blockZ - blockStartZ));
             short surfaceBiomeIndex = data.biomeIndexes[localZ][localX];
-            short caveBiomeIndex = selectUndergroundBiome(data, localX, localZ, surfaceBiomeIndex, blockY);
+            short caveBiomeIndex = selectUndergroundBiome(data, localX, localZ, blockX, blockZ, surfaceBiomeIndex, blockY);
             Holder<Biome> entry = biomeIndexMap.get(caveBiomeIndex);
             if (entry != null) return entry;
         }
@@ -139,52 +139,74 @@ public class TerrainDiffusionBiomeSource extends BiomeSource {
     }
 
     /**
-     * Selects an underground biome based on depth below the terrain surface and the surface
-     * biome's climate characteristics. Returns the surface biome index for positions above
-     * the cave threshold.
+     * Selects the biome for a position below the terrain surface.
+     *
+     * <p>Vanilla does not treat the underground as a solid slab of cave biomes: the surface
+     * biome extends downward, and lush/dripstone caves are sparse patches picked by the
+     * climate sampler (humidity for lush, continentalness for dripstone) within a depth band,
+     * with the deep dark reserved for the bottom of the world. This reproduces that layout
+     * using the terrain heightmap for depth and a coherent world-space noise field for the
+     * patch shapes.</p>
      */
     private static short selectUndergroundBiome(HeightmapData data, int localX, int localZ,
+                                                int blockX, int blockZ,
                                                 short surfaceBiomeIndex, int blockY) {
         int surfaceHeight = HeightConverter.convertToMinecraftHeight(data.heightmap[localZ][localX]);
         int depthBelowSurface = surfaceHeight - blockY;
 
-        if (depthBelowSurface < 0) return surfaceBiomeIndex;
-        if (depthBelowSurface < 30) return surfaceBiomeIndex;
+        // Above the surface, and in the shallow band just below it, the surface biome applies.
+        if (depthBelowSurface < CAVE_BIOME_MIN_DEPTH) return surfaceBiomeIndex;
 
-        short caveKind = selectCaveBiome(localX, localZ, surfaceBiomeIndex, depthBelowSurface);
-        return caveKind;
-    }
-
-    private static short selectCaveBiome(int localX, int localZ, short surfaceBiomeIndex, int depthBelowSurface) {
-        if (depthBelowSurface > 100) {
+        // The deep dark belongs to the bottom of the world rather than to anything merely deep
+        // under tall terrain, so it needs both an absolute and a relative depth.
+        if (blockY < DEEP_DARK_MAX_Y && depthBelowSurface > DEEP_DARK_MIN_DEPTH
+                && regionNoise(DEEP_DARK_NOISE_SEED, blockX, blockZ) > DEEP_DARK_THRESHOLD) {
             return TerrainBiomeCatalog.DEEP_DARK;
         }
 
-        float caveNoise = valueNoise(surfaceCaveBiomeSeed, localX / 256f, localZ / 256f);
-
-        boolean isWarmHumid = isWarmHumidBiome(surfaceBiomeIndex);
-        boolean isFrozen = isFrozenBiome(surfaceBiomeIndex);
-
-        if (isFrozen) {
-            return TerrainBiomeCatalog.DRIPSTONE_CAVES;
-        }
-
-        if (isWarmHumid) {
-            if (caveNoise > 0.15f) {
-                return TerrainBiomeCatalog.LUSH_CAVES;
-            }
-            return TerrainBiomeCatalog.DRIPSTONE_CAVES;
-        }
-
-        if (caveNoise > 0.4f) {
+        // Lush caves under humid surfaces; vanilla selects them on humidity >= 0.7.
+        if (isHumidBiome(surfaceBiomeIndex)
+                && regionNoise(LUSH_CAVES_NOISE_SEED, blockX, blockZ) > LUSH_CAVES_THRESHOLD) {
             return TerrainBiomeCatalog.LUSH_CAVES;
         }
-        return TerrainBiomeCatalog.DRIPSTONE_CAVES;
+
+        // Dripstone caves inland; vanilla selects them on continentalness >= 0.8.
+        if (isInlandBiome(surfaceBiomeIndex)
+                && regionNoise(DRIPSTONE_NOISE_SEED, blockX, blockZ) > DRIPSTONE_THRESHOLD) {
+            return TerrainBiomeCatalog.DRIPSTONE_CAVES;
+        }
+
+        // Everywhere else the surface biome carries on underground, as it does in vanilla.
+        return surfaceBiomeIndex;
     }
 
-    private static final int surfaceCaveBiomeSeed = 55678;
+    /** Depth below the surface where cave biomes start (vanilla depth parameter ~0.2). */
+    private static final int CAVE_BIOME_MIN_DEPTH = 24;
+    /** Depth below the surface the deep dark needs (vanilla depth parameter ~1.1). */
+    private static final int DEEP_DARK_MIN_DEPTH = 100;
+    /** The deep dark is additionally confined to the bottom of the world. */
+    private static final int DEEP_DARK_MAX_Y = 0;
+    /** Width in blocks of one cave-biome region cell. */
+    private static final float CAVE_REGION_SIZE_BLOCKS = 256f;
 
-    private static boolean isWarmHumidBiome(short index) {
+    // Thresholds are the fraction of eligible area each biome covers: ~30%, ~40% and ~30%.
+    private static final int DEEP_DARK_NOISE_SEED = 55678;
+    private static final float DEEP_DARK_THRESHOLD = 0.25f;
+    private static final int LUSH_CAVES_NOISE_SEED = 91027;
+    private static final float LUSH_CAVES_THRESHOLD = 0.10f;
+    private static final int DRIPSTONE_NOISE_SEED = 33419;
+    private static final float DRIPSTONE_THRESHOLD = 0.25f;
+
+    /**
+     * Samples the cave-region noise field in world space, so patches do not repeat per
+     * heightmap tile.
+     */
+    private static float regionNoise(int seed, int blockX, int blockZ) {
+        return valueNoise(seed, blockX / CAVE_REGION_SIZE_BLOCKS, blockZ / CAVE_REGION_SIZE_BLOCKS);
+    }
+
+    /** Surface biomes vanilla would place at humidity >= 0.7, where lush caves form. */
+    private static boolean isHumidBiome(short index) {
         switch (index) {
             case TerrainBiomeCatalog.JUNGLE:
             case TerrainBiomeCatalog.SPARSE_JUNGLE:
@@ -192,27 +214,36 @@ public class TerrainDiffusionBiomeSource extends BiomeSource {
             case TerrainBiomeCatalog.SWAMP:
             case TerrainBiomeCatalog.MANGROVE_SWAMP:
             case TerrainBiomeCatalog.DARK_FOREST:
-            case TerrainBiomeCatalog.WARM_OCEAN:
+            case TerrainBiomeCatalog.PALE_GARDEN:
+            case TerrainBiomeCatalog.OLD_GROWTH_SPRUCE_TAIGA:
+            case TerrainBiomeCatalog.OLD_GROWTH_PINE_TAIGA:
+            case TerrainBiomeCatalog.MUSHROOM_FIELDS:
                 return true;
             default:
                 return false;
         }
     }
 
-    private static boolean isFrozenBiome(short index) {
+    /** Stands in for vanilla's continentalness >= 0.8 requirement for dripstone caves. */
+    private static boolean isInlandBiome(short index) {
         switch (index) {
-            case TerrainBiomeCatalog.SNOWY_PLAINS:
-            case TerrainBiomeCatalog.ICE_SPIKES:
-            case TerrainBiomeCatalog.SNOWY_TAIGA:
-            case TerrainBiomeCatalog.SNOWY_SLOPES:
-            case TerrainBiomeCatalog.FROZEN_PEAKS:
-            case TerrainBiomeCatalog.JAGGED_PEAKS:
-            case TerrainBiomeCatalog.FROZEN_RIVER:
+            case TerrainBiomeCatalog.WARM_OCEAN:
+            case TerrainBiomeCatalog.LUKEWARM_OCEAN:
+            case TerrainBiomeCatalog.DEEP_LUKEWARM_OCEAN:
+            case TerrainBiomeCatalog.OCEAN:
+            case TerrainBiomeCatalog.DEEP_OCEAN:
+            case TerrainBiomeCatalog.COLD_OCEAN:
+            case TerrainBiomeCatalog.DEEP_COLD_OCEAN:
             case TerrainBiomeCatalog.FROZEN_OCEAN:
             case TerrainBiomeCatalog.DEEP_FROZEN_OCEAN:
-                return true;
-            default:
+            case TerrainBiomeCatalog.BEACH:
+            case TerrainBiomeCatalog.SNOWY_BEACH:
+            case TerrainBiomeCatalog.STONY_SHORE:
+            case TerrainBiomeCatalog.RIVER:
+            case TerrainBiomeCatalog.FROZEN_RIVER:
                 return false;
+            default:
+                return true;
         }
     }
 

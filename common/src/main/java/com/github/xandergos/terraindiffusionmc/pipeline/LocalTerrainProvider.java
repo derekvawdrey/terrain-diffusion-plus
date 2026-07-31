@@ -1,6 +1,5 @@
 package com.github.xandergos.terraindiffusionmc.pipeline;
 
-import com.github.xandergos.terraindiffusionmc.biome.TerrainBiomeRegistry;
 import com.github.xandergos.terraindiffusionmc.config.TerrainDiffusionConfig;
 import com.github.xandergos.terraindiffusionmc.hydrology.DetailedRiverCarver;
 import com.github.xandergos.terraindiffusionmc.hydrology.FluvialRiverNetwork;
@@ -532,13 +531,6 @@ public final class LocalTerrainProvider {
         FluvialRiverNetwork.applyRiverBiomesFromWindow(
                 biomes, coreClimate, topology, halo, halo, coreSize, coreSize);
         long tRiverBiomes = System.nanoTime();
-        int scarpMargin = ScarpCarver.BOX_RADIUS_BLOCKS;
-        float[] scarpInputElevation = carved.cropAdjustedElevation(
-                halo - scarpMargin, halo - scarpMargin,
-                coreSize + 2 * scarpMargin, coreSize + 2 * scarpMargin, analysisWidth);
-        float[] scarpedElevation = ScarpCarver.carve(scarpInputElevation, biomes, TerrainBiomeRegistry.instance(),
-                coreI0, coreJ0, coreSize, scarpMargin);
-        long tScarp = System.nanoTime();
 
         int cells = Math.multiplyExact(coreSize, coreSize);
         short[] compactElevation = new short[cells];
@@ -554,7 +546,7 @@ public final class LocalTerrainProvider {
             for (int col = 0; col < coreSize; col++) {
                 int sourceIndex = sourceOffset + col;
                 int targetIndex = targetOffset + col;
-                compactElevation[targetIndex] = clampTerrainElevationToShort(scarpedElevation[targetIndex]);
+                compactElevation[targetIndex] = clampTerrainElevationToShort(coreElevation[targetIndex]);
                 compactWaterMask[targetIndex] = FluvialRiverNetwork.encodeWaterMask(
                         channelProfile[sourceIndex], channelLoad[sourceIndex], lakeDepth[sourceIndex]);
                 float surface = waterSurface[sourceIndex];
@@ -570,11 +562,11 @@ public final class LocalTerrainProvider {
                 HydrologyParallel.workerThreads(),
                 (compactElevation.length * 7L) / (1024L * 1024L));
         LOG.info("Hydrology tile ({}, {}) phase breakdown (ms): terrainSample={} riverBuild={} riverCarve={} "
-                        + "crop={} biomeClassify={} riverBiomes={} scarpCarve={} compact={} total={}",
+                        + "crop={} biomeClassify={} riverBiomes={} compact={} total={}",
                 coreJ0, coreI0,
                 millis(tSampleStart, tSample), millis(tSample, tRiverBuild), millis(tRiverBuild, tCarve),
                 millis(tCarve, tCrop), millis(tCrop, tClassify), millis(tClassify, tRiverBiomes),
-                millis(tRiverBiomes, tScarp), millis(tScarp, tCompact), millis(tSampleStart, tCompact));
+                millis(tRiverBiomes, tCompact), millis(tSampleStart, tCompact));
         return new HydrologyProvider.HydrologyTile(
                 coreI0,
                 coreJ0,

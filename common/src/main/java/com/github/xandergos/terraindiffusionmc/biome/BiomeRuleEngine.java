@@ -1,49 +1,73 @@
 package com.github.xandergos.terraindiffusionmc.biome;
 
 import java.util.ArrayList;
-import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.TreeMap;
 
 /**
  * Evaluates data-driven biome rules against a climate sample and noise values.
  *
- * <p>For a given zone (ocean / beach / mountain / lowland), collects all rules
- * from all settlements, evaluates them, and returns the index of the winning
- * biome (highest priority, ties broken by highest index).</p>
+ * <p>For a given zone (ocean / beach / mountain / lowland), collects every biome whose rules match
+ * the pixel and returns one of them, chosen by {@link TerrainBiomeRule#rarity()}.</p>
  *
- * <p>Rules are pre-sorted into priority tiers (highest first). A pixel usually has
- * exactly one eligible biome per zone, in which case the highest matching tier wins
- * outright, same as before. When a pixel's climate also satisfies a <i>different</i>
- * biome's rule at a lower tier (e.g. a narrow modded-biome rule nested inside a broad
- * vanilla rule's range), that biome is no longer automatically shut out: up to two
- * runner-up candidates are collected, and the winner among all eligible candidates is
- * resolved by a smooth, per-biome Perlin-style noise field ({@link #competitionNoise}),
- * biased toward the higher-priority candidate but not deterministic. This keeps
- * genuinely eligible but lower-priority biomes present as real, spatially coherent
- * patches instead of being permanently invisible.</p>
+ * <h2>Weighted selection</h2>
+ * <p>Among the biomes eligible at a pixel, biome {@code i} wins with probability
+ * {@code w_i / sum(w)} -- exactly, not approximately. That is achieved with the
+ * Efraimidis-Spirakis weighted-sampling key {@code ln(u_i) / w_i}, taking the largest: if each
+ * {@code u_i} is uniform on (0, 1) then {@code argmax} over that key reproduces the weights.
+ * Crucially the {@code u_i} here are not white noise but a smooth, per-biome, spatially coherent
+ * field ({@link #competitionNoise}), so the result is real biome patches of the right average size
+ * rather than pixel confetti -- while the marginal share still lands on the authored weight.</p>
+ *
+ * <h2>Why weights instead of priorities</h2>
+ * <p>Selection used to walk integer priority tiers, highest first, letting a runner-up steal a
+ * pixel only by beating the leader's noise by a fixed penalty. That made "rarer variant of" a
+ * numeric ordering constraint: any biome whose rules refined a broader biome's but whose priority
+ * sat <i>below</i> it was shadowed to near-zero area with no warning at all -- {@code bamboo_jungle}
+ * shipped eligible on 0.16% of pixels and winning 0.0000% of them. Weights state the intent
+ * directly and cannot be broken by inserting an unrelated biome in between.</p>
+ *
+ * <h2>Overrides</h2>
+ * <p>A rule may set {@link TerrainBiomeRule#isOverride()} to claim structural dominance: if any
+ * override rule matches a pixel, only override candidates compete there, still by weight. This is
+ * the escape hatch for cases where a biome must strictly win rather than merely win often; the
+ * ordinary variant relationship wants a weight.</p>
  */
 public final class BiomeRuleEngine {
-
-    /**
-     * How much a runner-up candidate's {@link #competitionNoise} score is docked per
-     * rank below the top matching candidate. Noise values are roughly in [-1, 1], so a
-     * rank-1 runner-up needs to beat the leader's noise by more than this to win --
-     * giving it a real minority share of its eligible area rather than none. Raise this
-     * to make runner-ups (e.g. modded biomes shadowed by broad vanilla rules) rarer;
-     * lower it to make them more prevalent.
-     */
-    private static final float COMPETITION_RANK_PENALTY = 0.8f;
 
     /** World-space wavelength of {@link #competitionNoise}'s field, in blocks. */
     private static final float COMPETITION_NOISE_WAVELENGTH = 900f;
 
+    /** Keeps {@code u} off the open interval's endpoints so {@code ln(u)} stays finite. */
+    private static final float U_EPSILON = 1e-6f;
+
+    /**
+     * CDF of {@link #competitionNoise}'s output rescaled to [0, 1], sampled on a uniform grid and
+     * linearly interpolated. Needed because the Efraimidis-Spirakis key is only exact when its
+     * {@code u} is uniformly distributed, and value noise emphatically is not: bilinearly blending
+     * four hash values concentrates it around the midpoint (measured standard deviation 0.214
+     * against a uniform's 0.289). Feeding the raw noise in makes high weights win far more than
+     * their share -- a 1.0 / 0.35 / 0.12 contest landed at 83/14/2% instead of 68/24/8%. Passing
+     * it through its own CDF first restores exactness while leaving the field's spatial structure
+     * completely untouched.
+     *
+     * <p>Measured over 24M samples of the real field; regenerate with the same procedure if
+     * {@link #valueNoise}'s construction ever changes. {@code biomelab/engine.py} carries an
+     * identical copy.</p>
+     */
+    private static final float[] NOISE_CDF = {
+        0.000000f, 0.002161f, 0.008784f, 0.019927f, 0.035609f, 0.055724f, 0.080132f, 0.108747f,
+        0.141309f, 0.177474f, 0.216943f, 0.259346f, 0.304313f, 0.351328f, 0.399982f, 0.449803f,
+        0.500061f, 0.550323f, 0.600022f, 0.648588f, 0.695640f, 0.740613f, 0.783037f, 0.822494f,
+        0.858638f, 0.891144f, 0.919765f, 0.944205f, 0.964329f, 0.980018f, 0.991182f, 0.997837f,
+        1.000000f
+    };
+
     private final TerrainBiomeRegistry registry;
 
     /** Pre-grouped rules by zone for fast lookup. */
-    private Map<String, RuleGroup> zoneGroups;
+    private Map<String, RuleEntry[]> zoneGroups;
     private boolean initialized = false;
 
     public BiomeRuleEngine(TerrainBiomeRegistry registry) {
@@ -53,24 +77,18 @@ public final class BiomeRuleEngine {
     private void init() {
         if (initialized) return;
 
-        Map<String, Map<Integer, List<RuleEntry>>> zonePriorityGroups = new LinkedHashMap<>();
+        Map<String, List<RuleEntry>> byZone = new LinkedHashMap<>();
         for (TerrainBiomeSettlement settlement : registry.all()) {
             for (TerrainBiomeRule rule : settlement.rules()) {
-                zonePriorityGroups
-                        .computeIfAbsent(rule.zone(), z -> new TreeMap<>(Comparator.reverseOrder()))
-                        .computeIfAbsent(rule.priority(), p -> new ArrayList<>())
+                if (rule.rarity() <= 0f) continue;  // weightless rules can never be selected
+                byZone.computeIfAbsent(rule.zone(), z -> new ArrayList<>())
                         .add(new RuleEntry(settlement.index(), rule));
             }
         }
 
-        Map<String, RuleGroup> groups = new LinkedHashMap<>();
-        for (Map.Entry<String, Map<Integer, List<RuleEntry>>> zoneEntry : zonePriorityGroups.entrySet()) {
-            RuleEntry[][] tiers = new RuleEntry[zoneEntry.getValue().size()][];
-            int tierIndex = 0;
-            for (List<RuleEntry> tier : zoneEntry.getValue().values()) {
-                tiers[tierIndex++] = tier.toArray(new RuleEntry[0]);
-            }
-            groups.put(zoneEntry.getKey(), new RuleGroup(tiers));
+        Map<String, RuleEntry[]> groups = new LinkedHashMap<>();
+        for (Map.Entry<String, List<RuleEntry>> entry : byZone.entrySet()) {
+            groups.put(entry.getKey(), entry.getValue().toArray(new RuleEntry[0]));
         }
         zoneGroups = groups;
         initialized = true;
@@ -89,50 +107,94 @@ public final class BiomeRuleEngine {
     public short select(String zone, TerrainClimateSample sample, TerrainBiomeNoiseSample noiseValues,
                          short defaultIndex, float worldX, float worldZ) {
         init();
-        RuleGroup group = zoneGroups.get(zone);
-        if (group == null) return defaultIndex;
+        RuleEntry[] rules = zoneGroups.get(zone);
+        if (rules == null) return defaultIndex;
 
-        // Collect up to three distinct eligible biomes, in priority-tier order. Almost every
-        // pixel only ever has one (candidate1 stays unset), in which case this is exactly as
-        // cheap and deterministic as the old first-tier-wins behavior.
-        short candidate0 = -1, candidate1 = -1, candidate2 = -1;
-        for (RuleEntry[] tier : group.tiers) {
-            short bestIndex = -1;
-            for (RuleEntry entry : tier) {
-                if (entry.index <= bestIndex) continue;
-                if (!entry.rule.matches(sample)) continue;
-                if (!entry.rule.matchesNoise(noiseValues)) continue;
-                bestIndex = entry.index;
+        // Single pass, no allocation. A biome with several matching rules simply gets scored once
+        // per rule; since the key rises monotonically with weight for a fixed u, keeping the
+        // running maximum automatically uses that biome's most generous matching rule.
+        //
+        // The overwhelmingly common case is exactly one matching rule, where the weight cannot
+        // change the outcome, so the first match is only stashed -- the noise lookup and the
+        // logarithm are deferred until a second match actually proves there is a contest.
+        int matches = 0;
+        short firstIndex = -1;
+        float firstRarity = 0f;
+        boolean firstOverride = false;
+
+        short winner = -1;
+        float bestKey = Float.NEGATIVE_INFINITY;
+        short overrideWinner = -1;
+        float bestOverrideKey = Float.NEGATIVE_INFINITY;
+
+        for (RuleEntry entry : rules) {
+            if (!entry.rule.matches(sample)) continue;
+            if (!entry.rule.matchesNoise(noiseValues)) continue;
+
+            matches++;
+            if (matches == 1) {
+                firstIndex = entry.index;
+                firstRarity = entry.rule.rarity();
+                firstOverride = entry.rule.isOverride();
+                continue;
             }
-            if (bestIndex < 0) continue;
+            if (matches == 2) {
+                float firstKey = selectionKey(firstIndex, firstRarity, worldX, worldZ);
+                if (firstOverride) {
+                    bestOverrideKey = firstKey;
+                    overrideWinner = firstIndex;
+                } else {
+                    bestKey = firstKey;
+                    winner = firstIndex;
+                }
+            }
 
-            if (candidate0 < 0) {
-                candidate0 = bestIndex;
-            } else if (bestIndex != candidate0 && candidate1 < 0) {
-                candidate1 = bestIndex;
-            } else if (bestIndex != candidate0 && bestIndex != candidate1 && candidate2 < 0) {
-                candidate2 = bestIndex;
-                break;
+            float key = selectionKey(entry.index, entry.rule.rarity(), worldX, worldZ);
+            if (entry.rule.isOverride()) {
+                if (key > bestOverrideKey) {
+                    bestOverrideKey = key;
+                    overrideWinner = entry.index;
+                }
+            } else if (key > bestKey) {
+                bestKey = key;
+                winner = entry.index;
             }
         }
 
-        if (candidate0 < 0) return defaultIndex;
-        if (candidate1 < 0) return candidate0;
-
-        short winner = candidate0;
-        float bestScore = competitionNoise(candidate0, worldX, worldZ);
-        float score1 = competitionNoise(candidate1, worldX, worldZ) - COMPETITION_RANK_PENALTY;
-        if (score1 > bestScore) {
-            bestScore = score1;
-            winner = candidate1;
-        }
-        if (candidate2 >= 0) {
-            float score2 = competitionNoise(candidate2, worldX, worldZ) - 2f * COMPETITION_RANK_PENALTY;
-            if (score2 > bestScore) {
-                winner = candidate2;
-            }
-        }
+        if (matches == 0) return defaultIndex;
+        if (matches == 1) return firstIndex;
+        if (overrideWinner >= 0) return overrideWinner;
         return winner;
+    }
+
+    /**
+     * Efraimidis-Spirakis key {@code ln(u) / w}. {@code ln(u)} is negative, so a larger weight
+     * pulls the key toward zero and wins more often; taking the argmax over candidates reproduces
+     * {@code P(i) = w_i / sum(w)} when the {@code u} values are independent and uniform.
+     */
+    private static float selectionKey(short biomeIndex, float weight, float worldX, float worldZ) {
+        float u = uniformNoise(competitionNoise(biomeIndex, worldX, worldZ));
+        return (float) Math.log(u) / weight;
+    }
+
+    /**
+     * Maps the noise field's roughly [-1, 1] output onto a value uniform on the open interval
+     * (0, 1), by rescaling to [0, 1] and applying {@link #NOISE_CDF}.
+     */
+    private static float uniformNoise(float noise) {
+        float x = (noise + 1f) * 0.5f;
+        if (x <= 0f) return U_EPSILON;
+        if (x >= 1f) return 1f - U_EPSILON;
+
+        float scaled = x * (NOISE_CDF.length - 1);
+        int lo = (int) scaled;
+        if (lo >= NOISE_CDF.length - 1) lo = NOISE_CDF.length - 2;
+        float frac = scaled - lo;
+        float u = NOISE_CDF[lo] + (NOISE_CDF[lo + 1] - NOISE_CDF[lo]) * frac;
+
+        if (u < U_EPSILON) return U_EPSILON;
+        if (u > 1f - U_EPSILON) return 1f - U_EPSILON;
+        return u;
     }
 
     /**
@@ -179,15 +241,6 @@ public final class BiomeRuleEngine {
 
     private static float lerp(float a, float b, float t) {
         return a + (b - a) * t;
-    }
-
-    private static final class RuleGroup {
-        /** Tiers sorted by priority descending; ties within a tier are broken by highest index. */
-        final RuleEntry[][] tiers;
-
-        RuleGroup(RuleEntry[][] tiers) {
-            this.tiers = tiers;
-        }
     }
 
     private static final class RuleEntry {

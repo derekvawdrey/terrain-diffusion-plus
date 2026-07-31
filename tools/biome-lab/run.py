@@ -108,9 +108,9 @@ def main():
     print(f"Static validators: {n_dead} dead condition(s), {n_redundant} redundant condition(s) "
           f"across {len(vreport.affected_biomes)} biome(s)")
     for f in vreport.dead_findings:
-        print(f"  DEAD  [{f.category}] {f.biome_key} ({f.zone}, prio={f.priority}): {f.condition_desc}")
+        print(f"  DEAD  [{f.category}] {f.biome_key} ({f.zone}, rarity={f.rarity}): {f.condition_desc}")
     for f in vreport.redundant_findings:
-        print(f"  REDUNDANT [{f.category}] {f.biome_key} ({f.zone}, prio={f.priority}): {f.condition_desc}")
+        print(f"  REDUNDANT [{f.category}] {f.biome_key} ({f.zone}, rarity={f.rarity}): {f.condition_desc}")
 
     fix_suggestions = []
     if args.fix:
@@ -173,7 +173,7 @@ def main():
                     max_conditions_to_widen=args.fix_max_widen)
                 widen_suggestions.extend(sugg)
                 if resulting_rate < args.fix_target_rate:
-                    still_short.append((f.biome_key, f.zone, f.priority, resulting_rate))
+                    still_short.append((f.biome_key, f.zone, f.rarity, resulting_rate))
             applied_widen = fixes_mod.apply_suggestions(widen_suggestions)
             fix_suggestions = fix_suggestions + widen_suggestions
             print(f"Applied {applied_widen}/{len(widen_suggestions)} widening fix(es) for "

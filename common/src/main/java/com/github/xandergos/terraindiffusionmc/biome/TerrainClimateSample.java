@@ -1,6 +1,13 @@
 package com.github.xandergos.terraindiffusionmc.biome;
 
-/** Climate and terrain variables used to select a logical vanilla biome. */
+/**
+ * Climate and terrain variables used to select a logical vanilla biome.
+ *
+ * <p>{@code elevationM} is <b>signed</b>: negative over ocean, where it is the real seafloor depth
+ * in meters. The {@code mountain}/{@code lowland}/{@code snowy} flags are derived from a
+ * zero-clamped copy instead, since they are land concepts, so only ocean-zone rules ever observe a
+ * negative value.</p>
+ */
 public record TerrainClimateSample(
         float elevationM,
         float temperatureC,

@@ -203,14 +203,14 @@ def encounterability(catalog: Catalog, fractions: dict, min_area_fraction: float
 
 
 def _dominant_noise_field(settlement) -> str | None:
-    """Heuristic: the noise field referenced by the highest-priority rule's noiseConditions, if
+    """Heuristic: the noise field referenced by the highest-rarity rule's noiseConditions, if
     any. Used only to pick a wavelength for the encounterability estimate.
     """
     best_rule = None
     for rule in settlement.rules:
         if not rule.noise_conditions:
             continue
-        if best_rule is None or rule.priority > best_rule.priority:
+        if best_rule is None or rule.rarity > best_rule.rarity:
             best_rule = rule
     if best_rule is None:
         return None
@@ -255,7 +255,7 @@ class BottleneckRow:
     rule: object  # Rule, kept so callers can re-locate this exact rule
     biome_key: str
     zone: str
-    priority: int
+    rarity: float
     joint_pass_rate: float
     condition_pass_rates: list  # [(condition_desc, pass_rate), ...] sorted ascending (tightest first)
     condition_objects: list  # Condition objects, same order as condition_pass_rates
@@ -288,7 +288,7 @@ def rule_bottlenecks(catalog: Catalog, samples: ClimateSamples, top_n_tightest_o
         individual.sort(key=lambda t: t[2])
         rows.append(BottleneckRow(
             settlement=settlement, rule=rule,
-            biome_key=settlement.key, zone=rule.zone, priority=rule.priority,
+            biome_key=settlement.key, zone=rule.zone, rarity=rule.rarity,
             joint_pass_rate=joint_rate,
             condition_pass_rates=[(desc, rate) for _, desc, rate in individual],
             condition_objects=[c for c, _, _ in individual],

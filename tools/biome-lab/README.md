@@ -122,8 +122,9 @@ or `--force-montecarlo` was set):
 - **3b. Diversity metrics** -- effective number of biomes (`exp(Shannon entropy)`, a "how many
   biomes does this feel like, accounting for how evenly spread they are" number) and HHI
   concentration (higher = a few biomes dominate).
-- **3c. Cross-tier collision rates** -- how often two or three genuinely-eligible biomes competed
-  for the same pixel (`BiomeRuleEngine`'s competition-noise resolution), by pair.
+- **3c. Collision rates** -- how often two or three genuinely-eligible biomes competed for the
+  same pixel, by pair. These are the pixels where `rarity` actually decides anything;
+  everywhere else the single eligible biome wins regardless of its weight.
 - **3d. Encounterability** -- turns an area fraction into a rough "expected blocks of exploration"
   estimate using the gating noise field's real spatial wavelength (650/320/280/260/220 blocks for
   variant/cherry/pale/clearing/flower noise, 900 for the fallback competition-noise wavelength).
@@ -144,6 +145,29 @@ or `--force-montecarlo` was set):
   matching what the Monte Carlo actually observed. This is *why* a catalog can pass every
   structural check and still have most of its biomes feel unreachable in practice. Run with
   `--fix` to get widening suggestions (see section 2).
+
+## Rarity, and why a low area fraction is not always a rarity problem
+
+Each rule carries a `rarity` weight (default 1.0). Where several biomes are eligible for the same
+pixel, biome *i* wins it with probability `w_i / sum(w)` over the eligible set -- so a weight is a
+share of *contested* area, not a share of the world. Two consequences worth internalising before
+reading section 3:
+
+- A biome that is the only candidate in its niche wins 100% of it no matter how low its weight is.
+  Lowering `rarity` on such a biome does nothing at all.
+- A biome's area fraction is bounded by its **eligibility** -- how often its conditions hold. If
+  3d says a biome is invisible, check whether it is eligible-but-losing (fix: raise `rarity`) or
+  simply never eligible (fix: widen the conditions; no weight can help). Section 3f's per-condition
+  pass rates are how you tell the two apart.
+
+This replaced an integer `priority` field. Under that model a biome whose conditions refined a
+broader biome's, but whose priority sat below it, was shadowed to near-zero area with no warning
+from any validator -- `bamboo_jungle` shipped eligible on 0.16% of pixels and winning 0.0000% of
+them. Weights cannot fail that way: a refinement always keeps its proportional share.
+
+A rule may also set `"override": true`, which makes it beat every non-override candidate outright
+and compete on weight only against other overrides. It is an escape hatch for structural dominance;
+an ordinary "rarer variant of" relationship wants a weight.
 
 ## The slope approximation -- read this before trusting mountain/bareSlope numbers
 
@@ -222,7 +246,7 @@ tools/biome-lab/
     catalog.py               loads biome_catalog.json (source of truth: the real JSON schema)
     noise_data.py             loads java/NoiseProbe.java's output, inverse-CDF sampling
     climate.py                Monte Carlo climate/terrain sampler (ports classifyPixel)
-    engine.py                 vectorized BiomeRuleEngine port (tiered selection + competition noise)
+    engine.py                 vectorized BiomeRuleEngine port (rarity-weighted selection)
     validators.py             the 3 fast static checks
     montecarlo.py              area fractions / diversity / collisions / encounterability / ranges
     fixes.py                   auto-fix suggestion + application logic

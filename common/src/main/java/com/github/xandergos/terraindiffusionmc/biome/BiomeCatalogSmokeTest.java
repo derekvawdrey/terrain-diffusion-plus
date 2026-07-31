@@ -27,12 +27,12 @@ import java.util.List;
  *   <li>{@code bundled} -- scratch dir has no catalog yet, so the registry falls back to the
  *   bundled classpath {@code biome_catalog.json} (the same one shipped in the jar). Requests a
  *   climate niche ({@code lowland}/temperate/moderate/forest) that a real, well-covered catalog
- *   should already have a rule "close enough" to -- exercises the anchor-sharing (same-tier)
+ *   should already have a rule "close enough" to -- exercises the niche-overlap reporting
  *   path.</li>
  *   <li>{@code minimal} -- writes a hand-built, deliberately tiny catalog (rules in
  *   {@code lowland} only) into the scratch config dir BEFORE the registry loads, then requests a
- *   {@code mountain}-zone niche that catalog has zero rules for -- guarantees the new-distinct-
- *   priority-tier fallback path, which is difficult to hit organically against the real,
+ *   {@code mountain}-zone niche that catalog has zero rules for -- guarantees the no-anchor
+ *   path, which is difficult to hit organically against the real,
  *   deliberately climate-space-covering bundled catalog (empirically confirmed zero gaps across
  *   all 300 zone/temperature-band/moisture-band/tree-density combinations there).</li>
  *   <li>{@code apply} -- runs a full preview+apply+save+backup+reload round trip against a fresh
@@ -71,7 +71,7 @@ public class BiomeCatalogSmokeTest {
     }
 
     // =========================================================================
-    // Mode: bundled — anchor-sharing (same priority tier) path
+    // Mode: bundled — overlapping-niche (anchor reported) path
     // =========================================================================
 
     private static void runBundledAnchorCase(Path scratchDir) {
@@ -88,7 +88,7 @@ public class BiomeCatalogSmokeTest {
 
         System.out.println("[bundled] newSettlement=" + result.newSettlement()
                 + " assignedIndex=" + result.assignedIndex()
-                + " priority=" + result.priority() + " newTier=" + result.newTier());
+                + " rarity=" + result.rarity());
         System.out.println("[bundled] anchor=" + result.anchor());
         System.out.println("[bundled] rule conditions=" + result.rule().conditions());
         System.out.println("[bundled] rule noiseConditions=" + result.rule().noiseConditions());
@@ -97,9 +97,9 @@ public class BiomeCatalogSmokeTest {
         expect("new biome key has no pre-existing settlement", result.newSettlement());
         expect("assigned a fresh index beyond the bundled catalog",
                 result.assignedIndex() >= registry.all().size() - 1);
-        expect("found an anchor to share a tier with", result.anchor() != null);
-        expect("did not fall back to a new tier", !result.newTier());
-        expect("uncommon rarity while sharing a tier adds a variantNoise gate",
+        expect("found an existing biome whose niche this overlaps", result.anchor() != null);
+        expect("uncommon rarity maps to a below-1 weight", result.rarity() < 1.0f);
+        expect("uncommon rarity adds a variantNoise gate",
                 !result.rule().noiseConditions().isEmpty());
         expect("generated rule passes validation", result.valid());
 
@@ -147,7 +147,7 @@ public class BiomeCatalogSmokeTest {
                     "rules": [
                       {
                         "zone": "lowland",
-                        "priority": 40,
+                        "rarity": 1.0,
                         "conditions": [
                           {"variable": "treeCoverage", "op": "eq", "value": 0.0},
                           {"variable": "temperatureC", "op": "between", "value": -5, "value2": 20}
@@ -172,16 +172,13 @@ public class BiomeCatalogSmokeTest {
         BiomeRuleGenerator.Result result = BiomeRuleGenerator.generate(registry, req);
 
         System.out.println("[minimal] newSettlement=" + result.newSettlement()
-                + " priority=" + result.priority() + " newTier=" + result.newTier()
-                + " anchor=" + result.anchor());
+                + " rarity=" + result.rarity() + " anchor=" + result.anchor());
         System.out.println("[minimal] rule=" + result.rule().conditions());
         System.out.println("[minimal] validation findings=" + result.validationFindings());
 
         expect("no anchor found in an empty-for-this-zone catalog", result.anchor() == null);
-        expect("fell back to a brand-new distinct priority tier", result.newTier());
-        expect("new tier priority is a small positive number (max-for-zone[0] + 1)",
-                result.priority() == 1);
-        expect("common rarity with NO anchor gets no noise gate at all",
+        expect("common rarity maps to full weight", result.rarity() == 1.0f);
+        expect("common rarity gets no noise gate at all",
                 result.rule().noiseConditions().isEmpty());
         expect("generated rule still passes validation", result.valid());
     }

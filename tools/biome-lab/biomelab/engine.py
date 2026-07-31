@@ -1,7 +1,10 @@
-"""Vectorized port of BiomeRuleEngine.java: tiered priority selection + competition-noise
-resolution among up to three eligible candidates. See that file's class docstring for the full
-rationale; this module mirrors its `select()` method exactly, just batched over numpy arrays
-instead of one pixel at a time.
+"""Vectorized port of BiomeRuleEngine.java: rarity-weighted selection among every eligible biome.
+
+Mirrors that file's `select()` exactly, batched over numpy arrays instead of one pixel at a time.
+Each eligible biome i gets the Efraimidis-Spirakis key ln(u_i)/w_i -- where u_i is its own smooth
+competitionNoise field mapped onto (0,1) -- and the largest key wins, which reproduces
+P(i) = w_i / sum(w) while keeping the result spatially coherent. Override rules, if any match,
+compete only among themselves.
 """
 from __future__ import annotations
 
@@ -9,7 +12,27 @@ import numpy as np
 
 from .catalog import Catalog, Condition
 
-COMPETITION_RANK_PENALTY = 0.8
+U_EPSILON = 1e-6
+
+# CDF of competition_noise's output rescaled to [0,1], on a uniform grid, linearly interpolated.
+# The Efraimidis-Spirakis key is only exact for a UNIFORM u, and value noise is not uniform --
+# blending four hash values bilinearly concentrates it around the midpoint (std 0.214 vs a
+# uniform's 0.289), which would hand high weights far more than their share. Identical copy of
+# BiomeRuleEngine.NOISE_CDF; regenerate both together if value_noise ever changes.
+NOISE_CDF = np.array([
+    0.000000, 0.002161, 0.008784, 0.019927, 0.035609, 0.055724, 0.080132, 0.108747,
+    0.141309, 0.177474, 0.216943, 0.259346, 0.304313, 0.351328, 0.399982, 0.449803,
+    0.500061, 0.550323, 0.600022, 0.648588, 0.695640, 0.740613, 0.783037, 0.822494,
+    0.858638, 0.891144, 0.919765, 0.944205, 0.964329, 0.980018, 0.991182, 0.997837,
+    1.000000,
+])
+_NOISE_CDF_X = np.linspace(0.0, 1.0, len(NOISE_CDF))
+
+
+def uniform_noise(noise: np.ndarray) -> np.ndarray:
+    """Port of BiomeRuleEngine.uniformNoise: noise in [-1,1] -> uniform on (0,1)."""
+    x = np.clip((noise + 1.0) * 0.5, 0.0, 1.0)
+    return np.clip(np.interp(x, _NOISE_CDF_X, NOISE_CDF), U_EPSILON, 1.0 - U_EPSILON)
 COMPETITION_NOISE_WAVELENGTH = 900.0
 
 _U64 = np.uint64
@@ -96,21 +119,19 @@ def _eval_rule(conditions, noise_conditions, get) -> np.ndarray:
 
 
 class RuleEngine:
-    """Pre-groups every settlement's rules by zone then by priority tier (descending), exactly
-    like BiomeRuleEngine.init(). `select()` evaluates one zone's tiers against a batch of samples.
+    """Pre-groups every settlement's rules by zone, exactly like BiomeRuleEngine.init().
+    `select()` evaluates one zone's rules against a batch of samples.
     """
 
     def __init__(self, catalog: Catalog):
         self.catalog = catalog
-        self.zone_tiers: dict[str, list[list[tuple[int, "list", "list"]]]] = {}
-        zone_priority_groups: dict[str, dict[int, list]] = {}
+        self.zone_rules: dict[str, list[tuple[int, float, bool, list, list]]] = {}
         for settlement, rule in catalog.all_rules():
-            zone_priority_groups.setdefault(rule.zone, {}).setdefault(rule.priority, []).append(
-                (settlement.index, rule.conditions, rule.noise_conditions)
+            if rule.rarity <= 0:
+                continue  # weightless rules can never be selected
+            self.zone_rules.setdefault(rule.zone, []).append(
+                (settlement.index, rule.rarity, rule.override, rule.conditions, rule.noise_conditions)
             )
-        for zone, prio_map in zone_priority_groups.items():
-            tiers = [prio_map[p] for p in sorted(prio_map.keys(), reverse=True)]
-            self.zone_tiers[zone] = tiers
 
     def select(self, zone: str, get, n: int, default_index) -> np.ndarray:
         """Convenience wrapper around select_debug() that returns only the winning index."""
@@ -124,79 +145,65 @@ class RuleEngine:
         default_index: scalar int, or np.ndarray of length n (per-Java: the caller's own current
             biome, used as the "no rule matched" fallback for the bareSlope re-selection pass)
         Returns: (winner, candidate0, candidate1, candidate2), each np.ndarray[int64] of length n.
-            candidate1/candidate2 are -1 where no runner-up was found -- useful for the Monte
-            Carlo evaluator's cross-tier collision-rate diagnostic (how often does a pixel have
-            more than one genuinely eligible biome for its zone?).
+            candidate0..2 are the three highest-keyed eligible biomes (-1 where fewer were
+            eligible), retained for the Monte Carlo evaluator's collision-rate diagnostic: how
+            often does a pixel have more than one genuinely eligible biome for its zone?
         """
-        tiers = self.zone_tiers.get(zone)
-        default_arr = np.full(n, default_index, dtype=np.int64) if np.isscalar(default_index) else np.asarray(default_index, dtype=np.int64)
-        if not tiers:
+        rules = self.zone_rules.get(zone)
+        default_arr = (np.full(n, default_index, dtype=np.int64) if np.isscalar(default_index)
+                       else np.asarray(default_index, dtype=np.int64))
+        if not rules:
             empty = np.full(n, -1, dtype=np.int64)
             return default_arr.copy(), empty, empty.copy(), empty.copy()
-
-        candidate0 = np.full(n, -1, dtype=np.int64)
-        candidate1 = np.full(n, -1, dtype=np.int64)
-        candidate2 = np.full(n, -1, dtype=np.int64)
-
-        for tier in tiers:
-            best_index = np.full(n, -1, dtype=np.int64)
-            for index, conditions, noise_conditions in tier:
-                mask = _eval_rule(conditions, noise_conditions, get)
-                if mask is None:
-                    mask = np.ones(n, dtype=bool)
-                # Equivalent to Java's "if (entry.index <= bestIndex) skip; else if matches,
-                # bestIndex = entry.index": final result is the max index among matching entries.
-                candidate_index = np.where(mask, index, -1)
-                best_index = np.maximum(best_index, candidate_index)
-
-            valid = best_index >= 0
-            set0 = valid & (candidate0 < 0)
-            candidate0[set0] = best_index[set0]
-
-            set1 = valid & (candidate0 >= 0) & (best_index != candidate0) & (candidate1 < 0)
-            candidate1[set1] = best_index[set1]
-
-            set2 = valid & (candidate0 >= 0) & (candidate1 >= 0) & (best_index != candidate0) & (best_index != candidate1) & (candidate2 < 0)
-            candidate2[set2] = best_index[set2]
-
-        winner = candidate0.copy()
-        have0 = candidate0 >= 0
 
         world_x = get("worldX")
         world_z = get("worldZ")
 
-        # Only compute competitionNoise where actually needed (candidate1 present) to avoid
-        # calling it with an undefined biome index (-1) unnecessarily, though it would be masked
-        # out anyway.
-        have1 = candidate1 >= 0
-        if np.any(have1):
-            best_score = np.where(have0, _score_for(candidate0, world_x, world_z, 0), -np.inf)
-            score1 = np.where(have1, _score_for(candidate1, world_x, world_z, 1), -np.inf)
-            upd1 = have1 & (score1 > best_score)
-            winner = np.where(upd1, candidate1, winner)
-            best_score = np.where(upd1, score1, best_score)
+        # Track the three best keys seen so far, for normal and override candidates separately.
+        neg_inf = np.full(n, -np.inf)
+        keys = [neg_inf.copy(), neg_inf.copy(), neg_inf.copy()]
+        idxs = [np.full(n, -1, dtype=np.int64) for _ in range(3)]
+        ov_key = neg_inf.copy()
+        ov_idx = np.full(n, -1, dtype=np.int64)
 
-            have2 = candidate2 >= 0
-            if np.any(have2):
-                score2 = np.where(have2, _score_for(candidate2, world_x, world_z, 2), -np.inf)
-                upd2 = have2 & (score2 > best_score)
-                winner = np.where(upd2, candidate2, winner)
+        for index, rarity, override, conditions, noise_conditions in rules:
+            mask = _eval_rule(conditions, noise_conditions, get)
+            if mask is None:
+                mask = np.ones(n, dtype=bool)
+            if not np.any(mask):
+                continue
+            u = uniform_noise(competition_noise(index, world_x, world_z))
+            key = np.where(mask, np.log(u) / rarity, -np.inf)
 
-        result = np.where(have0, winner, default_arr)
-        return result.astype(np.int64), candidate0, candidate1, candidate2
+            if override:
+                better = key > ov_key
+                ov_idx = np.where(better, index, ov_idx)
+                ov_key = np.where(better, key, ov_key)
+                continue
 
+            # Insert into the running top-3 strictly by key. A biome with several matching
+            # rules can briefly occupy two slots; that is harmless for the winner (slot 0 still
+            # holds the global max key, which is that biome's best rule) and is de-duplicated
+            # below before the collision diagnostic looks at the runner-up slots.
+            for s_i in range(3):
+                better = key > keys[s_i]
+                if not np.any(better):
+                    continue
+                for s_j in range(2, s_i, -1):
+                    keys[s_j] = np.where(better, keys[s_j - 1], keys[s_j])
+                    idxs[s_j] = np.where(better, idxs[s_j - 1], idxs[s_j])
+                keys[s_i] = np.where(better, key, keys[s_i])
+                idxs[s_i] = np.where(better, index, idxs[s_i])
+                break
 
-def _score_for(candidate_idx: np.ndarray, world_x: np.ndarray, world_z: np.ndarray, rank: int) -> np.ndarray:
-    """competitionNoise(candidate) - rank*PENALTY, but candidate_idx varies per-sample so we can't
-    call competition_noise (which expects one scalar biome index) directly -- group by distinct
-    index values present in this batch instead. In practice the number of distinct biome indices
-    that ever appear as an Nth candidate in one batch is small (bounded by catalog size), so this
-    stays cheap.
-    """
-    out = np.zeros(candidate_idx.shape, dtype=np.float64)
-    for idx in np.unique(candidate_idx):
-        if idx < 0:
-            continue
-        m = candidate_idx == idx
-        out[m] = competition_noise(int(idx), world_x[m], world_z[m])
-    return out - rank * COMPETITION_RANK_PENALTY
+        # Collapse repeats so candidate1/candidate2 mean "a DIFFERENT eligible biome", which is
+        # what the collision-rate diagnostic counts.
+        dup1 = idxs[1] == idxs[0]
+        idxs[1] = np.where(dup1, idxs[2], idxs[1])
+        idxs[2] = np.where(dup1, -1, idxs[2])
+        dup2 = (idxs[2] == idxs[0]) | ((idxs[2] == idxs[1]) & (idxs[1] >= 0))
+        idxs[2] = np.where(dup2, -1, idxs[2])
+
+        winner = np.where(idxs[0] >= 0, idxs[0], default_arr)
+        winner = np.where(ov_idx >= 0, ov_idx, winner)
+        return winner.astype(np.int64), idxs[0], idxs[1], idxs[2]

@@ -290,7 +290,7 @@ def suggest_widen_fixes(finding: Finding, bottleneck_row, samples, target_joint_
         suggestions.append(FixSuggestion(
             finding=Finding(severity="rare", category="low_pass_rate",
                              biome_key=finding.biome_key, biome_index=finding.biome_index,
-                             zone=finding.zone, priority=finding.priority,
+                             zone=finding.zone, rarity=finding.rarity,
                              condition_desc=cond.describe(), message="", condition=cond),
             field_changes=field_changes,
             explanation=(f"Widened '{cond.variable}' ({change_desc}) to raise this rule's joint "

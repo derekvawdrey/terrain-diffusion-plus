@@ -22,16 +22,15 @@ VALID_SPARSITY = (1.00, 0.65, 0.38, 0.15, 0.00)
 # These are *hard* invariants (visible directly in the Java source), unlike e.g. temperatureC's
 # approximate [-10,40] range which only holds for the synthetic-fallback conditioning path and
 # is not guaranteed for the real generated climate field, so it is NOT included here.
-#   elevationM: TerrainClimateSample's elevationM field is fed `altM = Math.max(0f, elevation)`,
-#     not raw elevation -- so it is NEVER negative, even for ocean pixels. This is the one that
-#     matters most: several biome_catalog.json rules gate on `elevationM lt/lte <negative>` under
-#     the (reasonable-looking, but wrong) assumption that ocean depth is visible here.
+#   elevationM is deliberately ABSENT: it carries the signed elevation (negative over ocean, the
+#     real seafloor depth), so it has no architectural lower bound. It used to be fed
+#     `altM = Math.max(0f, elevation)`, which silently made every `elevationM lt <negative>` gate
+#     -- i.e. all four deep_* ocean biomes -- permanently unreachable. See TerrainClimateSample.
 #   precipitationMm: `Math.max(0f, ...)` before the noise factor is applied.
 #   aridity, moisture, treeMoisture: aridity = precip / max(1, pet) with precip>=0, pet>0.
 #   slope: sqrt(dx^2+dy^2)/pixelSizeM, never negative.
 #   growingSeasonDays: derived from a closed-form arcsin formula, provably in [0, 365].
 HARD_BOUNDS = {
-    "elevationM": (0.0, None),
     "precipitationMm": (0.0, None),
     "aridity": (0.0, None),
     "moisture": (0.0, None),
@@ -88,7 +87,8 @@ class Condition:
 @dataclass
 class Rule:
     zone: str
-    priority: int
+    rarity: float
+    override: bool
     conditions: list[Condition] = field(default_factory=list)
     noise_conditions: list[Condition] = field(default_factory=list)
 
@@ -96,7 +96,8 @@ class Rule:
     def from_json(d: dict) -> "Rule":
         return Rule(
             zone=d["zone"],
-            priority=d.get("priority", 0),
+            rarity=float(d.get("rarity", 1.0)),
+            override=bool(d.get("override", False)),
             conditions=[Condition.from_json(c) for c in d.get("conditions", [])],
             noise_conditions=[Condition.from_json(c) for c in d.get("noiseConditions", [])],
         )

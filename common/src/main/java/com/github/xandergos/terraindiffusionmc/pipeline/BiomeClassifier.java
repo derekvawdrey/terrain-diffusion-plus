@@ -351,15 +351,27 @@ public final class BiomeClassifier {
         float snowTemp = temp + snowNoise;
         boolean isSteep = slope > 0.78f;
 
+        // Steep faces normally shed snow, but applying that unconditionally made snow and
+        // steepness mutually exclusive -- which silently made the two biomes defined as *both*
+        // (frozen_peaks and jagged_peaks, whose rules are `bareSlope && snowy`) essentially
+        // unreachable, since bareSlope needs slope >= 0.7 and snow needed slope <= 0.78. High
+        // alpine terrain holds snow on steep ground in reality, so the shedding rule now only
+        // applies below the snow line.
+        boolean shedsSnow = isSteep && altM <= 1500f;
+
         boolean hasSnow = (snowTemp < -2f || (altM > 800f && snowTemp < -0.5f))
-                && precip > 150f && !isSteep;
+                && precip > 150f && !shedsSnow;
 
         boolean isOcean = elevation < 0f;
         boolean beachBand = coastline;
         boolean mountains = altM > 2500f;
         boolean lowland = altM < 200f;
 
-        TerrainClimateSample sample = new TerrainClimateSample(altM, temp, tSeason, precip, pCV,
+        // elevationM carries the SIGNED elevation, so ocean-zone rules can discriminate on real
+        // seafloor depth (the deep_* ocean biomes gate on `elevationM < -250`). altM stays clamped
+        // for the derived flags below, which are all land concepts. Land pixels are unaffected:
+        // every non-ocean zone is only reached when elevation >= 0, where the two are identical.
+        TerrainClimateSample sample = new TerrainClimateSample(elevation, temp, tSeason, precip, pCV,
                 treeMoisture, aridity, treeMoisture, treeCoverage, sparsity, slope, growingSeason,
                 isOcean, hasSnow, slopeBare, mountains, lowland);
 

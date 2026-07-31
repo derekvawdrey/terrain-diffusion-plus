@@ -841,11 +841,16 @@
   const DETAIL_PAN_STEP = 256;
   const DETAIL_SIZE = 1024;
 
+  // ch3 ("T std") is temperature seasonality on the WorldClim x100 convention -- the raw value
+  // biome_catalog.json rules compare against (e.g. `temperatureSeasonality < 500` means 5°C), and
+  // exactly what coarse channel 3 carries. BiomeClassifier is the only thing that divides by 100.
+  // The slider range must therefore be on that x100 scale too, or a candidate filter derived from
+  // a real rule collapses to the slider's max the moment it is applied.
   const CHANNEL_META = [
     { ch: 0, name: 'Elev',    unit: 'm',  step: 50,   defMin: -8000, defMax: 8000 },
     { ch: 2, name: 'Temp',    unit: '°',  step: 1,    defMin: -30,   defMax: 40   },
-    { ch: 3, name: 'T std',   unit: '°',  step: 0.5,  defMin: 0,     defMax: 20   },
-    { ch: 4, name: 'Precip',  unit: '',   step: 10,   defMin: 0,     defMax: 2000 },
+    { ch: 3, name: 'T std',   unit: '',   step: 10,   defMin: 0,     defMax: 1500 },
+    { ch: 4, name: 'Precip',  unit: '',   step: 25,   defMin: 0,     defMax: 6500 },
     { ch: 5, name: 'P CV',    unit: '',   step: 1,    defMin: 0,     defMax: 200  },
   ];
 
@@ -1777,14 +1782,20 @@
               const meta = CHANNEL_META.find(m => String(m.ch) === ch);
               const name = meta ? meta.name : `ch${ch}`;
               const unit = meta ? meta.unit : '';
-              return `${name} ${z.filters[ch].min}${unit}–${z.filters[ch].max}${unit}`;
+              // Either end may be absent — the server omits open ends rather than sending an
+              // infinity, so render those as a one-sided "≥ x" / "≤ x" instead of a range.
+              const f = z.filters[ch];
+              const hasMin = f.min !== undefined, hasMax = f.max !== undefined;
+              if (hasMin && hasMax) return `${name} ${f.min}${unit}–${f.max}${unit}`;
+              if (hasMin) return `${name} ≥ ${f.min}${unit}`;
+              return `${name} ≤ ${f.max}${unit}`;
             }).join(', ')
           : 'no coarse-map constraint (this zone reaches everywhere)';
 
       let caveatsHtml = '';
       if (z.caveats && z.caveats.length) {
         const more = z.caveatsTruncated ? '; …' : '';
-        caveatsHtml = `<div class="bc-hint">Also requires: ${z.caveats.join('; ')}${more} — not shown on the map (fine-scale terrain/noise), so the real spawn area will be smaller and patchier than the highlighted region.</div>`;
+        caveatsHtml = `<div class="bc-hint">Caveats: ${z.caveats.join('; ')}${more} — the highlighted region is necessary but not sufficient, so the real spawn area is smaller and patchier than what you see.</div>`;
       }
 
       card.innerHTML = `
@@ -1806,12 +1817,18 @@
       const maxEl = document.getElementById(`fch-${ch}-max`);
       if (!minEl || !maxEl) return;
       const f = zoneCandidate.filters[String(ch)];
+      // Each handle is clamped against its OWN element's bounds, and an absent end (a one-sided
+      // candidate range) falls back to that handle's limit so it imposes no constraint.
       if (f) {
-        minEl.value = clamp(f.min, parseFloat(minEl.min), parseFloat(minEl.max));
-        maxEl.value = clamp(f.max, parseFloat(minEl.min), parseFloat(minEl.max));
+        minEl.value = f.min !== undefined
+            ? clamp(f.min, parseFloat(minEl.min), parseFloat(minEl.max))
+            : minEl.min;
+        maxEl.value = f.max !== undefined
+            ? clamp(f.max, parseFloat(maxEl.min), parseFloat(maxEl.max))
+            : maxEl.max;
       } else {
         minEl.value = minEl.min;
-        maxEl.value = minEl.max;
+        maxEl.value = maxEl.max;
       }
       minEl.dispatchEvent(new Event('input'));
       maxEl.dispatchEvent(new Event('input'));
@@ -1849,12 +1866,12 @@
           data.validation.findings.map(f => '⚠ ' + f).join('<br>') + '</div>';
     }
     const anchorHtml = data.anchor
-        ? `<div class="bc-hint">Shares priority tier ${data.anchor.priority} with <b>${data.anchor.biomeKey}</b>, disambiguated by a noise gate.</div>`
-        : `<div class="bc-hint">No overlapping biome found — assigned its own new priority tier (${data.priority}).</div>`;
+        ? `<div class="bc-hint">Overlaps <b>${data.anchor.biomeKey}</b> (rarity ${data.anchor.rarity}); the two share that area in proportion to their rarity weights.</div>`
+        : `<div class="bc-hint">No overlapping biome found — it has this niche to itself.</div>`;
     bcResult.innerHTML = `
       <div class="bc-status ${statusClass}">${statusText}</div>
       ${anchorHtml}
-      <div class="bc-hint">index=${data.assignedIndex} · priority=${data.priority} · newBiome=${data.newSettlement}</div>
+      <div class="bc-hint">index=${data.assignedIndex} · rarity=${data.rarity} · newBiome=${data.newSettlement}</div>
       ${findingsHtml}
       <pre>${JSON.stringify(data.rule, null, 2)}</pre>
     `;

@@ -9,8 +9,8 @@ import java.util.List;
  *
  * <p>Each rule belongs to a {@link TerrainBiomeSettlement} (a biome's full
  * definition). The rule engine evaluates all rules for a given zone
- * (ocean / beach / mountain / lowland), collects matches, and picks the
- * winner by {@code priority} (highest wins, ties broken by index).</p>
+ * (ocean / beach / mountain / lowland), collects every biome whose rules match,
+ * and picks among them by {@link #rarity()} -- see {@link BiomeRuleEngine}.</p>
  *
  * <p>Rules support both climate-variable conditions and noise-variable
  * conditions. Noise conditions reference the noise fields computed by
@@ -26,9 +26,27 @@ public final class TerrainBiomeRule {
     @SerializedName("conditions")
     private List<TerrainBiomeCondition> conditions;
 
-    /** Higher priority wins when multiple rules match. */
-    @SerializedName("priority")
-    private int priority;
+    /**
+     * Relative weight among the biomes eligible at a pixel: a biome wins a contested pixel with
+     * probability {@code rarity / (sum of every eligible biome's rarity)}. Defaults to 1.0 when
+     * absent. Zero or negative disables the rule.
+     *
+     * <p>This is the knob for "how much of the area it could occupy does it actually take" --
+     * {@code rarity: 0.15} on a jungle variant means roughly 15% of the jungle it overlaps. It
+     * replaces the old integer {@code priority}, which forced authors to encode "this is a rare
+     * variant of that" as a brittle numeric ordering: any variant that ended up numerically
+     * *below* the broad biome it refined became permanently invisible, silently.</p>
+     */
+    @SerializedName("rarity")
+    private Float rarity;
+
+    /**
+     * When true, this rule beats every non-override candidate outright, and only competes on
+     * {@link #rarity()} against other override rules. Reserved for genuine structural dominance;
+     * ordinary "rarer variant of" relationships want {@code rarity} instead.
+     */
+    @SerializedName("override")
+    private Boolean override;
 
     /**
      * Optional noise conditions. These are evaluated against the noise
@@ -47,10 +65,17 @@ public final class TerrainBiomeRule {
      * Programmatic constructor for code that builds rules at runtime (e.g. the terrain
      * explorer's "Biome Config" rule generator) instead of deserializing them from JSON.
      */
-    public TerrainBiomeRule(String zone, int priority, List<TerrainBiomeCondition> conditions,
+    public TerrainBiomeRule(String zone, float rarity, List<TerrainBiomeCondition> conditions,
+                             List<TerrainBiomeCondition> noiseConditions) {
+        this(zone, rarity, false, conditions, noiseConditions);
+    }
+
+    public TerrainBiomeRule(String zone, float rarity, boolean override,
+                             List<TerrainBiomeCondition> conditions,
                              List<TerrainBiomeCondition> noiseConditions) {
         this.zone = zone;
-        this.priority = priority;
+        this.rarity = rarity;
+        this.override = override ? Boolean.TRUE : null;
         this.conditions = conditions;
         this.noiseConditions = noiseConditions;
     }
@@ -63,8 +88,14 @@ public final class TerrainBiomeRule {
         return conditions != null ? conditions : List.of();
     }
 
-    public int priority() {
-        return priority;
+    /** Relative selection weight; 1.0 when the catalog omits it. */
+    public float rarity() {
+        return rarity != null ? rarity : 1.0f;
+    }
+
+    /** Whether this rule outranks every non-override candidate. */
+    public boolean isOverride() {
+        return Boolean.TRUE.equals(override);
     }
 
     public List<TerrainBiomeCondition> noiseConditions() {

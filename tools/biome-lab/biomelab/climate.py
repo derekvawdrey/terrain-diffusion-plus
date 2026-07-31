@@ -322,7 +322,9 @@ def simulate(pipeline: PipelineData, families: dict, n: int, seed: int = 0) -> C
 
     snowTemp = temp + snow_noise
     isSteep = slope > 0.78
-    hasSnow = ((snowTemp < -2.0) | ((altM > 800.0) & (snowTemp < -0.5))) & (precip > 150.0) & (~isSteep)
+    # Snow only sheds off steep ground below the snow line -- see BiomeClassifier.classifyPixel.
+    shedsSnow = isSteep & (altM <= 1500.0)
+    hasSnow = ((snowTemp < -2.0) | ((altM > 800.0) & (snowTemp < -0.5))) & (precip > 150.0) & (~shedsSnow)
 
     isOcean = elev_raw < 0.0
     mountains = altM > 2500.0
@@ -341,7 +343,10 @@ def simulate(pipeline: PipelineData, families: dict, n: int, seed: int = 0) -> C
 
     return ClimateSamples(
         n=n,
-        elevationM=altM,
+        # Signed, matching BiomeClassifier.classifyPixel: negative over ocean so the deep_* ocean
+        # rules can gate on real seafloor depth. altM (the zero-clamped copy) still drives the
+        # mountain/lowland/snowy flags below.
+        elevationM=elev_raw,
         temperatureC=temp,
         temperatureSeasonality=tSeason,
         precipitationMm=precip,

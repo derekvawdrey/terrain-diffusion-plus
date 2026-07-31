@@ -13,7 +13,6 @@
     "rules": [
       {
         "zone": "mountain",
-        "priority": 40,
         "conditions": [
           {
             "variable": "treeCoverage",
@@ -46,11 +45,11 @@
             "op": "gte",
             "value": 60
           }
-        ]
+        ],
+        "rarity": 1.0
       },
       {
         "zone": "lowland",
-        "priority": 40,
         "conditions": [
           {
             "variable": "elevationM",
@@ -83,11 +82,11 @@
             "op": "gte",
             "value": 60
           }
-        ]
+        ],
+        "rarity": 1.0
       },
       {
         "zone": "lowland",
-        "priority": 40,
         "conditions": [
           {
             "variable": "elevationM",
@@ -115,11 +114,11 @@
             "op": "lte",
             "value": 0.01
           }
-        ]
+        ],
+        "rarity": 1.0
       },
       {
         "zone": "lowland",
-        "priority": 40,
         "conditions": [
           {
             "variable": "elevationM",
@@ -141,11 +140,11 @@
             "op": "lte",
             "value": 0.01
           }
-        ]
+        ],
+        "rarity": 1.0
       },
       {
         "zone": "lowland",
-        "priority": 40,
         "conditions": [
           {
             "variable": "elevationM",
@@ -167,11 +166,11 @@
             "op": "lte",
             "value": 0.01
           }
-        ]
+        ],
+        "rarity": 1.0
       },
       {
         "zone": "lowland",
-        "priority": 40,
         "conditions": [
           {
             "variable": "snowy",
@@ -183,11 +182,11 @@
             "op": "lte",
             "value": 0.01
           }
-        ]
+        ],
+        "rarity": 1.0
       },
       {
         "zone": "lowland",
-        "priority": 40,
         "conditions": [
           {
             "variable": "temperatureC",
@@ -237,13 +236,13 @@
           {
             "variable": "clearingNoise",
             "op": "gt",
-            "value": 0.6
+            "value": 0.2354
           }
-        ]
+        ],
+        "rarity": 1.0
       },
       {
         "zone": "lowland",
-        "priority": 40,
         "conditions": [
           {
             "variable": "temperatureC",
@@ -269,11 +268,11 @@
             "op": "lte",
             "value": 0.22
           }
-        ]
+        ],
+        "rarity": 1.0
       },
       {
         "zone": "lowland",
-        "priority": 40,
         "conditions": [
           {
             "variable": "temperatureC",
@@ -322,13 +321,13 @@
           {
             "variable": "clearingNoise",
             "op": "gt",
-            "value": 0.82
+            "value": 0.3445
           }
-        ]
+        ],
+        "rarity": 1.0
       },
       {
         "zone": "lowland",
-        "priority": 40,
         "conditions": [
           {
             "variable": "temperatureC",
@@ -377,9 +376,10 @@
           {
             "variable": "clearingNoise",
             "op": "gt",
-            "value": 0.82
+            "value": 0.3445
           }
-        ]
+        ],
+        "rarity": 1.0
       }
     ]
   },
@@ -397,7 +397,6 @@
     "rules": [
       {
         "zone": "lowland",
-        "priority": 35,
         "conditions": [
           {
             "variable": "temperatureC",
@@ -441,18 +440,13 @@
           {
             "variable": "flowerNoise",
             "op": "gt",
-            "value": 0.72
-          },
-          {
-            "variable": "variantNoise",
-            "op": "gt",
-            "value": 0.2
+            "value": 0.3967
           }
-        ]
+        ],
+        "rarity": 8.195
       },
       {
         "zone": "lowland",
-        "priority": 35,
         "conditions": [
           {
             "variable": "temperatureC",
@@ -477,11 +471,11 @@
             "op": "gt",
             "value": 0.4
           }
-        ]
+        ],
+        "rarity": 8.195
       },
       {
         "zone": "lowland",
-        "priority": 35,
         "conditions": [
           {
             "variable": "temperatureC",
@@ -529,25 +523,15 @@
         ],
         "noiseConditions": [
           {
-            "variable": "clearingNoise",
-            "op": "gt",
-            "value": 0.6
-          },
-          {
             "variable": "flowerNoise",
             "op": "gt",
-            "value": 0.68
-          },
-          {
-            "variable": "variantNoise",
-            "op": "gt",
-            "value": 0.18
+            "value": 0.3672
           }
-        ]
+        ],
+        "rarity": 8.195
       },
       {
         "zone": "lowland",
-        "priority": 35,
         "conditions": [
           {
             "variable": "temperatureC",
@@ -594,25 +578,15 @@
         ],
         "noiseConditions": [
           {
-            "variable": "clearingNoise",
-            "op": "gt",
-            "value": 0.82
-          },
-          {
             "variable": "flowerNoise",
             "op": "gt",
-            "value": 0.68
-          },
-          {
-            "variable": "variantNoise",
-            "op": "gt",
-            "value": 0.18
+            "value": 0.3672
           }
-        ]
+        ],
+        "rarity": 8.195
       },
       {
         "zone": "lowland",
-        "priority": 35,
         "conditions": [
           {
             "variable": "temperatureC",
@@ -659,21 +633,12 @@
         ],
         "noiseConditions": [
           {
-            "variable": "clearingNoise",
-            "op": "gt",
-            "value": 0.82
-          },
-          {
             "variable": "flowerNoise",
             "op": "gt",
-            "value": 0.68
-          },
-          {
-            "variable": "variantNoise",
-            "op": "gt",
-            "value": 0.18
+            "value": 0.3672
           }
-        ]
+        ],
+        "rarity": 8.195
       }
     ]
   },
@@ -691,7 +656,6 @@
     "rules": [
       {
         "zone": "lowland",
-        "priority": 60,
         "conditions": [
           {
             "variable": "snowy",
@@ -703,11 +667,11 @@
             "op": "lte",
             "value": 0.01
           }
-        ]
+        ],
+        "rarity": 10.0
       },
       {
         "zone": "lowland",
-        "priority": 60,
         "conditions": [
           {
             "variable": "snowy",
@@ -725,7 +689,8 @@
             "op": "gt",
             "value": 0.7
           }
-        ]
+        ],
+        "rarity": 10.0
       }
     ]
   },
@@ -743,7 +708,6 @@
     "rules": [
       {
         "zone": "lowland",
-        "priority": 45,
         "conditions": [
           {
             "variable": "snowy",
@@ -761,13 +725,7 @@
             "value": 0.85
           }
         ],
-        "noiseConditions": [
-          {
-            "variable": "variantNoise",
-            "op": "gt",
-            "value": 0.2
-          }
-        ]
+        "rarity": 9.994
       }
     ]
   },
@@ -785,7 +743,6 @@
     "rules": [
       {
         "zone": "lowland",
-        "priority": 80,
         "conditions": [
           {
             "variable": "temperatureC",
@@ -818,11 +775,11 @@
             "op": "lte",
             "value": 0.01
           }
-        ]
+        ],
+        "rarity": 1.052
       },
       {
         "zone": "lowland",
-        "priority": 80,
         "conditions": [
           {
             "variable": "temperatureC",
@@ -854,7 +811,8 @@
             "op": "lte",
             "value": 0.01
           }
-        ]
+        ],
+        "rarity": 1.052
       }
     ]
   },
@@ -872,7 +830,6 @@
     "rules": [
       {
         "zone": "lowland",
-        "priority": 75,
         "conditions": [
           {
             "variable": "temperatureC",
@@ -895,11 +852,11 @@
             "op": "gte",
             "value": 0.8
           }
-        ]
+        ],
+        "rarity": 1.528
       },
       {
         "zone": "lowland",
-        "priority": 75,
         "conditions": [
           {
             "variable": "lowland",
@@ -911,7 +868,8 @@
             "op": "gte",
             "value": 0.95
           }
-        ]
+        ],
+        "rarity": 1.528
       }
     ]
   },
@@ -929,7 +887,6 @@
     "rules": [
       {
         "zone": "lowland",
-        "priority": 82,
         "conditions": [
           {
             "variable": "temperatureC",
@@ -952,11 +909,11 @@
             "op": "gte",
             "value": 0.8
           }
-        ]
+        ],
+        "rarity": 10.0
       },
       {
         "zone": "lowland",
-        "priority": 82,
         "conditions": [
           {
             "variable": "temperatureC",
@@ -974,7 +931,8 @@
             "op": "gte",
             "value": 0.95
           }
-        ]
+        ],
+        "rarity": 10.0
       }
     ]
   },
@@ -992,7 +950,6 @@
     "rules": [
       {
         "zone": "mountain",
-        "priority": 65,
         "conditions": [
           {
             "variable": "treeCoverage",
@@ -1005,11 +962,11 @@
             "value": 12,
             "value2": 19.99
           }
-        ]
+        ],
+        "rarity": 1.384
       },
       {
         "zone": "lowland",
-        "priority": 65,
         "conditions": [
           {
             "variable": "temperatureC",
@@ -1051,20 +1008,15 @@
         ],
         "noiseConditions": [
           {
-            "variable": "clearingNoise",
-            "op": "gt",
-            "value": 0.78
-          },
-          {
             "variable": "variantNoise",
             "op": "gt",
             "value": 0.25
           }
-        ]
+        ],
+        "rarity": 1.384
       },
       {
         "zone": "lowland",
-        "priority": 65,
         "conditions": [
           {
             "variable": "temperatureC",
@@ -1078,11 +1030,11 @@
             "value": 0.3,
             "value2": 0.7
           }
-        ]
+        ],
+        "rarity": 1.384
       },
       {
         "zone": "lowland",
-        "priority": 65,
         "conditions": [
           {
             "variable": "treeCoverage",
@@ -1095,18 +1047,19 @@
             "value": 12,
             "value2": 19.99
           }
-        ]
+        ],
+        "rarity": 1.384
       },
       {
         "zone": "lowland",
-        "priority": 65,
         "conditions": [
           {
             "variable": "treeCoverage",
             "op": "gte",
             "value": 0.95
           }
-        ]
+        ],
+        "rarity": 1.384
       }
     ]
   },
@@ -1124,7 +1077,6 @@
     "rules": [
       {
         "zone": "lowland",
-        "priority": 42,
         "conditions": [
           {
             "variable": "temperatureC",
@@ -1166,25 +1118,15 @@
         ],
         "noiseConditions": [
           {
-            "variable": "clearingNoise",
-            "op": "gt",
-            "value": 0.78
-          },
-          {
-            "variable": "variantNoise",
-            "op": "gt",
-            "value": 0.25
-          },
-          {
             "variable": "flowerNoise",
             "op": "gt",
-            "value": 0.55
+            "value": 0.2564
           }
-        ]
+        ],
+        "rarity": 1.196
       },
       {
         "zone": "lowland",
-        "priority": 42,
         "conditions": [
           {
             "variable": "temperatureC",
@@ -1232,20 +1174,15 @@
         ],
         "noiseConditions": [
           {
-            "variable": "clearingNoise",
-            "op": "gt",
-            "value": 0.6
-          },
-          {
             "variable": "flowerNoise",
             "op": "gt",
-            "value": 0.64
+            "value": 0.3256
           }
-        ]
+        ],
+        "rarity": 1.196
       },
       {
         "zone": "lowland",
-        "priority": 42,
         "conditions": [
           {
             "variable": "temperatureC",
@@ -1298,20 +1235,15 @@
         ],
         "noiseConditions": [
           {
-            "variable": "clearingNoise",
-            "op": "gt",
-            "value": 0.55
-          },
-          {
             "variable": "flowerNoise",
             "op": "gt",
-            "value": 0.64
+            "value": 0.3256
           }
-        ]
+        ],
+        "rarity": 1.196
       },
       {
         "zone": "lowland",
-        "priority": 42,
         "conditions": [
           {
             "variable": "temperatureC",
@@ -1364,20 +1296,15 @@
         ],
         "noiseConditions": [
           {
-            "variable": "clearingNoise",
-            "op": "gt",
-            "value": 0.51
-          },
-          {
             "variable": "flowerNoise",
             "op": "gt",
-            "value": 0.64
+            "value": 0.3256
           }
-        ]
+        ],
+        "rarity": 1.196
       },
       {
         "zone": "lowland",
-        "priority": 42,
         "conditions": [
           {
             "variable": "temperatureC",
@@ -1425,20 +1352,15 @@
         ],
         "noiseConditions": [
           {
-            "variable": "clearingNoise",
-            "op": "gt",
-            "value": 0.67
-          },
-          {
             "variable": "flowerNoise",
             "op": "gt",
-            "value": 0.64
+            "value": 0.3256
           }
-        ]
+        ],
+        "rarity": 1.196
       },
       {
         "zone": "lowland",
-        "priority": 42,
         "conditions": [
           {
             "variable": "temperatureC",
@@ -1490,25 +1412,15 @@
         ],
         "noiseConditions": [
           {
-            "variable": "clearingNoise",
-            "op": "gt",
-            "value": 0.6
-          },
-          {
             "variable": "flowerNoise",
             "op": "lt",
-            "value": -0.46
-          },
-          {
-            "variable": "variantNoise",
-            "op": "gt",
-            "value": 0.26
+            "value": -0.2565
           }
-        ]
+        ],
+        "rarity": 1.196
       },
       {
         "zone": "lowland",
-        "priority": 42,
         "conditions": [
           {
             "variable": "temperatureC",
@@ -1534,11 +1446,11 @@
             "op": "gt",
             "value": 0.22
           }
-        ]
+        ],
+        "rarity": 1.196
       },
       {
         "zone": "lowland",
-        "priority": 42,
         "conditions": [
           {
             "variable": "temperatureC",
@@ -1562,11 +1474,11 @@
             "value": 0.3,
             "value2": 0.7
           }
-        ]
+        ],
+        "rarity": 1.196
       },
       {
         "zone": "lowland",
-        "priority": 42,
         "conditions": [
           {
             "variable": "temperatureC",
@@ -1590,18 +1502,13 @@
           {
             "variable": "flowerNoise",
             "op": "gt",
-            "value": 0.66
-          },
-          {
-            "variable": "variantNoise",
-            "op": "gt",
-            "value": 0.1
+            "value": 0.3445
           }
-        ]
+        ],
+        "rarity": 1.196
       },
       {
         "zone": "lowland",
-        "priority": 42,
         "conditions": [
           {
             "variable": "temperatureC",
@@ -1648,20 +1555,15 @@
         ],
         "noiseConditions": [
           {
-            "variable": "clearingNoise",
-            "op": "gt",
-            "value": 0.82
-          },
-          {
             "variable": "flowerNoise",
             "op": "gt",
-            "value": 0.64
+            "value": 0.3256
           }
-        ]
+        ],
+        "rarity": 1.196
       },
       {
         "zone": "lowland",
-        "priority": 42,
         "conditions": [
           {
             "variable": "temperatureC",
@@ -1708,20 +1610,15 @@
         ],
         "noiseConditions": [
           {
-            "variable": "clearingNoise",
-            "op": "gt",
-            "value": 0.89
-          },
-          {
             "variable": "flowerNoise",
             "op": "gt",
-            "value": 0.64
+            "value": 0.3256
           }
-        ]
+        ],
+        "rarity": 1.196
       },
       {
         "zone": "lowland",
-        "priority": 42,
         "conditions": [
           {
             "variable": "temperatureC",
@@ -1772,25 +1669,15 @@
         ],
         "noiseConditions": [
           {
-            "variable": "clearingNoise",
-            "op": "gt",
-            "value": 0.82
-          },
-          {
             "variable": "flowerNoise",
             "op": "lt",
-            "value": -0.46
-          },
-          {
-            "variable": "variantNoise",
-            "op": "gt",
-            "value": 0.26
+            "value": -0.2565
           }
-        ]
+        ],
+        "rarity": 1.196
       },
       {
         "zone": "lowland",
-        "priority": 42,
         "conditions": [
           {
             "variable": "temperatureC",
@@ -1837,20 +1724,15 @@
         ],
         "noiseConditions": [
           {
-            "variable": "clearingNoise",
-            "op": "gt",
-            "value": 0.82
-          },
-          {
             "variable": "flowerNoise",
             "op": "gt",
-            "value": 0.64
+            "value": 0.3256
           }
-        ]
+        ],
+        "rarity": 1.196
       },
       {
         "zone": "lowland",
-        "priority": 42,
         "conditions": [
           {
             "variable": "temperatureC",
@@ -1897,20 +1779,15 @@
         ],
         "noiseConditions": [
           {
-            "variable": "clearingNoise",
-            "op": "gt",
-            "value": 0.89
-          },
-          {
             "variable": "flowerNoise",
             "op": "gt",
-            "value": 0.64
+            "value": 0.3256
           }
-        ]
+        ],
+        "rarity": 1.196
       },
       {
         "zone": "lowland",
-        "priority": 42,
         "conditions": [
           {
             "variable": "temperatureC",
@@ -1961,21 +1838,12 @@
         ],
         "noiseConditions": [
           {
-            "variable": "clearingNoise",
-            "op": "gt",
-            "value": 0.82
-          },
-          {
             "variable": "flowerNoise",
             "op": "lt",
-            "value": -0.46
-          },
-          {
-            "variable": "variantNoise",
-            "op": "gt",
-            "value": 0.26
+            "value": -0.2565
           }
-        ]
+        ],
+        "rarity": 1.196
       }
     ]
   },
@@ -1993,7 +1861,6 @@
     "rules": [
       {
         "zone": "lowland",
-        "priority": 42,
         "conditions": [
           {
             "variable": "temperatureC",
@@ -2014,11 +1881,11 @@
             "op": "lt",
             "value": -0.35
           }
-        ]
+        ],
+        "rarity": 6.123
       },
       {
         "zone": "lowland",
-        "priority": 42,
         "conditions": [
           {
             "variable": "treeCoverage",
@@ -2038,7 +1905,8 @@
             "op": "lt",
             "value": -0.4
           }
-        ]
+        ],
+        "rarity": 6.123
       }
     ]
   },
@@ -2056,7 +1924,6 @@
     "rules": [
       {
         "zone": "lowland",
-        "priority": 70,
         "conditions": [
           {
             "variable": "temperatureC",
@@ -2075,11 +1942,11 @@
             "value": 0.3,
             "value2": 0.7
           }
-        ]
+        ],
+        "rarity": 1.397
       },
       {
         "zone": "lowland",
-        "priority": 70,
         "conditions": [
           {
             "variable": "moisture",
@@ -2104,11 +1971,11 @@
             "op": "gt",
             "value": 0.1
           }
-        ]
+        ],
+        "rarity": 1.397
       },
       {
         "zone": "lowland",
-        "priority": 70,
         "conditions": [
           {
             "variable": "moisture",
@@ -2120,7 +1987,8 @@
             "op": "gte",
             "value": 0.95
           }
-        ]
+        ],
+        "rarity": 1.397
       }
     ]
   },
@@ -2135,7 +2003,37 @@
     "river": false,
     "frozenRiver": false,
     "canGenerateOverworld": true,
-    "rules": []
+    "rules": [
+      {
+        "zone": "lowland",
+        "conditions": [
+          {
+            "variable": "temperatureC",
+            "op": "between",
+            "value": 12,
+            "value2": 19.99
+          },
+          {
+            "variable": "treeCoverage",
+            "op": "gte",
+            "value": 0.95
+          },
+          {
+            "variable": "snowy",
+            "op": "eq",
+            "bool": false
+          }
+        ],
+        "noiseConditions": [
+          {
+            "variable": "variantNoise",
+            "op": "lt",
+            "value": -0.2
+          }
+        ],
+        "rarity": 1.959
+      }
+    ]
   },
   {
     "index": 13,
@@ -2151,7 +2049,6 @@
     "rules": [
       {
         "zone": "lowland",
-        "priority": 58,
         "conditions": [
           {
             "variable": "temperatureC",
@@ -2174,7 +2071,8 @@
             "op": "eq",
             "bool": false
           }
-        ]
+        ],
+        "rarity": 1.316
       }
     ]
   },
@@ -2192,7 +2090,6 @@
     "rules": [
       {
         "zone": "mountain",
-        "priority": 60,
         "conditions": [
           {
             "variable": "treeCoverage",
@@ -2210,11 +2107,11 @@
             "op": "gt",
             "value": 0.95
           }
-        ]
+        ],
+        "rarity": 1.303
       },
       {
         "zone": "lowland",
-        "priority": 60,
         "conditions": [
           {
             "variable": "temperatureC",
@@ -2237,7 +2134,8 @@
             "op": "eq",
             "bool": false
           }
-        ]
+        ],
+        "rarity": 1.303
       }
     ]
   },
@@ -2255,7 +2153,6 @@
     "rules": [
       {
         "zone": "mountain",
-        "priority": 65,
         "conditions": [
           {
             "variable": "treeCoverage",
@@ -2278,11 +2175,11 @@
             "value": -5,
             "value2": 11.99
           }
-        ]
+        ],
+        "rarity": 0.222
       },
       {
         "zone": "mountain",
-        "priority": 65,
         "conditions": [
           {
             "variable": "treeCoverage",
@@ -2300,11 +2197,11 @@
             "op": "lte",
             "value": 0.95
           }
-        ]
+        ],
+        "rarity": 0.222
       },
       {
         "zone": "lowland",
-        "priority": 65,
         "conditions": [
           {
             "variable": "temperatureC",
@@ -2323,11 +2220,11 @@
             "op": "eq",
             "bool": false
           }
-        ]
+        ],
+        "rarity": 0.222
       },
       {
         "zone": "lowland",
-        "priority": 65,
         "conditions": [
           {
             "variable": "temperatureC",
@@ -2350,11 +2247,11 @@
             "op": "eq",
             "bool": false
           }
-        ]
+        ],
+        "rarity": 0.222
       },
       {
         "zone": "lowland",
-        "priority": 65,
         "conditions": [
           {
             "variable": "temperatureC",
@@ -2377,7 +2274,8 @@
             "op": "eq",
             "bool": false
           }
-        ]
+        ],
+        "rarity": 0.222
       }
     ]
   },
@@ -2395,7 +2293,6 @@
     "rules": [
       {
         "zone": "mountain",
-        "priority": 75,
         "conditions": [
           {
             "variable": "snowy",
@@ -2412,11 +2309,11 @@
             "op": "gte",
             "value": 0.8
           }
-        ]
+        ],
+        "rarity": 1.23
       },
       {
         "zone": "mountain",
-        "priority": 75,
         "conditions": [
           {
             "variable": "temperatureC",
@@ -2438,11 +2335,11 @@
             "op": "gte",
             "value": 0.8
           }
-        ]
+        ],
+        "rarity": 1.23
       },
       {
         "zone": "lowland",
-        "priority": 75,
         "conditions": [
           {
             "variable": "snowy",
@@ -2454,7 +2351,8 @@
             "op": "gte",
             "value": 0.3
           }
-        ]
+        ],
+        "rarity": 1.23
       }
     ]
   },
@@ -2472,7 +2370,6 @@
     "rules": [
       {
         "zone": "lowland",
-        "priority": 75,
         "conditions": [
           {
             "variable": "temperatureC",
@@ -2495,11 +2392,11 @@
             "op": "lte",
             "value": 0.01
           }
-        ]
+        ],
+        "rarity": 1.091
       },
       {
         "zone": "lowland",
-        "priority": 75,
         "conditions": [
           {
             "variable": "temperatureC",
@@ -2521,11 +2418,11 @@
             "op": "lte",
             "value": 0.01
           }
-        ]
+        ],
+        "rarity": 1.091
       },
       {
         "zone": "lowland",
-        "priority": 75,
         "conditions": [
           {
             "variable": "temperatureC",
@@ -2548,11 +2445,11 @@
             "op": "lte",
             "value": 0.01
           }
-        ]
+        ],
+        "rarity": 1.091
       },
       {
         "zone": "lowland",
-        "priority": 75,
         "conditions": [
           {
             "variable": "temperatureC",
@@ -2574,11 +2471,11 @@
             "op": "lte",
             "value": 0.01
           }
-        ]
+        ],
+        "rarity": 1.091
       },
       {
         "zone": "lowland",
-        "priority": 75,
         "conditions": [
           {
             "variable": "temperatureC",
@@ -2601,11 +2498,11 @@
             "op": "lte",
             "value": 0.01
           }
-        ]
+        ],
+        "rarity": 1.091
       },
       {
         "zone": "lowland",
-        "priority": 75,
         "conditions": [
           {
             "variable": "temperatureC",
@@ -2627,11 +2524,11 @@
             "op": "lte",
             "value": 0.01
           }
-        ]
+        ],
+        "rarity": 1.091
       },
       {
         "zone": "lowland",
-        "priority": 75,
         "conditions": [
           {
             "variable": "temperatureC",
@@ -2655,11 +2552,11 @@
             "op": "eq",
             "bool": false
           }
-        ]
+        ],
+        "rarity": 1.091
       },
       {
         "zone": "lowland",
-        "priority": 75,
         "conditions": [
           {
             "variable": "temperatureC",
@@ -2683,7 +2580,8 @@
             "op": "eq",
             "bool": false
           }
-        ]
+        ],
+        "rarity": 1.091
       }
     ]
   },
@@ -2701,7 +2599,6 @@
     "rules": [
       {
         "zone": "mountain",
-        "priority": 65,
         "conditions": [
           {
             "variable": "temperatureC",
@@ -2719,11 +2616,11 @@
             "op": "lte",
             "value": 0.45
           }
-        ]
+        ],
+        "rarity": 1.609
       },
       {
         "zone": "mountain",
-        "priority": 65,
         "conditions": [
           {
             "variable": "temperatureC",
@@ -2740,11 +2637,11 @@
             "op": "lte",
             "value": 0.45
           }
-        ]
+        ],
+        "rarity": 1.609
       },
       {
         "zone": "lowland",
-        "priority": 65,
         "conditions": [
           {
             "variable": "temperatureC",
@@ -2778,7 +2675,8 @@
             "op": "eq",
             "bool": false
           }
-        ]
+        ],
+        "rarity": 1.609
       }
     ]
   },
@@ -2796,7 +2694,6 @@
     "rules": [
       {
         "zone": "mountain",
-        "priority": 70,
         "conditions": [
           {
             "variable": "treeCoverage",
@@ -2819,11 +2716,11 @@
             "value": -5,
             "value2": 19.99
           }
-        ]
+        ],
+        "rarity": 0.055
       },
       {
         "zone": "mountain",
-        "priority": 70,
         "conditions": [
           {
             "variable": "treeCoverage",
@@ -2846,11 +2743,11 @@
             "value": -5,
             "value2": 19.99
           }
-        ]
+        ],
+        "rarity": 0.055
       },
       {
         "zone": "mountain",
-        "priority": 70,
         "conditions": [
           {
             "variable": "treeCoverage",
@@ -2873,11 +2770,11 @@
             "value": -5,
             "value2": 19.99
           }
-        ]
+        ],
+        "rarity": 0.055
       },
       {
         "zone": "mountain",
-        "priority": 70,
         "conditions": [
           {
             "variable": "treeCoverage",
@@ -2900,7 +2797,8 @@
             "value": -5,
             "value2": 19.99
           }
-        ]
+        ],
+        "rarity": 0.055
       }
     ]
   },
@@ -2918,7 +2816,6 @@
     "rules": [
       {
         "zone": "mountain",
-        "priority": 55,
         "conditions": [
           {
             "variable": "treeCoverage",
@@ -2941,11 +2838,11 @@
             "value": -5,
             "value2": 19.99
           }
-        ]
+        ],
+        "rarity": 2.523
       },
       {
         "zone": "mountain",
-        "priority": 55,
         "conditions": [
           {
             "variable": "treeCoverage",
@@ -2968,11 +2865,11 @@
             "value": -5,
             "value2": 19.99
           }
-        ]
+        ],
+        "rarity": 2.523
       },
       {
         "zone": "mountain",
-        "priority": 55,
         "conditions": [
           {
             "variable": "treeCoverage",
@@ -2995,11 +2892,11 @@
             "value": -5,
             "value2": 19.99
           }
-        ]
+        ],
+        "rarity": 2.523
       },
       {
         "zone": "mountain",
-        "priority": 55,
         "conditions": [
           {
             "variable": "treeCoverage",
@@ -3022,7 +2919,8 @@
             "value": -5,
             "value2": 19.99
           }
-        ]
+        ],
+        "rarity": 2.523
       }
     ]
   },
@@ -3040,7 +2938,6 @@
     "rules": [
       {
         "zone": "mountain",
-        "priority": 62,
         "conditions": [
           {
             "variable": "treeCoverage",
@@ -3057,7 +2954,8 @@
             "op": "gt",
             "value": 0.38
           }
-        ]
+        ],
+        "rarity": 6.078
       }
     ]
   },
@@ -3075,13 +2973,12 @@
     "rules": [
       {
         "zone": "mountain",
-        "priority": 62,
         "conditions": [
           {
             "variable": "temperatureC",
             "op": "between",
-            "value": 20,
-            "value2": 25.99
+            "value": 12,
+            "value2": 19.99
           },
           {
             "variable": "sparsity",
@@ -3093,16 +2990,16 @@
             "op": "gt",
             "value": 0.45
           }
-        ]
+        ],
+        "rarity": 4.702
       },
       {
         "zone": "mountain",
-        "priority": 62,
         "conditions": [
           {
             "variable": "temperatureC",
             "op": "gte",
-            "value": 26
+            "value": 20
           },
           {
             "variable": "sparsity",
@@ -3114,7 +3011,39 @@
             "op": "gt",
             "value": 0.45
           }
-        ]
+        ],
+        "rarity": 4.702
+      },
+      {
+        "zone": "lowland",
+        "conditions": [
+          {
+            "variable": "temperatureC",
+            "op": "gte",
+            "value": 20
+          },
+          {
+            "variable": "elevationM",
+            "op": "gt",
+            "value": 700
+          },
+          {
+            "variable": "sparsity",
+            "op": "gt",
+            "value": 0.55
+          },
+          {
+            "variable": "slope",
+            "op": "gt",
+            "value": 0.45
+          },
+          {
+            "variable": "snowy",
+            "op": "eq",
+            "bool": false
+          }
+        ],
+        "rarity": 4.702
       }
     ]
   },
@@ -3132,7 +3061,6 @@
     "rules": [
       {
         "zone": "lowland",
-        "priority": 78,
         "conditions": [
           {
             "variable": "temperatureC",
@@ -3144,11 +3072,11 @@
             "op": "gte",
             "value": 0.8
           }
-        ]
+        ],
+        "rarity": 1.683
       },
       {
         "zone": "lowland",
-        "priority": 78,
         "conditions": [
           {
             "variable": "temperatureC",
@@ -3160,11 +3088,11 @@
             "op": "gte",
             "value": 0.95
           }
-        ]
+        ],
+        "rarity": 1.683
       },
       {
         "zone": "lowland",
-        "priority": 78,
         "conditions": [
           {
             "variable": "temperatureC",
@@ -3182,7 +3110,8 @@
             "op": "gte",
             "value": 0.95
           }
-        ]
+        ],
+        "rarity": 1.683
       }
     ]
   },
@@ -3200,7 +3129,6 @@
     "rules": [
       {
         "zone": "lowland",
-        "priority": 78,
         "conditions": [
           {
             "variable": "temperatureC",
@@ -3223,11 +3151,11 @@
             "op": "eq",
             "bool": false
           }
-        ]
+        ],
+        "rarity": 1.116
       },
       {
         "zone": "lowland",
-        "priority": 78,
         "conditions": [
           {
             "variable": "temperatureC",
@@ -3246,7 +3174,8 @@
             "op": "eq",
             "bool": false
           }
-        ]
+        ],
+        "rarity": 1.116
       }
     ]
   },
@@ -3264,7 +3193,6 @@
     "rules": [
       {
         "zone": "lowland",
-        "priority": 60,
         "conditions": [
           {
             "variable": "temperatureC",
@@ -3288,11 +3216,11 @@
             "op": "gt",
             "value": 0.15
           }
-        ]
+        ],
+        "rarity": 10.0
       },
       {
         "zone": "lowland",
-        "priority": 60,
         "conditions": [
           {
             "variable": "temperatureC",
@@ -3316,11 +3244,11 @@
             "op": "gt",
             "value": 0.05
           }
-        ]
+        ],
+        "rarity": 10.0
       },
       {
         "zone": "lowland",
-        "priority": 60,
         "conditions": [
           {
             "variable": "temperatureC",
@@ -3350,7 +3278,8 @@
             "op": "gt",
             "value": 0.05
           }
-        ]
+        ],
+        "rarity": 10.0
       }
     ]
   },
@@ -3368,7 +3297,6 @@
     "rules": [
       {
         "zone": "lowland",
-        "priority": 70,
         "conditions": [
           {
             "variable": "temperatureC",
@@ -3397,11 +3325,11 @@
             "op": "lte",
             "value": 0.01
           }
-        ]
+        ],
+        "rarity": 1.046
       },
       {
         "zone": "lowland",
-        "priority": 70,
         "conditions": [
           {
             "variable": "temperatureC",
@@ -3429,11 +3357,11 @@
             "op": "lte",
             "value": 0.01
           }
-        ]
+        ],
+        "rarity": 1.046
       },
       {
         "zone": "lowland",
-        "priority": 70,
         "conditions": [
           {
             "variable": "temperatureC",
@@ -3464,11 +3392,11 @@
             "value": 0.18,
             "value2": 0.42
           }
-        ]
+        ],
+        "rarity": 1.046
       },
       {
         "zone": "lowland",
-        "priority": 70,
         "conditions": [
           {
             "variable": "temperatureC",
@@ -3498,11 +3426,11 @@
             "value": 0.18,
             "value2": 0.42
           }
-        ]
+        ],
+        "rarity": 1.046
       },
       {
         "zone": "lowland",
-        "priority": 70,
         "conditions": [
           {
             "variable": "temperatureC",
@@ -3529,11 +3457,11 @@
             "op": "lte",
             "value": 0.01
           }
-        ]
+        ],
+        "rarity": 1.046
       },
       {
         "zone": "lowland",
-        "priority": 70,
         "conditions": [
           {
             "variable": "temperatureC",
@@ -3556,7 +3484,8 @@
             "op": "eq",
             "bool": false
           }
-        ]
+        ],
+        "rarity": 1.046
       }
     ]
   },
@@ -3571,7 +3500,29 @@
     "river": false,
     "frozenRiver": false,
     "canGenerateOverworld": true,
-    "rules": []
+    "rules": [
+      {
+        "zone": "bareSlope",
+        "conditions": [
+          {
+            "variable": "temperatureC",
+            "op": "gte",
+            "value": 20
+          },
+          {
+            "variable": "moisture",
+            "op": "lt",
+            "value": 0.35
+          },
+          {
+            "variable": "snowy",
+            "op": "eq",
+            "bool": false
+          }
+        ],
+        "rarity": 1.004
+      }
+    ]
   },
   {
     "index": 28,
@@ -3587,7 +3538,6 @@
     "rules": [
       {
         "zone": "mountain",
-        "priority": 66,
         "conditions": [
           {
             "variable": "temperatureC",
@@ -3600,11 +3550,11 @@
             "op": "lte",
             "value": 0.55
           }
-        ]
+        ],
+        "rarity": 1.075
       },
       {
         "zone": "mountain",
-        "priority": 66,
         "conditions": [
           {
             "variable": "temperatureC",
@@ -3616,11 +3566,11 @@
             "op": "lte",
             "value": 0.55
           }
-        ]
+        ],
+        "rarity": 1.075
       },
       {
         "zone": "lowland",
-        "priority": 66,
         "conditions": [
           {
             "variable": "temperatureC",
@@ -3648,11 +3598,11 @@
             "op": "lte",
             "value": 0.01
           }
-        ]
+        ],
+        "rarity": 1.075
       },
       {
         "zone": "lowland",
-        "priority": 66,
         "conditions": [
           {
             "variable": "temperatureC",
@@ -3679,11 +3629,11 @@
             "op": "lte",
             "value": 0.01
           }
-        ]
+        ],
+        "rarity": 1.075
       },
       {
         "zone": "lowland",
-        "priority": 66,
         "conditions": [
           {
             "variable": "temperatureC",
@@ -3713,11 +3663,11 @@
             "op": "gt",
             "value": 0.42
           }
-        ]
+        ],
+        "rarity": 1.075
       },
       {
         "zone": "lowland",
-        "priority": 66,
         "conditions": [
           {
             "variable": "temperatureC",
@@ -3746,7 +3696,8 @@
             "op": "gt",
             "value": 0.42
           }
-        ]
+        ],
+        "rarity": 1.075
       }
     ]
   },
@@ -3764,7 +3715,6 @@
     "rules": [
       {
         "zone": "mountain",
-        "priority": 68,
         "conditions": [
           {
             "variable": "treeCoverage",
@@ -3797,11 +3747,11 @@
             "op": "gte",
             "value": 60
           }
-        ]
+        ],
+        "rarity": 1.026
       },
       {
         "zone": "mountain",
-        "priority": 68,
         "conditions": [
           {
             "variable": "treeCoverage",
@@ -3824,11 +3774,11 @@
             "value": 12,
             "value2": 19.99
           }
-        ]
+        ],
+        "rarity": 1.026
       },
       {
         "zone": "mountain",
-        "priority": 68,
         "conditions": [
           {
             "variable": "treeCoverage",
@@ -3841,11 +3791,11 @@
             "value": -5,
             "value2": 19.99
           }
-        ]
+        ],
+        "rarity": 1.026
       },
       {
         "zone": "lowland",
-        "priority": 68,
         "conditions": [
           {
             "variable": "elevationM",
@@ -3878,11 +3828,11 @@
             "op": "gte",
             "value": 60
           }
-        ]
+        ],
+        "rarity": 1.026
       },
       {
         "zone": "lowland",
-        "priority": 68,
         "conditions": [
           {
             "variable": "elevationM",
@@ -3910,11 +3860,11 @@
             "op": "lte",
             "value": 0.01
           }
-        ]
+        ],
+        "rarity": 1.026
       },
       {
         "zone": "lowland",
-        "priority": 68,
         "conditions": [
           {
             "variable": "elevationM",
@@ -3936,11 +3886,11 @@
             "op": "lte",
             "value": 0.01
           }
-        ]
+        ],
+        "rarity": 1.026
       },
       {
         "zone": "lowland",
-        "priority": 68,
         "conditions": [
           {
             "variable": "elevationM",
@@ -3962,11 +3912,11 @@
             "op": "lte",
             "value": 0.01
           }
-        ]
+        ],
+        "rarity": 1.026
       },
       {
         "zone": "lowland",
-        "priority": 68,
         "conditions": [
           {
             "variable": "temperatureC",
@@ -4014,20 +3964,15 @@
         ],
         "noiseConditions": [
           {
-            "variable": "clearingNoise",
-            "op": "gt",
-            "value": 0.6
-          },
-          {
             "variable": "flowerNoise",
             "op": "lte",
-            "value": 0.64
+            "value": 0.3256
           }
-        ]
+        ],
+        "rarity": 1.026
       },
       {
         "zone": "lowland",
-        "priority": 68,
         "conditions": [
           {
             "variable": "temperatureC",
@@ -4074,20 +4019,15 @@
         ],
         "noiseConditions": [
           {
-            "variable": "clearingNoise",
-            "op": "gt",
-            "value": 0.82
-          },
-          {
             "variable": "flowerNoise",
             "op": "lte",
-            "value": 0.64
+            "value": 0.3256
           }
-        ]
+        ],
+        "rarity": 1.026
       },
       {
         "zone": "lowland",
-        "priority": 68,
         "conditions": [
           {
             "variable": "temperatureC",
@@ -4134,16 +4074,12 @@
         ],
         "noiseConditions": [
           {
-            "variable": "clearingNoise",
-            "op": "gt",
-            "value": 0.82
-          },
-          {
             "variable": "flowerNoise",
             "op": "lte",
-            "value": 0.64
+            "value": 0.3256
           }
-        ]
+        ],
+        "rarity": 1.026
       }
     ]
   },
@@ -4161,7 +4097,6 @@
     "rules": [
       {
         "zone": "mountain",
-        "priority": 62,
         "conditions": [
           {
             "variable": "temperatureC",
@@ -4198,11 +4133,11 @@
             "op": "gt",
             "value": 0.18
           }
-        ]
+        ],
+        "rarity": 7.902
       },
       {
         "zone": "mountain",
-        "priority": 62,
         "conditions": [
           {
             "variable": "temperatureC",
@@ -4239,11 +4174,11 @@
             "op": "gt",
             "value": 0.15
           }
-        ]
+        ],
+        "rarity": 7.902
       },
       {
         "zone": "mountain",
-        "priority": 62,
         "conditions": [
           {
             "variable": "temperatureC",
@@ -4280,11 +4215,11 @@
             "op": "gt",
             "value": 0.15
           }
-        ]
+        ],
+        "rarity": 7.902
       },
       {
         "zone": "mountain",
-        "priority": 62,
         "conditions": [
           {
             "variable": "temperatureC",
@@ -4321,11 +4256,11 @@
             "op": "gt",
             "value": 0.12
           }
-        ]
+        ],
+        "rarity": 7.902
       },
       {
         "zone": "mountain",
-        "priority": 62,
         "conditions": [
           {
             "variable": "temperatureC",
@@ -4362,11 +4297,11 @@
             "op": "gt",
             "value": 0.14
           }
-        ]
+        ],
+        "rarity": 7.902
       },
       {
         "zone": "mountain",
-        "priority": 62,
         "conditions": [
           {
             "variable": "temperatureC",
@@ -4403,11 +4338,11 @@
             "op": "gt",
             "value": 0.11
           }
-        ]
+        ],
+        "rarity": 7.902
       },
       {
         "zone": "mountain",
-        "priority": 62,
         "conditions": [
           {
             "variable": "temperatureC",
@@ -4444,11 +4379,11 @@
             "op": "gt",
             "value": 0.11
           }
-        ]
+        ],
+        "rarity": 7.902
       },
       {
         "zone": "mountain",
-        "priority": 62,
         "conditions": [
           {
             "variable": "temperatureC",
@@ -4485,11 +4420,11 @@
             "op": "gt",
             "value": 0.08
           }
-        ]
+        ],
+        "rarity": 7.902
       },
       {
         "zone": "mountain",
-        "priority": 62,
         "conditions": [
           {
             "variable": "temperatureC",
@@ -4531,11 +4466,11 @@
             "op": "gt",
             "value": 0.18
           }
-        ]
+        ],
+        "rarity": 7.902
       },
       {
         "zone": "mountain",
-        "priority": 62,
         "conditions": [
           {
             "variable": "temperatureC",
@@ -4577,11 +4512,11 @@
             "op": "gt",
             "value": 0.15
           }
-        ]
+        ],
+        "rarity": 7.902
       },
       {
         "zone": "mountain",
-        "priority": 62,
         "conditions": [
           {
             "variable": "temperatureC",
@@ -4623,11 +4558,11 @@
             "op": "gt",
             "value": 0.15
           }
-        ]
+        ],
+        "rarity": 7.902
       },
       {
         "zone": "mountain",
-        "priority": 62,
         "conditions": [
           {
             "variable": "temperatureC",
@@ -4669,11 +4604,11 @@
             "op": "gt",
             "value": 0.12
           }
-        ]
+        ],
+        "rarity": 7.902
       },
       {
         "zone": "mountain",
-        "priority": 62,
         "conditions": [
           {
             "variable": "temperatureC",
@@ -4715,11 +4650,11 @@
             "op": "gt",
             "value": 0.14
           }
-        ]
+        ],
+        "rarity": 7.902
       },
       {
         "zone": "mountain",
-        "priority": 62,
         "conditions": [
           {
             "variable": "temperatureC",
@@ -4761,11 +4696,11 @@
             "op": "gt",
             "value": 0.11
           }
-        ]
+        ],
+        "rarity": 7.902
       },
       {
         "zone": "mountain",
-        "priority": 62,
         "conditions": [
           {
             "variable": "temperatureC",
@@ -4807,11 +4742,11 @@
             "op": "gt",
             "value": 0.11
           }
-        ]
+        ],
+        "rarity": 7.902
       },
       {
         "zone": "mountain",
-        "priority": 62,
         "conditions": [
           {
             "variable": "temperatureC",
@@ -4853,11 +4788,11 @@
             "op": "gt",
             "value": 0.08
           }
-        ]
+        ],
+        "rarity": 7.902
       },
       {
         "zone": "lowland",
-        "priority": 62,
         "conditions": [
           {
             "variable": "temperatureC",
@@ -4901,11 +4836,11 @@
             "op": "gt",
             "value": 0.18
           }
-        ]
+        ],
+        "rarity": 7.902
       },
       {
         "zone": "lowland",
-        "priority": 62,
         "conditions": [
           {
             "variable": "temperatureC",
@@ -4949,11 +4884,11 @@
             "op": "gt",
             "value": 0.15
           }
-        ]
+        ],
+        "rarity": 7.902
       },
       {
         "zone": "lowland",
-        "priority": 62,
         "conditions": [
           {
             "variable": "temperatureC",
@@ -4996,11 +4931,11 @@
             "op": "gt",
             "value": 0.15
           }
-        ]
+        ],
+        "rarity": 7.902
       },
       {
         "zone": "lowland",
-        "priority": 62,
         "conditions": [
           {
             "variable": "temperatureC",
@@ -5043,11 +4978,11 @@
             "op": "gt",
             "value": 0.12
           }
-        ]
+        ],
+        "rarity": 7.902
       },
       {
         "zone": "lowland",
-        "priority": 62,
         "conditions": [
           {
             "variable": "temperatureC",
@@ -5091,11 +5026,11 @@
             "op": "gt",
             "value": 0.14
           }
-        ]
+        ],
+        "rarity": 7.902
       },
       {
         "zone": "lowland",
-        "priority": 62,
         "conditions": [
           {
             "variable": "temperatureC",
@@ -5139,11 +5074,11 @@
             "op": "gt",
             "value": 0.11
           }
-        ]
+        ],
+        "rarity": 7.902
       },
       {
         "zone": "lowland",
-        "priority": 62,
         "conditions": [
           {
             "variable": "temperatureC",
@@ -5186,11 +5121,11 @@
             "op": "gt",
             "value": 0.11
           }
-        ]
+        ],
+        "rarity": 7.902
       },
       {
         "zone": "lowland",
-        "priority": 62,
         "conditions": [
           {
             "variable": "temperatureC",
@@ -5233,11 +5168,11 @@
             "op": "gt",
             "value": 0.08
           }
-        ]
+        ],
+        "rarity": 7.902
       },
       {
         "zone": "lowland",
-        "priority": 62,
         "conditions": [
           {
             "variable": "temperatureC",
@@ -5285,11 +5220,11 @@
             "op": "gt",
             "value": 0.32
           }
-        ]
+        ],
+        "rarity": 7.902
       },
       {
         "zone": "lowland",
-        "priority": 62,
         "conditions": [
           {
             "variable": "temperatureC",
@@ -5337,11 +5272,11 @@
             "op": "gt",
             "value": 0.29
           }
-        ]
+        ],
+        "rarity": 7.902
       },
       {
         "zone": "lowland",
-        "priority": 62,
         "conditions": [
           {
             "variable": "temperatureC",
@@ -5389,11 +5324,11 @@
             "op": "gt",
             "value": 0.28
           }
-        ]
+        ],
+        "rarity": 7.902
       },
       {
         "zone": "lowland",
-        "priority": 62,
         "conditions": [
           {
             "variable": "temperatureC",
@@ -5441,11 +5376,11 @@
             "op": "gt",
             "value": 0.25
           }
-        ]
+        ],
+        "rarity": 7.902
       },
       {
         "zone": "lowland",
-        "priority": 62,
         "conditions": [
           {
             "variable": "temperatureC",
@@ -5494,11 +5429,11 @@
             "op": "gt",
             "value": 0.32
           }
-        ]
+        ],
+        "rarity": 7.902
       },
       {
         "zone": "lowland",
-        "priority": 62,
         "conditions": [
           {
             "variable": "temperatureC",
@@ -5541,11 +5476,11 @@
             "op": "gt",
             "value": 0.18
           }
-        ]
+        ],
+        "rarity": 7.902
       },
       {
         "zone": "lowland",
-        "priority": 62,
         "conditions": [
           {
             "variable": "temperatureC",
@@ -5588,11 +5523,11 @@
             "op": "gt",
             "value": 0.15
           }
-        ]
+        ],
+        "rarity": 7.902
       },
       {
         "zone": "lowland",
-        "priority": 62,
         "conditions": [
           {
             "variable": "temperatureC",
@@ -5634,11 +5569,11 @@
             "op": "gt",
             "value": 0.15
           }
-        ]
+        ],
+        "rarity": 7.902
       },
       {
         "zone": "lowland",
-        "priority": 62,
         "conditions": [
           {
             "variable": "temperatureC",
@@ -5680,11 +5615,11 @@
             "op": "gt",
             "value": 0.12
           }
-        ]
+        ],
+        "rarity": 7.902
       },
       {
         "zone": "lowland",
-        "priority": 62,
         "conditions": [
           {
             "variable": "temperatureC",
@@ -5727,11 +5662,11 @@
             "op": "gt",
             "value": 0.14
           }
-        ]
+        ],
+        "rarity": 7.902
       },
       {
         "zone": "lowland",
-        "priority": 62,
         "conditions": [
           {
             "variable": "temperatureC",
@@ -5774,11 +5709,11 @@
             "op": "gt",
             "value": 0.11
           }
-        ]
+        ],
+        "rarity": 7.902
       },
       {
         "zone": "lowland",
-        "priority": 62,
         "conditions": [
           {
             "variable": "temperatureC",
@@ -5820,11 +5755,11 @@
             "op": "gt",
             "value": 0.11
           }
-        ]
+        ],
+        "rarity": 7.902
       },
       {
         "zone": "lowland",
-        "priority": 62,
         "conditions": [
           {
             "variable": "temperatureC",
@@ -5866,11 +5801,11 @@
             "op": "gt",
             "value": 0.08
           }
-        ]
+        ],
+        "rarity": 7.902
       },
       {
         "zone": "lowland",
-        "priority": 62,
         "conditions": [
           {
             "variable": "temperatureC",
@@ -5917,11 +5852,11 @@
             "op": "gt",
             "value": 0.32
           }
-        ]
+        ],
+        "rarity": 7.902
       },
       {
         "zone": "lowland",
-        "priority": 62,
         "conditions": [
           {
             "variable": "temperatureC",
@@ -5968,11 +5903,11 @@
             "op": "gt",
             "value": 0.29
           }
-        ]
+        ],
+        "rarity": 7.902
       },
       {
         "zone": "lowland",
-        "priority": 62,
         "conditions": [
           {
             "variable": "temperatureC",
@@ -6019,11 +5954,11 @@
             "op": "gt",
             "value": 0.28
           }
-        ]
+        ],
+        "rarity": 7.902
       },
       {
         "zone": "lowland",
-        "priority": 62,
         "conditions": [
           {
             "variable": "temperatureC",
@@ -6070,11 +6005,11 @@
             "op": "gt",
             "value": 0.25
           }
-        ]
+        ],
+        "rarity": 7.902
       },
       {
         "zone": "lowland",
-        "priority": 62,
         "conditions": [
           {
             "variable": "temperatureC",
@@ -6122,11 +6057,11 @@
             "op": "gt",
             "value": 0.32
           }
-        ]
+        ],
+        "rarity": 7.902
       },
       {
         "zone": "lowland",
-        "priority": 62,
         "conditions": [
           {
             "variable": "temperatureC",
@@ -6169,11 +6104,11 @@
             "op": "gt",
             "value": 0.18
           }
-        ]
+        ],
+        "rarity": 7.902
       },
       {
         "zone": "lowland",
-        "priority": 62,
         "conditions": [
           {
             "variable": "temperatureC",
@@ -6216,11 +6151,11 @@
             "op": "gt",
             "value": 0.15
           }
-        ]
+        ],
+        "rarity": 7.902
       },
       {
         "zone": "lowland",
-        "priority": 62,
         "conditions": [
           {
             "variable": "temperatureC",
@@ -6263,11 +6198,11 @@
             "op": "gt",
             "value": 0.14
           }
-        ]
+        ],
+        "rarity": 7.902
       },
       {
         "zone": "lowland",
-        "priority": 62,
         "conditions": [
           {
             "variable": "temperatureC",
@@ -6310,11 +6245,11 @@
             "op": "gt",
             "value": 0.11
           }
-        ]
+        ],
+        "rarity": 7.902
       },
       {
         "zone": "lowland",
-        "priority": 62,
         "conditions": [
           {
             "variable": "temperatureC",
@@ -6361,11 +6296,11 @@
             "op": "gt",
             "value": 0.32
           }
-        ]
+        ],
+        "rarity": 7.902
       },
       {
         "zone": "lowland",
-        "priority": 62,
         "conditions": [
           {
             "variable": "temperatureC",
@@ -6412,7 +6347,8 @@
             "op": "gt",
             "value": 0.28
           }
-        ]
+        ],
+        "rarity": 7.902
       }
     ]
   },
@@ -6430,7 +6366,6 @@
     "rules": [
       {
         "zone": "mountain",
-        "priority": 64,
         "conditions": [
           {
             "variable": "snowy",
@@ -6448,11 +6383,11 @@
             "value": 0.3,
             "value2": 0.4
           }
-        ]
+        ],
+        "rarity": 2.232
       },
       {
         "zone": "mountain",
-        "priority": 64,
         "conditions": [
           {
             "variable": "snowy",
@@ -6470,11 +6405,11 @@
             "value": 0.55,
             "value2": 0.7
           }
-        ]
+        ],
+        "rarity": 2.232
       },
       {
         "zone": "mountain",
-        "priority": 64,
         "conditions": [
           {
             "variable": "temperatureC",
@@ -6497,11 +6432,11 @@
             "value": 0.3,
             "value2": 0.4
           }
-        ]
+        ],
+        "rarity": 2.232
       },
       {
         "zone": "mountain",
-        "priority": 64,
         "conditions": [
           {
             "variable": "temperatureC",
@@ -6524,7 +6459,8 @@
             "value": 0.55,
             "value2": 0.7
           }
-        ]
+        ],
+        "rarity": 2.232
       }
     ]
   },
@@ -6542,7 +6478,6 @@
     "rules": [
       {
         "zone": "mountain",
-        "priority": 78,
         "conditions": [
           {
             "variable": "snowy",
@@ -6554,11 +6489,11 @@
             "op": "lte",
             "value": 0.01
           }
-        ]
+        ],
+        "rarity": 0.12
       },
       {
         "zone": "mountain",
-        "priority": 78,
         "conditions": [
           {
             "variable": "snowy",
@@ -6570,11 +6505,11 @@
             "op": "gt",
             "value": 0.75
           }
-        ]
+        ],
+        "rarity": 0.12
       },
       {
         "zone": "mountain",
-        "priority": 78,
         "conditions": [
           {
             "variable": "temperatureC",
@@ -6591,11 +6526,11 @@
             "op": "lte",
             "value": 0.01
           }
-        ]
+        ],
+        "rarity": 0.12
       },
       {
         "zone": "mountain",
-        "priority": 78,
         "conditions": [
           {
             "variable": "temperatureC",
@@ -6612,7 +6547,8 @@
             "op": "gt",
             "value": 0.75
           }
-        ]
+        ],
+        "rarity": 0.12
       }
     ]
   },
@@ -6630,7 +6566,6 @@
     "rules": [
       {
         "zone": "mountain",
-        "priority": 80,
         "conditions": [
           {
             "variable": "bareSlope",
@@ -6645,25 +6580,26 @@
           {
             "variable": "slope",
             "op": "lte",
-            "value": 1.1
+            "value": 0.85
           },
           {
             "variable": "elevationM",
             "op": "lte",
-            "value": 3300
+            "value": 2800
           }
-        ]
+        ],
+        "rarity": 1.0
       },
       {
         "zone": "bareSlope",
-        "priority": 80,
         "conditions": [
           {
             "variable": "snowy",
             "op": "eq",
             "bool": true
           }
-        ]
+        ],
+        "rarity": 1.0
       }
     ]
   },
@@ -6681,7 +6617,6 @@
     "rules": [
       {
         "zone": "mountain",
-        "priority": 75,
         "conditions": [
           {
             "variable": "bareSlope",
@@ -6696,13 +6631,13 @@
           {
             "variable": "slope",
             "op": "gt",
-            "value": 1.1
+            "value": 0.85
           }
-        ]
+        ],
+        "rarity": 3.14
       },
       {
         "zone": "mountain",
-        "priority": 75,
         "conditions": [
           {
             "variable": "bareSlope",
@@ -6717,9 +6652,10 @@
           {
             "variable": "elevationM",
             "op": "gt",
-            "value": 3300
+            "value": 2800
           }
-        ]
+        ],
+        "rarity": 3.14
       }
     ]
   },
@@ -6737,7 +6673,6 @@
     "rules": [
       {
         "zone": "mountain",
-        "priority": 78,
         "conditions": [
           {
             "variable": "bareSlope",
@@ -6749,18 +6684,19 @@
             "op": "eq",
             "bool": false
           }
-        ]
+        ],
+        "rarity": 1.004
       },
       {
         "zone": "bareSlope",
-        "priority": 78,
         "conditions": [
           {
             "variable": "snowy",
             "op": "eq",
             "bool": false
           }
-        ]
+        ],
+        "rarity": 1.004
       }
     ]
   },
@@ -6775,7 +6711,47 @@
     "river": false,
     "frozenRiver": false,
     "canGenerateOverworld": true,
-    "rules": []
+    "rules": [
+      {
+        "zone": "lowland",
+        "conditions": [
+          {
+            "variable": "temperatureC",
+            "op": "between",
+            "value": 10,
+            "value2": 24
+          },
+          {
+            "variable": "moisture",
+            "op": "gte",
+            "value": 0.85
+          },
+          {
+            "variable": "treeCoverage",
+            "op": "gte",
+            "value": 0.8
+          },
+          {
+            "variable": "elevationM",
+            "op": "lte",
+            "value": 400
+          },
+          {
+            "variable": "snowy",
+            "op": "eq",
+            "bool": false
+          }
+        ],
+        "noiseConditions": [
+          {
+            "variable": "variantNoise",
+            "op": "gt",
+            "value": 0.3
+          }
+        ],
+        "rarity": 3.483
+      }
+    ]
   },
   {
     "index": 37,
@@ -6791,7 +6767,6 @@
     "rules": [
       {
         "zone": "lowland",
-        "priority": 58,
         "conditions": [
           {
             "variable": "temperatureC",
@@ -6840,11 +6815,11 @@
             "op": "gt",
             "value": 0.34
           }
-        ]
+        ],
+        "rarity": 1.15
       },
       {
         "zone": "lowland",
-        "priority": 58,
         "conditions": [
           {
             "variable": "temperatureC",
@@ -6897,11 +6872,11 @@
             "op": "gt",
             "value": 0.3
           }
-        ]
+        ],
+        "rarity": 1.15
       },
       {
         "zone": "lowland",
-        "priority": 58,
         "conditions": [
           {
             "variable": "temperatureC",
@@ -6949,11 +6924,11 @@
             "op": "gt",
             "value": 0.3
           }
-        ]
+        ],
+        "rarity": 1.15
       },
       {
         "zone": "lowland",
-        "priority": 58,
         "conditions": [
           {
             "variable": "temperatureC",
@@ -7005,11 +6980,11 @@
             "op": "gt",
             "value": 0.26
           }
-        ]
+        ],
+        "rarity": 1.15
       },
       {
         "zone": "lowland",
-        "priority": 58,
         "conditions": [
           {
             "variable": "temperatureC",
@@ -7057,11 +7032,11 @@
             "op": "gt",
             "value": 0.32
           }
-        ]
+        ],
+        "rarity": 1.15
       },
       {
         "zone": "lowland",
-        "priority": 58,
         "conditions": [
           {
             "variable": "temperatureC",
@@ -7112,11 +7087,11 @@
             "op": "gt",
             "value": 0.24
           }
-        ]
+        ],
+        "rarity": 1.15
       },
       {
         "zone": "lowland",
-        "priority": 58,
         "conditions": [
           {
             "variable": "temperatureC",
@@ -7164,11 +7139,11 @@
             "op": "gt",
             "value": 0.02
           }
-        ]
+        ],
+        "rarity": 1.15
       },
       {
         "zone": "lowland",
-        "priority": 58,
         "conditions": [
           {
             "variable": "temperatureC",
@@ -7220,11 +7195,11 @@
             "op": "gt",
             "value": -0.02
           }
-        ]
+        ],
+        "rarity": 1.15
       },
       {
         "zone": "lowland",
-        "priority": 58,
         "conditions": [
           {
             "variable": "temperatureC",
@@ -7271,11 +7246,11 @@
             "op": "gt",
             "value": -0.02
           }
-        ]
+        ],
+        "rarity": 1.15
       },
       {
         "zone": "lowland",
-        "priority": 58,
         "conditions": [
           {
             "variable": "temperatureC",
@@ -7326,11 +7301,11 @@
             "op": "gt",
             "value": -0.06
           }
-        ]
+        ],
+        "rarity": 1.15
       },
       {
         "zone": "lowland",
-        "priority": 58,
         "conditions": [
           {
             "variable": "temperatureC",
@@ -7377,11 +7352,11 @@
             "op": "gt",
             "value": 0.0
           }
-        ]
+        ],
+        "rarity": 1.15
       },
       {
         "zone": "lowland",
-        "priority": 58,
         "conditions": [
           {
             "variable": "temperatureC",
@@ -7431,11 +7406,11 @@
             "op": "gt",
             "value": -0.08
           }
-        ]
+        ],
+        "rarity": 1.15
       },
       {
         "zone": "lowland",
-        "priority": 58,
         "conditions": [
           {
             "variable": "temperatureC",
@@ -7483,11 +7458,11 @@
             "op": "gt",
             "value": 0.02
           }
-        ]
+        ],
+        "rarity": 1.15
       },
       {
         "zone": "lowland",
-        "priority": 58,
         "conditions": [
           {
             "variable": "temperatureC",
@@ -7539,11 +7514,11 @@
             "op": "gt",
             "value": -0.02
           }
-        ]
+        ],
+        "rarity": 1.15
       },
       {
         "zone": "lowland",
-        "priority": 58,
         "conditions": [
           {
             "variable": "temperatureC",
@@ -7590,11 +7565,11 @@
             "op": "gt",
             "value": -0.02
           }
-        ]
+        ],
+        "rarity": 1.15
       },
       {
         "zone": "lowland",
-        "priority": 58,
         "conditions": [
           {
             "variable": "temperatureC",
@@ -7645,11 +7620,11 @@
             "op": "gt",
             "value": -0.06
           }
-        ]
+        ],
+        "rarity": 1.15
       },
       {
         "zone": "lowland",
-        "priority": 58,
         "conditions": [
           {
             "variable": "temperatureC",
@@ -7696,11 +7671,11 @@
             "op": "gt",
             "value": 0.0
           }
-        ]
+        ],
+        "rarity": 1.15
       },
       {
         "zone": "lowland",
-        "priority": 58,
         "conditions": [
           {
             "variable": "temperatureC",
@@ -7750,7 +7725,8 @@
             "op": "gt",
             "value": -0.08
           }
-        ]
+        ],
+        "rarity": 1.15
       }
     ]
   },
@@ -7794,7 +7770,6 @@
     "rules": [
       {
         "zone": "beach",
-        "priority": 10,
         "conditions": [
           {
             "variable": "slope",
@@ -7811,7 +7786,8 @@
             "op": "gte",
             "value": 1
           }
-        ]
+        ],
+        "rarity": 0.269
       }
     ]
   },
@@ -7829,7 +7805,6 @@
     "rules": [
       {
         "zone": "ocean",
-        "priority": 90,
         "conditions": [
           {
             "variable": "temperatureC",
@@ -7841,7 +7816,8 @@
             "op": "gte",
             "value": -250
           }
-        ]
+        ],
+        "rarity": 1.0
       }
     ]
   },
@@ -7859,7 +7835,6 @@
     "rules": [
       {
         "zone": "ocean",
-        "priority": 90,
         "conditions": [
           {
             "variable": "temperatureC",
@@ -7872,7 +7847,8 @@
             "op": "gte",
             "value": -250
           }
-        ]
+        ],
+        "rarity": 1.0
       }
     ]
   },
@@ -7890,7 +7866,6 @@
     "rules": [
       {
         "zone": "ocean",
-        "priority": 91,
         "conditions": [
           {
             "variable": "temperatureC",
@@ -7903,7 +7878,8 @@
             "op": "lt",
             "value": -250
           }
-        ]
+        ],
+        "rarity": 1.0
       }
     ]
   },
@@ -7921,7 +7897,6 @@
     "rules": [
       {
         "zone": "ocean",
-        "priority": 90,
         "conditions": [
           {
             "variable": "temperatureC",
@@ -7934,7 +7909,8 @@
             "op": "gte",
             "value": -250
           }
-        ]
+        ],
+        "rarity": 1.0
       }
     ]
   },
@@ -7952,7 +7928,6 @@
     "rules": [
       {
         "zone": "ocean",
-        "priority": 91,
         "conditions": [
           {
             "variable": "temperatureC",
@@ -7965,7 +7940,8 @@
             "op": "lt",
             "value": -250
           }
-        ]
+        ],
+        "rarity": 1.0
       }
     ]
   },
@@ -7983,7 +7959,6 @@
     "rules": [
       {
         "zone": "ocean",
-        "priority": 90,
         "conditions": [
           {
             "variable": "temperatureC",
@@ -7996,7 +7971,8 @@
             "op": "gte",
             "value": -250
           }
-        ]
+        ],
+        "rarity": 0.095
       }
     ]
   },
@@ -8014,7 +7990,6 @@
     "rules": [
       {
         "zone": "ocean",
-        "priority": 91,
         "conditions": [
           {
             "variable": "temperatureC",
@@ -8027,7 +8002,8 @@
             "op": "lt",
             "value": -250
           }
-        ]
+        ],
+        "rarity": 1.0
       }
     ]
   },
@@ -8045,19 +8021,19 @@
     "rules": [
       {
         "zone": "ocean",
-        "priority": 90,
         "conditions": [
           {
             "variable": "temperatureC",
             "op": "lt",
-            "value": -5
+            "value": -3
           },
           {
             "variable": "elevationM",
             "op": "gte",
             "value": -250
           }
-        ]
+        ],
+        "rarity": 0.438
       }
     ]
   },
@@ -8075,7 +8051,6 @@
     "rules": [
       {
         "zone": "ocean",
-        "priority": 91,
         "conditions": [
           {
             "variable": "temperatureC",
@@ -8087,7 +8062,8 @@
             "op": "lt",
             "value": -250
           }
-        ]
+        ],
+        "rarity": 1.0
       }
     ]
   },
@@ -8105,14 +8081,14 @@
     "rules": [
       {
         "zone": "beach",
-        "priority": 40,
         "conditions": [
           {
             "variable": "slope",
             "op": "gt",
-            "value": 0.28
+            "value": 0.24
           }
-        ]
+        ],
+        "rarity": 0.679
       }
     ]
   },
@@ -8130,7 +8106,6 @@
     "rules": [
       {
         "zone": "beach",
-        "priority": 40,
         "conditions": [
           {
             "variable": "snowy",
@@ -8140,30 +8115,31 @@
           {
             "variable": "slope",
             "op": "lte",
-            "value": 0.28
+            "value": 0.24
           }
-        ]
+        ],
+        "rarity": 0.614
       },
       {
         "zone": "beach",
-        "priority": 40,
         "conditions": [
           {
             "variable": "temperatureC",
             "op": "lt",
-            "value": 1
+            "value": 3
           },
           {
             "variable": "slope",
             "op": "lte",
-            "value": 0.28
+            "value": 0.24
           },
           {
             "variable": "snowy",
             "op": "eq",
             "bool": false
           }
-        ]
+        ],
+        "rarity": 0.614
       }
     ]
   },

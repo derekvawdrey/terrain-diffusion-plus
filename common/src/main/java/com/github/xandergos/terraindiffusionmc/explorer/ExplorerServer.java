@@ -569,13 +569,20 @@ public final class ExplorerServer {
                 Map<String, Object> zoneResp = new LinkedHashMap<>();
                 zoneResp.put("zone", zc.zone());
                 zoneResp.put("ruleCount", zc.ruleCount());
-                zoneResp.put("minPriority", zc.minPriority());
-                zoneResp.put("maxPriority", zc.maxPriority());
+                zoneResp.put("minRarity", round3(zc.minRarity()));
+                zoneResp.put("maxRarity", round3(zc.maxRarity()));
                 Map<String, Object> filters = new LinkedHashMap<>();
                 for (Map.Entry<Integer, float[]> entry : zc.channelFilters().entrySet()) {
+                    // One-sided ranges are normal here (e.g. "precipitation at least 1100mm, no
+                    // ceiling"). Emit the open end as a missing key rather than rounding an
+                    // infinity, which round3 would turn into a nonsense 9.2e15 the UI would print
+                    // verbatim. The client leaves a missing end at the slider's own limit.
                     Map<String, Object> range = new LinkedHashMap<>();
-                    range.put("min", round3(entry.getValue()[0]));
-                    range.put("max", round3(entry.getValue()[1]));
+                    float lo = entry.getValue()[0];
+                    float hi = entry.getValue()[1];
+                    if (!Float.isInfinite(lo)) range.put("min", round3(lo));
+                    if (!Float.isInfinite(hi)) range.put("max", round3(hi));
+                    if (range.isEmpty()) continue;
                     filters.put(String.valueOf(entry.getKey()), range);
                 }
                 zoneResp.put("filters", filters);
@@ -699,13 +706,12 @@ public final class ExplorerServer {
         resp.put("biomeKey", result.biomeKey());
         resp.put("newSettlement", result.newSettlement());
         resp.put("assignedIndex", result.assignedIndex());
-        resp.put("priority", result.priority());
-        resp.put("newTier", result.newTier());
+        resp.put("rarity", round3(result.rarity()));
         if (result.anchor() != null) {
             Map<String, Object> anchor = new LinkedHashMap<>();
             anchor.put("biomeKey", result.anchor().biomeKey());
             anchor.put("biomeIndex", result.anchor().biomeIndex());
-            anchor.put("priority", result.anchor().priority());
+            anchor.put("rarity", round3(result.anchor().rarity()));
             anchor.put("reason", result.anchor().reason());
             resp.put("anchor", anchor);
         } else {

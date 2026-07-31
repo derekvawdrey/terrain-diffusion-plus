@@ -10,35 +10,20 @@ import java.util.List;
  * coarse climate knobs. Used by {@code ExplorerServer}'s {@code /api/biomes/preview} (dry run) and
  * {@code /api/biomes/apply} (dry run + mutate + persist) handlers.
  *
- * <h2>Priority-tier heuristic</h2>
- * <p>The naive approach -- always giving a newly added biome its own brand-new priority tier --
- * is exactly what caused a real, previously-diagnosed bug: many biomes each getting a unique
- * priority tier made {@link BiomeRuleEngine}'s cross-tier competition-noise candidate selection
- * unstable, visibly "too mixed" terrain (that session's fix damped
- * {@code COMPETITION_RANK_PENALTY}/{@code COMPETITION_NOISE_WAVELENGTH} and redesigned several
- * biomes to share a tier with a {@code variantNoise}-gated split instead of colliding across
- * tiers). So: before picking a priority, {@link #findAnchor} looks for an existing rule in the
- * same zone whose {@code treeCoverage}/{@code temperatureC}/{@code moisture} conditions roughly
- * overlap the requested niche. If found, the new rule is inserted at the <b>same priority
- * tier</b> as that anchor rather than a new one.</p>
+ * <h2>Rarity heuristic</h2>
+ * <p>The UI's four rarity buckets map straight onto {@link TerrainBiomeRule#rarity()}, the weight
+ * {@link BiomeRuleEngine} uses to share contested pixels. That is the whole mechanism -- there is
+ * no tier to pick and no way for a generated rule to shadow an existing biome, because a weight
+ * below 1.0 can only ever take a proportional slice of an overlapping niche, never all of it.</p>
  *
- * <p>Sharing a tier is safe here specifically because of how {@link BiomeRuleEngine#select}
- * resolves ties <i>within</i> one priority tier: it is NOT the same noise-based competition used
- * across tiers -- within a tier the rule belonging to the <b>highest biome index</b> that matches
- * wins outright, deterministically (see select's inner loop, "if (entry.index &lt;=
- * bestIndex) continue"). A freshly generated settlement always gets the next unused (i.e.
- * highest) index, so as long as our new rule's noise-gated condition set is a strict subset of
- * the anchor's climate window, the two behave as clean, deterministic, spatially-coherent
- * territory: wherever {@code variantNoise} clears our threshold AND the shared climate
- * conditions hold, our higher-index rule wins outright; everywhere else in that same climate
- * window, only the (ungated) anchor rule matches and it keeps winning as before. We never need
- * to (and must not) retroactively edit the anchor's own rule for this to work.</p>
- *
- * <p>Because of that clobber risk, a noise gate is added whenever we share a tier with an
- * anchor -- even for "common" rarity, which is floored to the "uncommon" threshold in that case
- * (see resolveNoiseThreshold) so the new biome never fully overwrites 100% of the
- * anchor's existing territory in their overlapping niche. Only a genuinely new, non-overlapping
- * tier (no anchor found) allows a true no-gate "common" pick.</p>
+ * <p>This replaced a considerably more delicate arrangement. Under the old integer-priority
+ * engine, giving each new biome its own tier destabilised cross-tier competition and produced
+ * visibly over-mixed terrain, so the generator instead searched for an "anchor" rule to share a
+ * tier with, and relied on within-tier ties resolving to the highest biome index -- which meant a
+ * freshly generated rule would deterministically win the entire overlap unless it also carried a
+ * noise gate, so a gate had to be forced on even for "common". None of that is load-bearing any
+ * more. {@link #findAnchor} survives only to tell the user which existing biome's niche they are
+ * overlapping; it no longer decides anything.</p>
  */
 public final class BiomeRuleGenerator {
 
@@ -117,6 +102,21 @@ public final class BiomeRuleGenerator {
      * {@code tools/biome-lab/biomelab/montecarlo.py}; these are a reasonable, always-reachable
      * first cut, not a claim of exact rarity percentages.
      */
+    /**
+     * The UI's rarity bucket as a {@link TerrainBiomeRule#rarity()} weight. Because the engine
+     * gives biome {@code i} a share of {@code w_i / sum(w)} of the pixels it is eligible for,
+     * these read directly: an "uncommon" biome takes about a quarter of a niche it fully shares
+     * with one ungated "common" biome, a "very rare" one about 4%.
+     */
+    private static float rarityWeight(Rarity rarity) {
+        return switch (rarity) {
+            case COMMON -> 1.0f;
+            case UNCOMMON -> 0.35f;
+            case RARE -> 0.12f;
+            case VERY_RARE -> 0.04f;
+        };
+    }
+
     private static Float noiseThresholdFor(Rarity rarity) {
         return switch (rarity) {
             case COMMON -> null;
@@ -130,12 +130,12 @@ public final class BiomeRuleGenerator {
                            MoistureBand moistureBand, TreeDensity treeDensity, Rarity rarity) {
     }
 
-    public record AnchorInfo(String biomeKey, short biomeIndex, int priority, String reason) {
+    public record AnchorInfo(String biomeKey, short biomeIndex, float rarity, String reason) {
     }
 
     public record Result(String biomeKey, boolean newSettlement, short assignedIndex,
-                          TerrainBiomeSettlement settlement, TerrainBiomeRule rule, int priority,
-                          AnchorInfo anchor, boolean newTier, List<String> validationFindings) {
+                          TerrainBiomeSettlement settlement, TerrainBiomeRule rule, float rarity,
+                          AnchorInfo anchor, List<String> validationFindings) {
         public boolean valid() {
             return validationFindings.isEmpty();
         }
@@ -164,21 +164,13 @@ public final class BiomeRuleGenerator {
         AnchorInfo anchor = findAnchor(registry, req.zone(), targetTreeCoverage, targetTempRange,
                 targetMoisture.moisture());
 
-        int priority;
-        boolean newTier;
-        if (anchor != null) {
-            priority = anchor.priority();
-            newTier = false;
-        } else {
-            priority = maxPriorityForZone(registry, req.zone()) + 1;
-            newTier = true;
-        }
+        float rarity = rarityWeight(req.rarity());
 
-        // See class javadoc: always gate with a noise condition when sharing a tier (floor
-        // "common" up to "uncommon"), since our new settlement's higher index would otherwise
-        // deterministically win the ENTIRE overlap with the anchor, not just a rare pocket of it.
-        Rarity effectiveRarity = (anchor != null && req.rarity() == Rarity.COMMON) ? Rarity.UNCOMMON : req.rarity();
-        Float noiseThreshold = noiseThresholdFor(effectiveRarity);
+        // The noise gate is now purely a shaping choice -- it breaks a rarity band into coherent
+        // patches instead of letting the weight scatter it evenly through the niche. It is no
+        // longer needed to stop a new rule clobbering an existing one, so "common" keeps its
+        // ungated full-niche behaviour whether or not it overlaps something.
+        Float noiseThreshold = noiseThresholdFor(req.rarity());
 
         List<TerrainBiomeCondition> conditions = new ArrayList<>();
         conditions.add(TerrainBiomeCondition.numeric("treeCoverage", TerrainBiomeCondition.Operator.EQ,
@@ -195,7 +187,7 @@ public final class BiomeRuleGenerator {
                     noiseThreshold));
         }
 
-        TerrainBiomeRule rule = new TerrainBiomeRule(req.zone(), priority, conditions, noiseConditions);
+        TerrainBiomeRule rule = new TerrainBiomeRule(req.zone(), rarity, conditions, noiseConditions);
         List<String> findings = BiomeRuleValidator.validate(rule);
 
         TerrainBiomeSettlement existing = registry.byKey(req.biomeKey());
@@ -211,7 +203,7 @@ public final class BiomeRuleGenerator {
                     defaultColorFor(req.biomeKey()), false, true, false, false, true, new ArrayList<>());
         }
 
-        return new Result(req.biomeKey(), isNew, assignedIndex, settlement, rule, priority, anchor, newTier,
+        return new Result(req.biomeKey(), isNew, assignedIndex, settlement, rule, rarity, anchor,
                 findings);
     }
 
@@ -219,8 +211,9 @@ public final class BiomeRuleGenerator {
      * Looks for an existing rule in {@code zone} whose {@code treeCoverage}/{@code temperatureC}/
      * {@code moisture} conditions are compatible with the requested niche (a rule with no
      * condition on one of those variables is treated as a wildcard on that axis -- it doesn't
-     * conflict). Among compatible candidates, prefers the highest priority (most "established"
-     * tier), tie-broken by lowest settlement index for determinism.
+     * conflict). Among compatible candidates, prefers the highest rarity weight (the most
+     * "established" occupant of that niche), tie-broken by lowest settlement index for
+     * determinism.
      */
     private static AnchorInfo findAnchor(TerrainBiomeRegistry registry, String zone, float targetTreeCoverage,
                                           Range targetTempRange, Range targetMoistureRange) {
@@ -242,8 +235,8 @@ public final class BiomeRuleGenerator {
                 if (!(treeOk && tempOk && moistOk)) continue;
 
                 if (bestRule == null
-                        || rule.priority() > bestRule.priority()
-                        || (rule.priority() == bestRule.priority() && settlement.index() < bestSettlement.index())) {
+                        || rule.rarity() > bestRule.rarity()
+                        || (rule.rarity() == bestRule.rarity() && settlement.index() < bestSettlement.index())) {
                     bestSettlement = settlement;
                     bestRule = rule;
                 }
@@ -252,10 +245,11 @@ public final class BiomeRuleGenerator {
 
         if (bestRule == null) return null;
         String reason = String.format(
-                "shares %s tier %d with %s (its treeCoverage/temperatureC/moisture conditions overlap "
-                        + "the requested niche, or don't constrain that axis at all)",
-                zone, bestRule.priority(), bestSettlement.key());
-        return new AnchorInfo(bestSettlement.key(), bestSettlement.index(), bestRule.priority(), reason);
+                "overlaps %s in the %s zone (rarity %.2f); its treeCoverage/temperatureC/moisture "
+                        + "conditions cover the requested niche, or don't constrain that axis at all, "
+                        + "so the two will share the area in proportion to their rarity weights",
+                bestSettlement.key(), zone, bestRule.rarity());
+        return new AnchorInfo(bestSettlement.key(), bestSettlement.index(), bestRule.rarity(), reason);
     }
 
     private static List<TerrainBiomeCondition> conditionsFor(TerrainBiomeRule rule,
@@ -291,15 +285,6 @@ public final class BiomeRuleGenerator {
         return new Range(lo, hi);
     }
 
-    private static int maxPriorityForZone(TerrainBiomeRegistry registry, String zone) {
-        int max = 0;
-        for (TerrainBiomeSettlement settlement : registry.all()) {
-            for (TerrainBiomeRule rule : settlement.rules()) {
-                if (zone.equals(rule.zone()) && rule.priority() > max) max = rule.priority();
-            }
-        }
-        return max;
-    }
 
     /**
      * Deterministic, moderately saturated pastel-ish color for a brand-new settlement's map

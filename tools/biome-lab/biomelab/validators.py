@@ -37,13 +37,13 @@ class Finding:
     biome_key: str
     biome_index: int
     zone: str
-    priority: int
+    rarity: float
     condition_desc: str
     message: str
     condition: Condition = field(repr=False, default=None)
     # Only set by check_low_pass_rate: the exact originating BottleneckRow. NOT safe to
-    # re-derive from (biome_key, zone, priority) -- a single biome can have several rule variants
-    # at the identical zone+priority (e.g. minecraft:cherry_grove has ~16), so that tuple isn't a
+    # re-derive from (biome_key, zone, rarity) -- a single biome can have several rule variants
+    # at the identical zone+rarity (e.g. minecraft:cherry_grove has ~16), so that tuple isn't a
     # unique key back to "this specific rule." Carry the object reference instead.
     source_row: object = field(repr=False, default=None, compare=False)
 
@@ -92,7 +92,7 @@ def check_discreteness(catalog: Catalog) -> list[Finding]:
                 findings.append(Finding(
                     severity="dead", category="discreteness",
                     biome_key=settlement.key, biome_index=settlement.index,
-                    zone=rule.zone, priority=rule.priority,
+                    zone=rule.zone, rarity=rule.rarity,
                     condition_desc=cond.describe(),
                     message=(f"{var_name} only ever takes values {valid}. "
                              + (f"'{cond.describe()}' straddles none of them and can never match."
@@ -129,7 +129,7 @@ def check_noise_ceiling(catalog: Catalog, families: dict) -> list[Finding]:
                 findings.append(Finding(
                     severity="dead", category="noise_ceiling",
                     biome_key=settlement.key, biome_index=settlement.index,
-                    zone=rule.zone, priority=rule.priority,
+                    zone=rule.zone, rarity=rule.rarity,
                     condition_desc=cond.describe(),
                     message=(f"{cond.variable} (family {fam.name}, octaves={fam.octaves}, "
                              f"gain={fam.gain}) was measured over {fam.samples:,} samples to stay "
@@ -182,7 +182,7 @@ def check_hard_bounds(catalog: Catalog) -> list[Finding]:
                     findings.append(Finding(
                         severity="dead", category="hard_bounds",
                         biome_key=settlement.key, biome_index=settlement.index,
-                        zone=rule.zone, priority=rule.priority,
+                        zone=rule.zone, rarity=rule.rarity,
                         condition_desc=cond.describe(),
                         message=(f"{var_name} is architecturally bounded to "
                                  f"[{bound_lo if bound_lo != -math.inf else '-inf'}, "
@@ -211,7 +211,7 @@ def check_hard_bounds(catalog: Catalog) -> list[Finding]:
                     findings.append(Finding(
                         severity="redundant", category="hard_bounds",
                         biome_key=settlement.key, biome_index=settlement.index,
-                        zone=rule.zone, priority=rule.priority,
+                        zone=rule.zone, rarity=rule.rarity,
                         condition_desc=cond.describe(),
                         message=(f"{var_name} is architecturally bounded to "
                                  f"[{bound_lo if bound_lo != -math.inf else '-inf'}, "
@@ -236,7 +236,7 @@ def check_moisture_treemoisture_aliasing(catalog: Catalog) -> list[Finding]:
             findings.append(Finding(
                 severity="info", category="aliasing",
                 biome_key=settlement.key, biome_index=settlement.index,
-                zone=rule.zone, priority=rule.priority,
+                zone=rule.zone, rarity=rule.rarity,
                 condition_desc="moisture & treeMoisture",
                 message=("This rule conditions on both 'moisture' and 'treeMoisture', but "
                          "TerrainClimateSample populates both from the exact same underlying "
@@ -270,7 +270,7 @@ def check_low_pass_rate(bottleneck_rows: list, threshold: float = 0.005) -> list
         findings.append(Finding(
             severity="rare", category="low_pass_rate",
             biome_key=row.biome_key, biome_index=row.settlement.index,
-            zone=row.zone, priority=row.priority,
+            zone=row.zone, rarity=row.rarity,
             condition_desc=tightest_desc or "(no conditions)",
             message=(f"This rule's conditions are all individually satisfiable, but their "
                      f"conjunction only matches {row.joint_pass_rate * 100:.4f}% of sampled "

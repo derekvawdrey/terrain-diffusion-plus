@@ -70,14 +70,14 @@ def render(
             lines.append(f"**{len(dead)} dead (unreachable) condition(s):**")
             lines.append("")
             for f in dead:
-                lines.append(f"- `{f.biome_key}` (zone={f.zone}, priority={f.priority}): "
+                lines.append(f"- `{f.biome_key}` (zone={f.zone}, rarity={f.rarity}): "
                              f"`{f.condition_desc}` -- {f.message}")
             lines.append("")
         if redundant:
             lines.append(f"**{len(redundant)} redundant (always-true, no-op) condition(s):**")
             lines.append("")
             for f in redundant:
-                lines.append(f"- `{f.biome_key}` (zone={f.zone}, priority={f.priority}): "
+                lines.append(f"- `{f.biome_key}` (zone={f.zone}, rarity={f.rarity}): "
                              f"`{f.condition_desc}` -- {f.message}")
             lines.append("")
 
@@ -85,7 +85,7 @@ def render(
         lines.append("### 1d. moisture / treeMoisture aliasing (informational)")
         lines.append("")
         for f in validator_report.aliasing:
-            lines.append(f"- `{f.biome_key}` (zone={f.zone}, priority={f.priority}): {f.message}")
+            lines.append(f"- `{f.biome_key}` (zone={f.zone}, rarity={f.rarity}): {f.message}")
         lines.append("")
 
     if fix_suggestions:
@@ -93,7 +93,7 @@ def render(
         lines.append("")
         for s in fix_suggestions:
             f = s.finding
-            lines.append(f"- `{f.biome_key}` (zone={f.zone}, priority={f.priority}): "
+            lines.append(f"- `{f.biome_key}` (zone={f.zone}, rarity={f.rarity}): "
                          f"`{f.condition_desc}` -> `{s.field_changes}`")
             lines.append(f"  - {s.explanation}")
         lines.append("")
@@ -216,7 +216,7 @@ def render(
     bottlenecks = [b for b in mc_result["bottlenecks"] if b.joint_pass_rate > 0]
     bottlenecks.sort(key=lambda b: b.joint_pass_rate)
     for b in bottlenecks[:20]:
-        lines.append(f"- `{b.biome_key}` (zone={b.zone}, priority={b.priority}): joint pass rate "
+        lines.append(f"- `{b.biome_key}` (zone={b.zone}, rarity={b.rarity}): joint pass rate "
                      f"{_fmt_pct(b.joint_pass_rate)}, tightest condition: `{b.tightest_condition}` "
                      f"({_fmt_pct(b.condition_pass_rates[0][1])})")
         cond_str = ", ".join(f"{d} ({_fmt_pct(r)})" for d, r in b.condition_pass_rates)
@@ -230,7 +230,7 @@ def render(
                      f"extremely rare -- increase `--min-samples` to tell the two apart):")
         lines.append("")
         for b in zero_rate_rules[:30]:
-            lines.append(f"- `{b.biome_key}` (zone={b.zone}, priority={b.priority}), tightest: "
+            lines.append(f"- `{b.biome_key}` (zone={b.zone}, rarity={b.rarity}), tightest: "
                          f"`{b.tightest_condition}`")
         lines.append("")
 
@@ -253,7 +253,7 @@ def render(
         lines.append(f"**{len(low_pass)} rule(s)** below {_fmt_pct(args.low_pass_rate_threshold)}:")
         lines.append("")
         for f in sorted(low_pass, key=lambda f: f.biome_key)[:30]:
-            lines.append(f"- `{f.biome_key}` (zone={f.zone}, priority={f.priority}): {f.message}")
+            lines.append(f"- `{f.biome_key}` (zone={f.zone}, rarity={f.rarity}): {f.message}")
     lines.append("")
 
     return "\n".join(lines)

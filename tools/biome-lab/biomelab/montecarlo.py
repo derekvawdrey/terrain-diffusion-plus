@@ -251,11 +251,14 @@ def climate_ranges(catalog: Catalog, result: ClassificationResult) -> list[Clima
 
 @dataclass
 class BottleneckRow:
+    settlement: object  # Settlement, kept for suggest_widen_fixes (needs .index and rule identity)
+    rule: object  # Rule, kept so callers can re-locate this exact rule
     biome_key: str
     zone: str
     priority: int
     joint_pass_rate: float
     condition_pass_rates: list  # [(condition_desc, pass_rate), ...] sorted ascending (tightest first)
+    condition_objects: list  # Condition objects, same order as condition_pass_rates
     tightest_condition: str | None
 
 
@@ -264,7 +267,8 @@ def rule_bottlenecks(catalog: Catalog, samples: ClimateSamples, top_n_tightest_o
     ALL of its conditions simultaneously) plus each individual condition's own pass rate, so a
     human/agent can immediately see which single condition is the tightest bottleneck in a
     compounding-narrow-AND-conditions case. This was the single most useful diagnostic from this
-    project's throwaway prototype -- kept here deliberately.
+    project's throwaway prototype -- kept here deliberately. Also the data source for
+    validators.check_low_pass_rate + fixes.suggest_widen_fixes (see fixes.py's module docstring).
     """
     from .engine import _eval_condition  # reuse the exact same evaluator the real engine uses
     n = samples.n
@@ -278,13 +282,16 @@ def rule_bottlenecks(catalog: Catalog, samples: ClimateSamples, top_n_tightest_o
         for c in all_conds:
             m = _eval_condition(c, lambda v: getattr(samples, v))
             rate = float(m.mean())
-            individual.append((c.describe(), rate))
+            individual.append((c, c.describe(), rate))
             joint &= m
         joint_rate = float(joint.mean())
-        individual.sort(key=lambda t: t[1])
+        individual.sort(key=lambda t: t[2])
         rows.append(BottleneckRow(
+            settlement=settlement, rule=rule,
             biome_key=settlement.key, zone=rule.zone, priority=rule.priority,
-            joint_pass_rate=joint_rate, condition_pass_rates=individual,
-            tightest_condition=individual[0][0] if individual else None,
+            joint_pass_rate=joint_rate,
+            condition_pass_rates=[(desc, rate) for _, desc, rate in individual],
+            condition_objects=[c for c, _, _ in individual],
+            tightest_condition=individual[0][1] if individual else None,
         ))
     return rows

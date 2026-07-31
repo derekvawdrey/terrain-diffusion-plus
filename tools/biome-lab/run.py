@@ -75,6 +75,16 @@ def parse_args():
     p.add_argument("--min-samples", type=int, default=500_000, help="Monte Carlo sample count.")
     p.add_argument("--min-area-fraction", type=float, default=0.0005,
                    help="Encounterability bar: biomes below this overall area fraction are flagged.")
+    p.add_argument("--low-pass-rate-threshold", type=float, default=0.005,
+                   help="Rules with a nonzero joint pass rate below this (e.g. 0.005 = 0.5%%) are "
+                        "flagged as 'rare' -- individually satisfiable but compounding down to "
+                        "near-invisible. Requires Monte Carlo (--pipeline-data), not part of "
+                        "--validate-only.")
+    p.add_argument("--fix-target-rate", type=float, default=0.02,
+                   help="When --fix widens a 'rare' rule's tightest conditions, target this "
+                        "joint pass rate (e.g. 0.02 = 2%%).")
+    p.add_argument("--fix-max-widen", type=int, default=2,
+                   help="Max number of conditions --fix will widen per over-constrained rule.")
     p.add_argument("--seed", type=int, default=0, help="Monte Carlo RNG seed.")
     return p.parse_args()
 
@@ -106,14 +116,11 @@ def main():
     if args.fix:
         fix_suggestions = fixes_mod.build_suggestions(vreport.dead_findings, families)
         applied = fixes_mod.apply_suggestions(fix_suggestions)
-        out_path = Path(args.fix_output) if args.fix_output else Path.cwd() / f"{Path(args.catalog).stem}.fixed.json"
-        out_path.parent.mkdir(parents=True, exist_ok=True)
-        import json
-        out_path.write_text(json.dumps(cat.raw, indent=2))
-        print(f"Applied {applied}/{len(fix_suggestions)} suggested fix(es) -> wrote {out_path} "
-              f"(original catalog untouched)")
+        print(f"Applied {applied}/{len(fix_suggestions)} structural fix(es) "
+              f"(discreteness/noise-ceiling).")
 
     mc_result = None
+    low_pass_findings = []
     run_mc = (not args.validate_only) and (args.force_montecarlo or vreport.passed())
     if args.validate_only:
         print("--validate-only set: skipping Monte Carlo.")
@@ -133,6 +140,7 @@ def main():
         enc = mc.encounterability(cat, af.overall, args.min_area_fraction)
         ranges = mc.climate_ranges(cat, result)
         bottlenecks = mc.rule_bottlenecks(cat, samples)
+        low_pass_findings = validators.check_low_pass_rate(bottlenecks, args.low_pass_rate_threshold)
         mc_result = {
             "n_samples": args.min_samples,
             "area_fractions": af,
@@ -141,6 +149,7 @@ def main():
             "encounterability": enc,
             "climate_ranges": ranges,
             "bottlenecks": bottlenecks,
+            "low_pass_findings": low_pass_findings,
         }
         print(f"Monte Carlo done. Effective # biomes: {dm_overall.effective_number_of_biomes:.2f}, "
               f"distinct biomes reached: {dm_overall.n_biomes_present}/{len(cat.settlements)}")
@@ -148,6 +157,42 @@ def main():
         if below_bar:
             print(f"{len(below_bar)} biome(s) below the {args.min_area_fraction * 100:.3f}% "
                   f"encounterability bar.")
+        if low_pass_findings:
+            print(f"{len(low_pass_findings)} rule(s) individually valid but compounding to a "
+                  f"joint pass rate below {args.low_pass_rate_threshold * 100:.2f}%.")
+
+        if args.fix and low_pass_findings:
+            widen_suggestions = []
+            still_short = []
+            for f in low_pass_findings:
+                row = f.source_row
+                if row is None:
+                    continue
+                sugg, resulting_rate = fixes_mod.suggest_widen_fixes(
+                    f, row, samples, target_joint_rate=args.fix_target_rate,
+                    max_conditions_to_widen=args.fix_max_widen)
+                widen_suggestions.extend(sugg)
+                if resulting_rate < args.fix_target_rate:
+                    still_short.append((f.biome_key, f.zone, f.priority, resulting_rate))
+            applied_widen = fixes_mod.apply_suggestions(widen_suggestions)
+            fix_suggestions = fix_suggestions + widen_suggestions
+            print(f"Applied {applied_widen}/{len(widen_suggestions)} widening fix(es) for "
+                  f"low-joint-pass-rate rules (target {args.fix_target_rate * 100:.2f}%).")
+            if still_short:
+                print(f"{len(still_short)} rule(s) still below target after widening up to "
+                      f"{args.fix_max_widen} condition(s) -- likely needs a human/agent decision "
+                      f"(e.g. reconsidering which zone/tier the biome belongs in), not just more "
+                      f"widening:")
+                for key, zone, prio, rate in still_short:
+                    print(f"  {key} ({zone}, prio={prio}): only reached {rate * 100:.4f}%")
+
+    if args.fix:
+        out_path = Path(args.fix_output) if args.fix_output else Path.cwd() / f"{Path(args.catalog).stem}.fixed.json"
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        import json
+        out_path.write_text(json.dumps(cat.raw, indent=2))
+        print(f"Wrote {out_path} ({len(fix_suggestions)} total suggested fix(es) applied; "
+              f"original catalog untouched)")
 
     content = report_mod.render(cat, vreport, mc_result, fix_suggestions, args)
     report_mod.write(args.report, content)

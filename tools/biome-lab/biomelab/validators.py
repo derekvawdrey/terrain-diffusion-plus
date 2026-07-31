@@ -32,8 +32,8 @@ EPS = 1e-6
 
 @dataclass
 class Finding:
-    severity: str  # "dead" | "redundant" | "info"
-    category: str  # "discreteness" | "noise_ceiling" | "hard_bounds"
+    severity: str  # "dead" | "redundant" | "info" | "rare"
+    category: str  # "discreteness" | "noise_ceiling" | "hard_bounds" | "low_pass_rate"
     biome_key: str
     biome_index: int
     zone: str
@@ -41,6 +41,11 @@ class Finding:
     condition_desc: str
     message: str
     condition: Condition = field(repr=False, default=None)
+    # Only set by check_low_pass_rate: the exact originating BottleneckRow. NOT safe to
+    # re-derive from (biome_key, zone, priority) -- a single biome can have several rule variants
+    # at the identical zone+priority (e.g. minecraft:cherry_grove has ~16), so that tuple isn't a
+    # unique key back to "this specific rule." Carry the object reference instead.
+    source_row: object = field(repr=False, default=None, compare=False)
 
 
 def _candidate_satisfies(cond: Condition, candidate: float, eps=EPS) -> bool:
@@ -239,6 +244,44 @@ def check_moisture_treemoisture_aliasing(catalog: Catalog) -> list[Finding]:
                          "number. Not necessarily a bug, but double-check the intent."),
                 condition=None,
             ))
+    return findings
+
+
+def check_low_pass_rate(bottleneck_rows: list, threshold: float = 0.005) -> list[Finding]:
+    """Requires a Monte Carlo run first (unlike the three checks above) -- NOT part of
+    ValidatorReport / the fast static bundle, so --validate-only stays sampling-free. Call this
+    explicitly from run.py after rule_bottlenecks() has run.
+
+    Flags rules that are individually satisfiable and pass every discreteness/noise-ceiling check
+    (so NOT "dead" in the structural sense) but whose *joint* pass rate -- all conditions
+    AND-combined -- is so low the biome is effectively invisible in normal play. This is a
+    genuinely different failure mode from the two structural bugs: e.g.
+    biomesoplenty:grassland's rule combines `variantNoise > 0.3` (6.4% individually likely) AND a
+    10-20C window (21.8%) AND a moisture window (18.3%) AND `treeCoverage <= 0.05` (27.3%) --
+    every single condition is fine in isolation, but four "reasonable" ~20% conditions
+    multiplied together land at ~0.07%, matching the ~0.001% actually observed. Severity "rare"
+    (distinct from "dead") since these rules DO match real pixels, just vanishingly few of them.
+    """
+    findings = []
+    for row in bottleneck_rows:
+        if row.joint_pass_rate <= 0.0 or row.joint_pass_rate >= threshold:
+            continue  # exactly-zero rows are (or overlap with) the structural "dead" findings above
+        tightest_desc, tightest_rate = row.condition_pass_rates[0] if row.condition_pass_rates else (None, None)
+        findings.append(Finding(
+            severity="rare", category="low_pass_rate",
+            biome_key=row.biome_key, biome_index=row.settlement.index,
+            zone=row.zone, priority=row.priority,
+            condition_desc=tightest_desc or "(no conditions)",
+            message=(f"This rule's conditions are all individually satisfiable, but their "
+                     f"conjunction only matches {row.joint_pass_rate * 100:.4f}% of sampled "
+                     f"climate -- below the {threshold * 100:.2f}% bar. Tightest single "
+                     f"condition: '{tightest_desc}' ({tightest_rate * 100:.3f}% alone), but no "
+                     f"single condition is broken; it's the AND of several moderately-narrow "
+                     f"conditions compounding multiplicatively. Full condition list: "
+                     + ", ".join(f"{d} ({r * 100:.3f}%)" for d, r in row.condition_pass_rates) + "."),
+            condition=None,  # ambiguous which of several conditions to touch -- see fixes.suggest_widen_fixes
+            source_row=row,
+        ))
     return findings
 
 

@@ -46,9 +46,11 @@ python3 run.py \
   --min-samples 1000000 \
   --report biome_lab_report.md
 
-# 3. Get concrete auto-fix suggestions for the two mechanically-fixable bug classes, written to a
-#    NEW file (never touches your input catalog):
-python3 run.py --catalog <path-to-catalog> --fix --fix-output ./biome_catalog.fixed.json
+# 3. Get concrete auto-fix suggestions -- both structural bug classes (discreteness, noise
+#    ceiling) AND, if Monte Carlo ran (needs --pipeline-data), "individually valid but compounds
+#    to near-invisible" rules -- written to a NEW file (never touches your input catalog):
+python3 run.py --catalog <path-to-catalog> --pipeline-data <path-to-pipeline_data.json> \
+  --min-samples 1000000 --force-montecarlo --fix --fix-output ./biome_catalog.fixed.json
 ```
 
 `--catalog` accepts **any** `biome_catalog.json` path -- point it at the repo's own default
@@ -92,13 +94,23 @@ The report is a single Markdown file with these sections, in order:
   conditions read the *literal same* underlying value in `TerrainClimateSample` -- not independent
   axes. Not flagged as a bug, just worth knowing when reading a rule that uses both.
 
-**2. Suggested fixes** (only shown with `--fix`). Concrete before/after patches for the
-discreteness and noise-ceiling dead-condition classes:
+**2. Suggested fixes** (only shown with `--fix`). Concrete before/after patches for three bug
+classes:
 - Discreteness fixes snap the condition to a tight `between` window around the nearest real
   discrete value (not a float `eq`, which would be brittle against JSON-vs-Java float rounding).
 - Noise-ceiling fixes replace the threshold with the measured 98th (or 2nd) percentile of that
   noise field's real distribution, calibrated toward a ~2% "rare accent" pass rate rather than a
   made-up number.
+- **Low-joint-pass-rate fixes** (needs Monte Carlo, i.e. `--pipeline-data` + `--force-montecarlo`
+  if validators didn't already pass): widens the tightest 1-2 conditions in an over-constrained
+  rule (see 3g below) toward `--fix-target-rate` (default 2%). Unlike the two fixes above there's
+  no formula -- it binary-searches directly against the real Monte Carlo sample arrays, holding
+  every other condition in the rule fixed, so it accounts for how the conditions actually
+  correlate in real climate data rather than assuming independence. Capped at
+  `--fix-max-widen` conditions per rule (default 2); if that's not enough to reach the target,
+  the run log says so explicitly instead of silently under-delivering -- treat those as needing a
+  human/agent decision (e.g. `cherry_grove`'s many deliberately-narrow micro-niche variants, or a
+  genuinely-rare-by-design mountain-peak biome), not more mechanical widening.
 - Ambiguous multi-condition dead groups (like `tundra`'s two-sided treeCoverage bug) and hard-bound
   violations (the elevationM/deep-ocean bug) are **not** auto-fixed -- there's no single
   mechanical snap that's obviously the intended fix, so those need a human/agent decision.
@@ -123,6 +135,15 @@ or `--force-montecarlo` was set):
   condition's own pass rate, sorted tightest-first**. This was the single most useful diagnostic
   from this project's throwaway prototype: it immediately shows which one condition in a
   compounding-AND rule is strangling it, instead of just "this rule barely ever fires."
+- **3g. Low joint pass rate** -- rules that are individually valid (nothing here trips the
+  structural checks in section 1) but whose AND of several moderately-narrow conditions
+  compounds multiplicatively down to near-invisible. A real example found in the live catalog:
+  `biomesoplenty:grassland`'s rule combined `variantNoise > 0.3` (6.4% likely alone) AND a
+  10-20C window (21.8%) AND a moisture window (18.3%) AND `treeCoverage <= 0.05` (27.3%) --
+  each condition looks reasonable in isolation, but multiplied together that's ~0.001% joint,
+  matching what the Monte Carlo actually observed. This is *why* a catalog can pass every
+  structural check and still have most of its biomes feel unreachable in practice. Run with
+  `--fix` to get widening suggestions (see section 2).
 
 ## The slope approximation -- read this before trusting mountain/bareSlope numbers
 

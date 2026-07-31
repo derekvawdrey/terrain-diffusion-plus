@@ -234,6 +234,28 @@ def render(
                          f"`{b.tightest_condition}`")
         lines.append("")
 
+    low_pass = mc_result.get("low_pass_findings") or []
+    lines.append("### 3g. Low joint pass rate (individually valid, compounds to near-invisible)")
+    lines.append("")
+    lines.append("Rules where every condition is individually satisfiable and none trip the "
+                 "structural discreteness/noise-ceiling checks in section 1, but the AND of all "
+                 "of them together is so restrictive the biome is effectively invisible in normal "
+                 "play. Different failure mode from section 1's dead conditions: nothing here is "
+                 "broken, several moderately-narrow conditions are just compounding "
+                 "multiplicatively. Run with `--fix` to widen the tightest 1-2 conditions per rule "
+                 "toward `--fix-target-rate` (default 2%), re-simulated against real Monte Carlo "
+                 "samples rather than an independence assumption -- see section 2 for what was "
+                 "widened, if `--fix` was passed.")
+    lines.append("")
+    if not low_pass:
+        lines.append(f"No rules below the {_fmt_pct(args.low_pass_rate_threshold)} threshold.")
+    else:
+        lines.append(f"**{len(low_pass)} rule(s)** below {_fmt_pct(args.low_pass_rate_threshold)}:")
+        lines.append("")
+        for f in sorted(low_pass, key=lambda f: f.biome_key)[:30]:
+            lines.append(f"- `{f.biome_key}` (zone={f.zone}, priority={f.priority}): {f.message}")
+    lines.append("")
+
     return "\n".join(lines)
 
 

@@ -1,5 +1,6 @@
 package com.github.xandergos.terraindiffusionmc.world;
 
+import com.github.xandergos.terraindiffusionmc.biome.TerrainBiomeCatalog;
 import com.github.xandergos.terraindiffusionmc.biome.TerrainBiomeRegistry;
 import com.github.xandergos.terraindiffusionmc.biome.TerrainBiomeSettlement;
 import com.github.xandergos.terraindiffusionmc.config.TerrainDiffusionConfig;
@@ -105,6 +106,7 @@ public class TerrainDiffusionBiomeSource extends BiomeSource {
 
         // x, y, z are in quart coordinates (block / 4)
         int blockX = QuartPos.toBlock(x);
+        int blockY = QuartPos.toBlock(y);
         int blockZ = QuartPos.toBlock(z);
 
         int tileSize = TerrainDiffusionConfig.tileSize();
@@ -122,7 +124,9 @@ public class TerrainDiffusionBiomeSource extends BiomeSource {
         if (data != null && data.biomeIndexes != null) {
             int localX = Math.max(0, Math.min(data.width  - 1, blockX - blockStartX));
             int localZ = Math.max(0, Math.min(data.height - 1, blockZ - blockStartZ));
-            Holder<Biome> entry = biomeIndexMap.get(data.biomeIndexes[localZ][localX]);
+            short surfaceBiomeIndex = data.biomeIndexes[localZ][localX];
+            short caveBiomeIndex = selectUndergroundBiome(data, localX, localZ, surfaceBiomeIndex, blockY);
+            Holder<Biome> entry = biomeIndexMap.get(caveBiomeIndex);
             if (entry != null) return entry;
         }
 
@@ -131,6 +135,130 @@ public class TerrainDiffusionBiomeSource extends BiomeSource {
         // Vanilla surface generation calls .is() on this return value with no null check
         // (see SurfaceSystem.buildSurface), so this must never be null.
         return this.biomeLookup.getOrThrow(Biomes.PLAINS);
+    }
+
+    /**
+     * Selects an underground biome based on depth below the terrain surface and the surface
+     * biome's climate characteristics. Returns the surface biome index for positions above
+     * the cave threshold.
+     */
+    private static short selectUndergroundBiome(HeightmapData data, int localX, int localZ,
+                                                short surfaceBiomeIndex, int blockY) {
+        int surfaceHeight = HeightConverter.convertToMinecraftHeight(data.heightmap[localZ][localX]);
+        int depthBelowSurface = surfaceHeight - blockY;
+
+        // Above surface or very shallow: use surface biome
+        if (depthBelowSurface < 0) return surfaceBiomeIndex;
+
+        // Cave biome transitions begin below the surface
+        // Shallow underground (0-30 blocks below surface): still surface biome for ore generation
+        if (depthBelowSurface < 30) return surfaceBiomeIndex;
+
+        // Deep enough for cave biomes - use noise to select based on surface biome climate
+        short caveKind = selectCaveBiome(localX, localZ, surfaceBiomeIndex, depthBelowSurface);
+        return caveKind;
+    }
+
+    /**
+     * Determines which cave biome to use based on position, surface biome, and depth.
+     * Uses deterministic noise for spatially coherent cave biome distribution.
+     */
+    private static short selectCaveBiome(int localX, int localZ, short surfaceBiomeIndex, int depthBelowSurface) {
+        // Deep dark takes over at extreme depths regardless of surface biome
+        if (depthBelowSurface > 100) {
+            return TerrainBiomeCatalog.DEEP_DARK;
+        }
+
+        // Use deterministic noise to vary cave type across the world
+        float caveNoise = valueNoise(surfaceCaveBiomeSeed, localX / 256f, localZ / 256f);
+
+        // Check if surface biome is warm/humid (good for lush caves) or temperate (dripstone)
+        boolean isWarmHumid = isWarmHumidBiome(surfaceBiomeIndex);
+        boolean isFrozen = isFrozenBiome(surfaceBiomeIndex);
+
+        if (isFrozen) {
+            // Frozen surfaces get dripstone caves (ice formations)
+            return TerrainBiomeCatalog.DRIPSTONE_CAVES;
+        }
+
+        if (isWarmHumid) {
+            // Warm/humid surfaces blend between lush and dripstone
+            if (caveNoise > 0.15f) {
+                return TerrainBiomeCatalog.LUSH_CAVES;
+            }
+            return TerrainBiomeCatalog.DRIPSTONE_CAVES;
+        }
+
+        // Default: dripstone with occasional lush patches
+        if (caveNoise > 0.4f) {
+            return TerrainBiomeCatalog.LUSH_CAVES;
+        }
+        return TerrainBiomeCatalog.DRIPSTONE_CAVES;
+    }
+
+    private static final int surfaceCaveBiomeSeed = 55678;
+
+    private static boolean isWarmHumidBiome(short index) {
+        // Jungle, swamp, mangrove, lush ocean biomes produce lush caves
+        switch (index) {
+            case TerrainBiomeCatalog.JUNGLE:
+            case TerrainBiomeCatalog.SPARSE_JUNGLE:
+            case TerrainBiomeCatalog.BAMBOO_JUNGLE:
+            case TerrainBiomeCatalog.SWAMP:
+            case TerrainBiomeCatalog.MANGROVE_SWAMP:
+            case TerrainBiomeCatalog.DARK_FOREST:
+            case TerrainBiomeCatalog.WARM_OCEAN:
+                return true;
+            default:
+                return false;
+        }
+    }
+
+    private static boolean isFrozenBiome(short index) {
+        switch (index) {
+            case TerrainBiomeCatalog.SNOWY_PLAINS:
+            case TerrainBiomeCatalog.ICE_SPIKES:
+            case TerrainBiomeCatalog.SNOWY_TAIGA:
+            case TerrainBiomeCatalog.SNOWY_SLOPES:
+            case TerrainBiomeCatalog.FROZEN_PEAKS:
+            case TerrainBiomeCatalog.JAGGED_PEAKS:
+            case TerrainBiomeCatalog.FROZEN_RIVER:
+            case TerrainBiomeCatalog.FROZEN_OCEAN:
+            case TerrainBiomeCatalog.DEEP_FROZEN_OCEAN:
+                return true;
+            default:
+                return false;
+        }
+    }
+
+    private static float valueNoise(int seed, float x, float y) {
+        int x0 = (int) Math.floor(x);
+        int y0 = (int) Math.floor(y);
+        float fx = smoothstep(x - x0);
+        float fy = smoothstep(y - y0);
+        float a = hashUnit(seed, x0, y0);
+        float b = hashUnit(seed, x0 + 1, y0);
+        float c = hashUnit(seed, x0, y0 + 1);
+        float d = hashUnit(seed, x0 + 1, y0 + 1);
+        return lerp(lerp(a, b, fx), lerp(c, d, fx), fy);
+    }
+
+    private static float hashUnit(int seed, int x, int y) {
+        long value = seed ^ ((long) x * 0x9E3779B97F4A7C15L) ^ ((long) y * 0xC2B2AE3D27D4EB4FL);
+        value ^= value >>> 30;
+        value *= 0xBF58476D1CE4E5B9L;
+        value ^= value >>> 27;
+        value *= 0x94D049BB133111EBL;
+        value ^= value >>> 31;
+        return ((value >>> 40) / (float) (1L << 24)) * 2.0f - 1.0f;
+    }
+
+    private static float smoothstep(float v) {
+        return v * v * (3.0f - 2.0f * v);
+    }
+
+    private static float lerp(float a, float b, float t) {
+        return a + (b - a) * t;
     }
 
     @Override

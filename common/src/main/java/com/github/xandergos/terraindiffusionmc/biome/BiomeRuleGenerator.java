@@ -25,7 +25,7 @@ import java.util.List;
  * <p>Sharing a tier is safe here specifically because of how {@link BiomeRuleEngine#select}
  * resolves ties <i>within</i> one priority tier: it is NOT the same noise-based competition used
  * across tiers -- within a tier the rule belonging to the <b>highest biome index</b> that matches
- * wins outright, deterministically (see {@code select}'s inner loop, "if (entry.index <=
+ * wins outright, deterministically (see select's inner loop, "if (entry.index &lt;=
  * bestIndex) continue"). A freshly generated settlement always gets the next unused (i.e.
  * highest) index, so as long as our new rule's noise-gated condition set is a strict subset of
  * the anchor's climate window, the two behave as clean, deterministic, spatially-coherent
@@ -36,7 +36,7 @@ import java.util.List;
  *
  * <p>Because of that clobber risk, a noise gate is added whenever we share a tier with an
  * anchor -- even for "common" rarity, which is floored to the "uncommon" threshold in that case
- * (see {@link #resolveNoiseThreshold}) so the new biome never fully overwrites 100% of the
+ * (see resolveNoiseThreshold) so the new biome never fully overwrites 100% of the
  * anchor's existing territory in their overlapping niche. Only a genuinely new, non-overlapping
  * tier (no anchor found) allows a true no-gate "common" pick.</p>
  */

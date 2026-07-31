@@ -630,6 +630,25 @@
   .bc-status.fail { background: #3a1620; color: #f87171; }
 
   .bc-hint { font-size: 10px; color: var(--muted); line-height: 1.5; }
+
+  .cf-card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 5px;
+    padding: 8px 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .cf-card-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+  }
+  .cf-zone-name { font-weight: 600; font-size: 12px; text-transform: capitalize; }
+  .cf-zone-meta { color: var(--muted); font-weight: 400; font-size: 10px; }
+  .cf-apply { flex-shrink: 0; }
 </style>
 </head>
 <body>
@@ -693,6 +712,10 @@
 
       <div id="bc-editor" style="display:none; flex-direction:column; gap:8px;">
         <div class="bc-selected-key" id="bc-selected-key">—</div>
+
+        <div id="bc-candidates" style="display:none; flex-direction:column; gap:8px;"></div>
+
+        <div class="section-title" style="margin-top:2px;">Add Rule Variant</div>
 
         <div class="bc-field">
           <label>Zone</label>
@@ -1648,6 +1671,7 @@
   const bcList         = document.getElementById('bc-list');
   const bcEditor        = document.getElementById('bc-editor');
   const bcSelectedKeyEl = document.getElementById('bc-selected-key');
+  const bcCandidates    = document.getElementById('bc-candidates');
   const bcZone         = document.getElementById('bc-zone');
   const bcTemp         = document.getElementById('bc-temp');
   const bcMoisture     = document.getElementById('bc-moisture');
@@ -1702,9 +1726,100 @@
     bcApplyBtn.disabled = true;
     bcLastPreviewPassed = false;
     renderBiomeList();
+    if (b.configured) {
+      loadCandidateFilters(b.key);
+    } else {
+      bcCandidates.style.display = 'none';
+      bcCandidates.innerHTML = '';
+    }
   }
 
   bcSearch.addEventListener('input', renderBiomeList);
+
+  // ── Candidate Regions ──
+  // For an already-configured biome, asks the server (BiomeCandidateFilterCalculator, via
+  // /api/biomes/candidate_filters) which coarse-map Filter sliders would narrow the map down to
+  // that biome's candidate spawn area, then lets the user apply them with one click instead of
+  // guessing elevation/temperature/precipitation ranges by hand.
+  async function loadCandidateFilters(biomeKey) {
+    bcCandidates.style.display = 'flex';
+    bcCandidates.innerHTML = '<span class="bc-hint">Loading candidate regions…</span>';
+    try {
+      const res = await fetch(`/api/biomes/candidate_filters?biomeKey=${encodeURIComponent(biomeKey)}`);
+      const data = await res.json();
+      renderCandidateFilters(data);
+    } catch (e) {
+      bcCandidates.innerHTML = '<span class="bc-hint">Failed to load candidate regions.</span>';
+    }
+  }
+
+  function renderCandidateFilters(data) {
+    if (!data.configured || !data.zones || data.zones.length === 0) {
+      bcCandidates.style.display = 'none';
+      bcCandidates.innerHTML = '';
+      return;
+    }
+    bcCandidates.style.display = 'flex';
+    bcCandidates.innerHTML = '';
+
+    const title = document.createElement('div');
+    title.className = 'section-title';
+    title.textContent = 'Candidate Regions';
+    bcCandidates.appendChild(title);
+
+    data.zones.forEach(z => {
+      const card = document.createElement('div');
+      card.className = 'cf-card';
+
+      const filterChs = Object.keys(z.filters);
+      const filterSummary = filterChs.length
+          ? filterChs.map(ch => {
+              const meta = CHANNEL_META.find(m => String(m.ch) === ch);
+              const name = meta ? meta.name : `ch${ch}`;
+              const unit = meta ? meta.unit : '';
+              return `${name} ${z.filters[ch].min}${unit}–${z.filters[ch].max}${unit}`;
+            }).join(', ')
+          : 'no coarse-map constraint (this zone reaches everywhere)';
+
+      let caveatsHtml = '';
+      if (z.caveats && z.caveats.length) {
+        const more = z.caveatsTruncated ? '; …' : '';
+        caveatsHtml = `<div class="bc-hint">Also requires: ${z.caveats.join('; ')}${more} — not shown on the map (fine-scale terrain/noise), so the real spawn area will be smaller and patchier than the highlighted region.</div>`;
+      }
+
+      card.innerHTML = `
+        <div class="cf-card-header">
+          <span class="cf-zone-name">${z.zone} <span class="cf-zone-meta">(${z.ruleCount} rule${z.ruleCount === 1 ? '' : 's'})</span></span>
+          <button class="cf-apply">Show on Map</button>
+        </div>
+        <div class="bc-hint">${filterSummary}</div>
+        ${caveatsHtml}
+      `;
+      card.querySelector('.cf-apply').addEventListener('click', () => applyZoneCandidateFilter(z));
+      bcCandidates.appendChild(card);
+    });
+  }
+
+  function applyZoneCandidateFilter(zoneCandidate) {
+    CHANNEL_META.forEach(({ ch }) => {
+      const minEl = document.getElementById(`fch-${ch}-min`);
+      const maxEl = document.getElementById(`fch-${ch}-max`);
+      if (!minEl || !maxEl) return;
+      const f = zoneCandidate.filters[String(ch)];
+      if (f) {
+        minEl.value = clamp(f.min, parseFloat(minEl.min), parseFloat(minEl.max));
+        maxEl.value = clamp(f.max, parseFloat(minEl.min), parseFloat(minEl.max));
+      } else {
+        minEl.value = minEl.min;
+        maxEl.value = minEl.max;
+      }
+      minEl.dispatchEvent(new Event('input'));
+      maxEl.dispatchEvent(new Event('input'));
+    });
+    filterEnable.checked = true;
+    loadCoarse();
+    statusBar.textContent = `Filter applied — candidate "${zoneCandidate.zone}" region for the selected biome`;
+  }
 
   function currentBiomeRequest() {
     return {

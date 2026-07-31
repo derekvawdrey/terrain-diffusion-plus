@@ -1,5 +1,6 @@
 package com.github.xandergos.terraindiffusionmc.explorer;
 
+import com.github.xandergos.terraindiffusionmc.biome.BiomeCandidateFilterCalculator;
 import com.github.xandergos.terraindiffusionmc.biome.BiomeRuleGenerator;
 import com.github.xandergos.terraindiffusionmc.biome.TerrainBiomeRegistry;
 import com.github.xandergos.terraindiffusionmc.biome.TerrainBiomeRule;
@@ -23,6 +24,7 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.InetSocketAddress;
 import java.net.URI;
+import java.net.URLDecoder;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.nio.charset.StandardCharsets;
@@ -91,6 +93,7 @@ public final class ExplorerServer {
         server.createContext("/api/detail.png", ExplorerServer::handleDetailPng);
         server.createContext("/api/detail_raw", ExplorerServer::handleDetailRaw);
         server.createContext("/api/biomes/available", ExplorerServer::handleBiomesAvailable);
+        server.createContext("/api/biomes/candidate_filters", ExplorerServer::handleBiomesCandidateFilters);
         server.createContext("/api/biomes/preview", ExplorerServer::handleBiomesPreview);
         server.createContext("/api/biomes/apply", ExplorerServer::handleBiomesApply);
         // Single-thread executor matches Python's threaded=False
@@ -526,6 +529,61 @@ public final class ExplorerServer {
                 resp.put("warning", "No biome registry data yet — run /td-explore in-world once "
                         + "so the server can enumerate Registries.BIOME.");
             }
+            sendJson(ex, 200, resp);
+        } catch (Exception e) {
+            sendError(ex, 500, e.getMessage());
+        }
+    }
+
+    /**
+     * GET /api/biomes/candidate_filters?biomeKey=... — for an already-configured biome, works out
+     * which coarse-map Filter sliders (Elev/Temp/T std/Precip/Precip CV) narrow the map down to
+     * that biome's candidate spawn area, grouped by zone (since e.g. a biome's lowland-zone rules
+     * and mountain-zone rules can have very different climate windows). Never mutates anything —
+     * pure read-only derivation from the biome's existing rules via
+     * {@link BiomeCandidateFilterCalculator}. Powers the "Biome Config" panel's "Show on Map"
+     * buttons in the explorer UI.
+     */
+    private static void handleBiomesCandidateFilters(HttpExchange ex) throws IOException {
+        if (!ex.getRequestMethod().equalsIgnoreCase("GET")) { send405(ex); return; }
+        try {
+            Map<String, String> q = parseQuery(ex.getRequestURI());
+            String rawKey = q.get("biomeKey");
+            if (rawKey == null || rawKey.isBlank()) { sendError(ex, 400, "biomeKey is required"); return; }
+            String biomeKey = URLDecoder.decode(rawKey, StandardCharsets.UTF_8);
+
+            TerrainBiomeRegistry registry = TerrainBiomeRegistry.instance();
+            TerrainBiomeSettlement settlement = registry.byKey(biomeKey);
+
+            Map<String, Object> resp = new LinkedHashMap<>();
+            resp.put("biomeKey", biomeKey);
+            if (settlement == null || settlement.rules().isEmpty()) {
+                resp.put("configured", false);
+                sendJson(ex, 200, resp);
+                return;
+            }
+
+            resp.put("configured", true);
+            List<Map<String, Object>> zonesJson = new ArrayList<>();
+            for (BiomeCandidateFilterCalculator.ZoneCandidate zc : BiomeCandidateFilterCalculator.compute(settlement)) {
+                Map<String, Object> zoneResp = new LinkedHashMap<>();
+                zoneResp.put("zone", zc.zone());
+                zoneResp.put("ruleCount", zc.ruleCount());
+                zoneResp.put("minPriority", zc.minPriority());
+                zoneResp.put("maxPriority", zc.maxPriority());
+                Map<String, Object> filters = new LinkedHashMap<>();
+                for (Map.Entry<Integer, float[]> entry : zc.channelFilters().entrySet()) {
+                    Map<String, Object> range = new LinkedHashMap<>();
+                    range.put("min", round3(entry.getValue()[0]));
+                    range.put("max", round3(entry.getValue()[1]));
+                    filters.put(String.valueOf(entry.getKey()), range);
+                }
+                zoneResp.put("filters", filters);
+                zoneResp.put("caveats", zc.caveats());
+                zoneResp.put("caveatsTruncated", zc.caveatsTruncated());
+                zonesJson.add(zoneResp);
+            }
+            resp.put("zones", zonesJson);
             sendJson(ex, 200, resp);
         } catch (Exception e) {
             sendError(ex, 500, e.getMessage());

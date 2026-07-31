@@ -12,12 +12,16 @@ import com.mojang.brigadier.CommandDispatcher;
 import com.mojang.brigadier.context.CommandContext;
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.commands.Commands;
+import net.minecraft.core.Registry;
+import net.minecraft.core.RegistryAccess;
+import net.minecraft.core.registries.Registries;
 import net.minecraft.network.chat.ClickEvent;
 import net.minecraft.network.chat.Component;
 import net.minecraft.network.chat.MutableComponent;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.level.Level;
+import net.minecraft.world.level.biome.Biome;
 import net.minecraft.world.level.biome.BiomeSource;
 import net.minecraft.world.level.levelgen.DensityFunction;
 import com.mojang.serialization.MapCodec;
@@ -25,6 +29,8 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.List;
 
 /**
  * Loader-neutral lifecycle and command logic for terrain-diffusion-mc.
@@ -118,6 +124,7 @@ public final class TerrainDiffusionLifecycle {
         try {
             var pos = ctx.getSource().getPosition();
             ExplorerServer.setCommandOrigin(pos.x, pos.z);
+            ExplorerServer.setAvailableBiomeKeys(enumerateBiomeKeys(ctx));
             int port = ExplorerServer.startIfNotRunning();
             String url = "http://localhost:" + port;
             MutableComponent link = Component.literal(url)
@@ -131,5 +138,25 @@ public final class TerrainDiffusionLifecycle {
             ctx.getSource().sendFailure(Component.literal("Failed to start terrain explorer: " + e.getMessage()));
         }
         return 1;
+    }
+
+    /**
+     * Enumerates every biome key ({@code namespace:path}) in the live server's
+     * {@code Registries.BIOME} -- vanilla AND every biome from any currently-installed mod, with
+     * no hardcoded mod IDs -- for the terrain explorer's "Biome Config" panel
+     * ({@code /api/biomes/available}). {@code CommandSourceStack} carries a live
+     * {@code RegistryAccess} at this command call site, which is not otherwise threaded into
+     * {@code ExplorerServer} (a Minecraft-version-agnostic module that can't reference
+     * {@code RegistryAccess}/{@code Registry} types directly), so this resolves the full key
+     * list here and hands it over as plain strings.
+     */
+    private static List<String> enumerateBiomeKeys(CommandContext<CommandSourceStack> ctx) {
+        RegistryAccess registryAccess = ctx.getSource().getServer().registryAccess();
+        Registry<Biome> biomeRegistry = registryAccess.registryOrThrow(Registries.BIOME);
+        List<String> keys = new ArrayList<>();
+        for (ResourceLocation key : biomeRegistry.keySet()) {
+            keys.add(key.toString());
+        }
+        return keys;
     }
 }

@@ -529,6 +529,107 @@
   }
   .coord-tp:hover { border-color: var(--accent); }
   .coord-tp-copied { border-color: #22c55e !important; color: #22c55e; }
+
+  /* ── Biome Config ── */
+  select {
+    background: var(--card);
+    border: 1px solid var(--border);
+    color: var(--text);
+    border-radius: 4px;
+    padding: 6px 8px;
+    font-size: 12px;
+    font-family: inherit;
+    width: 100%;
+  }
+  select:focus { border-color: var(--accent); outline: none; }
+
+  .bc-list {
+    max-height: 160px;
+    overflow-y: auto;
+    border: 1px solid var(--border);
+    border-radius: 5px;
+    background: var(--card);
+  }
+
+  .bc-item {
+    padding: 5px 8px;
+    font-size: 11px;
+    font-family: monospace;
+    cursor: pointer;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 6px;
+  }
+  .bc-item:last-child { border-bottom: none; }
+  .bc-item:hover { background: var(--accent-dim); }
+  .bc-item.selected { background: var(--accent); color: #fff; }
+
+  .bc-item .bc-key {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .bc-item .bc-badge {
+    font-size: 9px;
+    padding: 1px 5px;
+    border-radius: 3px;
+    flex-shrink: 0;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+  .bc-item .bc-badge.configured { background: var(--accent-dim); color: var(--accent); }
+  .bc-item .bc-badge.unconfigured { background: var(--track); color: var(--muted); }
+
+  .bc-field { display: flex; flex-direction: column; gap: 3px; }
+  .bc-field label {
+    font-size: 10px;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+
+  .bc-selected-key {
+    font-family: monospace;
+    font-size: 11px;
+    color: var(--accent);
+    word-break: break-all;
+  }
+
+  .bc-actions { display: flex; gap: 6px; }
+  .bc-actions button { flex: 1; }
+
+  .bc-result {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 5px;
+    padding: 8px;
+    font-size: 11px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .bc-result pre {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 6px;
+    font-size: 10px;
+    overflow-x: auto;
+    max-height: 160px;
+    overflow-y: auto;
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+
+  .bc-status { font-weight: 700; padding: 4px 6px; border-radius: 4px; font-size: 11px; }
+  .bc-status.pass { background: #16351f; color: #4ade80; }
+  .bc-status.fail { background: #3a1620; color: #f87171; }
+
+  .bc-hint { font-size: 10px; color: var(--muted); line-height: 1.5; }
 </style>
 </head>
 <body>
@@ -580,6 +681,77 @@
         <span class="coord-scale-lbl" id="coord-scale-lbl">—</span>
       </div>
       <div id="coord-rows"><span class="coord-hint">Click detail map to see coordinates</span></div>
+    </div>
+
+    <!-- Biome Config -->
+    <div class="section">
+      <div class="section-title">Biome Config</div>
+      <input type="text" id="bc-search" placeholder="Search installed biomes…">
+      <div class="bc-list" id="bc-list">
+        <span class="bc-hint" style="padding:8px;display:block;">Loading biomes…</span>
+      </div>
+
+      <div id="bc-editor" style="display:none; flex-direction:column; gap:8px;">
+        <div class="bc-selected-key" id="bc-selected-key">—</div>
+
+        <div class="bc-field">
+          <label>Zone</label>
+          <select id="bc-zone">
+            <option value="lowland">Lowland</option>
+            <option value="mountain">Mountain</option>
+            <option value="ocean">Ocean</option>
+            <option value="beach">Beach</option>
+            <option value="bareSlope">Bare Slope</option>
+          </select>
+        </div>
+
+        <div class="bc-field">
+          <label>Temperature</label>
+          <select id="bc-temp">
+            <option value="COLD">Cold</option>
+            <option value="TEMPERATE" selected>Temperate</option>
+            <option value="WARM">Warm</option>
+            <option value="HOT">Hot</option>
+          </select>
+        </div>
+
+        <div class="bc-field">
+          <label>Moisture</label>
+          <select id="bc-moisture">
+            <option value="DRY">Dry</option>
+            <option value="MODERATE" selected>Moderate</option>
+            <option value="WET">Wet</option>
+          </select>
+        </div>
+
+        <div class="bc-field">
+          <label>Tree Density</label>
+          <select id="bc-tree">
+            <option value="BARE">Bare (no trees)</option>
+            <option value="SPARSE">Sparse</option>
+            <option value="FOREST" selected>Forest</option>
+            <option value="DENSE">Dense</option>
+            <option value="RAINFOREST">Rainforest</option>
+          </select>
+        </div>
+
+        <div class="bc-field">
+          <label>Rarity</label>
+          <select id="bc-rarity">
+            <option value="COMMON" selected>Common</option>
+            <option value="UNCOMMON">Uncommon</option>
+            <option value="RARE">Rare</option>
+            <option value="VERY_RARE">Very Rare</option>
+          </select>
+        </div>
+
+        <div class="bc-actions">
+          <button id="bc-preview">Preview</button>
+          <button id="bc-apply" class="primary" disabled>Apply</button>
+        </div>
+
+        <div class="bc-result" id="bc-result" style="display:none;"></div>
+      </div>
     </div>
   </aside>
 
@@ -1467,6 +1639,156 @@
   document.getElementById('detail-left').addEventListener('click',  () => panDetail(0, -DETAIL_PAN_STEP));
   document.getElementById('detail-right').addEventListener('click', () => panDetail(0,  DETAIL_PAN_STEP));
 
+  // ── Biome Config ──
+  // Lets the user pick any installed biome (vanilla or modded, enumerated live from the
+  // server's real Registries.BIOME by /api/biomes/available), assign it a coarse zone/climate/
+  // rarity, and generate + validate + apply a biome_catalog.json rule for it — see
+  // ExplorerServer's /api/biomes/* handlers and BiomeRuleGenerator for the server-side logic.
+  const bcSearch       = document.getElementById('bc-search');
+  const bcList         = document.getElementById('bc-list');
+  const bcEditor        = document.getElementById('bc-editor');
+  const bcSelectedKeyEl = document.getElementById('bc-selected-key');
+  const bcZone         = document.getElementById('bc-zone');
+  const bcTemp         = document.getElementById('bc-temp');
+  const bcMoisture     = document.getElementById('bc-moisture');
+  const bcTree         = document.getElementById('bc-tree');
+  const bcRarity       = document.getElementById('bc-rarity');
+  const bcPreviewBtn   = document.getElementById('bc-preview');
+  const bcApplyBtn     = document.getElementById('bc-apply');
+  const bcResult       = document.getElementById('bc-result');
+
+  let bcBiomes = [];
+  let bcSelectedBiome = null;
+  let bcLastPreviewPassed = false;
+
+  async function loadAvailableBiomes() {
+    try {
+      const res = await fetch('/api/biomes/available');
+      const data = await res.json();
+      bcBiomes = data.biomes || [];
+      renderBiomeList();
+    } catch (e) {
+      bcList.innerHTML = '<span class="bc-hint" style="padding:8px;display:block;">Failed to load biome registry.</span>';
+    }
+  }
+
+  function renderBiomeList() {
+    const q = bcSearch.value.trim().toLowerCase();
+    const filtered = bcBiomes.filter(b => !q || b.key.toLowerCase().includes(q));
+    bcList.innerHTML = '';
+    if (filtered.length === 0) {
+      bcList.innerHTML = '<span class="bc-hint" style="padding:8px;display:block;">No biomes match.</span>';
+      return;
+    }
+    filtered.slice(0, 400).forEach(b => {
+      const row = document.createElement('div');
+      row.className = 'bc-item' + (bcSelectedBiome && bcSelectedBiome.key === b.key ? ' selected' : '');
+      const badge = b.configured
+          ? `<span class="bc-badge configured">${b.ruleCount} rule${b.ruleCount === 1 ? '' : 's'}</span>`
+          : '<span class="bc-badge unconfigured">new</span>';
+      row.innerHTML = `<span class="bc-key" title="${b.key}">${b.key}</span>${badge}`;
+      row.addEventListener('click', () => selectBiome(b));
+      bcList.appendChild(row);
+    });
+  }
+
+  function selectBiome(b) {
+    bcSelectedBiome = b;
+    bcSelectedKeyEl.textContent = b.configured
+        ? `${b.key}  (configured — zones: ${b.zones.join(', ') || '—'}, ${b.ruleCount} rule${b.ruleCount === 1 ? '' : 's'})`
+        : `${b.key}  (not configured yet)`;
+    bcEditor.style.display = 'flex';
+    bcResult.style.display = 'none';
+    bcApplyBtn.disabled = true;
+    bcLastPreviewPassed = false;
+    renderBiomeList();
+  }
+
+  bcSearch.addEventListener('input', renderBiomeList);
+
+  function currentBiomeRequest() {
+    return {
+      biomeKey: bcSelectedBiome.key,
+      zone: bcZone.value,
+      temperatureBand: bcTemp.value,
+      moistureBand: bcMoisture.value,
+      treeDensity: bcTree.value,
+      rarity: bcRarity.value,
+    };
+  }
+
+  function renderBcResult(data, isApply) {
+    bcResult.style.display = 'flex';
+    if (data.error && !data.validation) {
+      bcResult.innerHTML = `<div class="bc-status fail">${data.error}</div>`;
+      return;
+    }
+    const passed = !!(data.validation && data.validation.passed);
+    const statusClass = passed ? 'pass' : 'fail';
+    const statusText = isApply
+        ? (data.applied ? 'APPLIED ✓ — written to biome_catalog.json' : 'APPLY REFUSED — validation failed')
+        : (passed ? 'VALID — ready to apply' : 'INVALID — cannot apply');
+    let findingsHtml = '';
+    if (data.validation && data.validation.findings && data.validation.findings.length) {
+      findingsHtml = '<div class="bc-hint">' +
+          data.validation.findings.map(f => '⚠ ' + f).join('<br>') + '</div>';
+    }
+    const anchorHtml = data.anchor
+        ? `<div class="bc-hint">Shares priority tier ${data.anchor.priority} with <b>${data.anchor.biomeKey}</b>, disambiguated by a noise gate.</div>`
+        : `<div class="bc-hint">No overlapping biome found — assigned its own new priority tier (${data.priority}).</div>`;
+    bcResult.innerHTML = `
+      <div class="bc-status ${statusClass}">${statusText}</div>
+      ${anchorHtml}
+      <div class="bc-hint">index=${data.assignedIndex} · priority=${data.priority} · newBiome=${data.newSettlement}</div>
+      ${findingsHtml}
+      <pre>${JSON.stringify(data.rule, null, 2)}</pre>
+    `;
+  }
+
+  bcPreviewBtn.addEventListener('click', async () => {
+    if (!bcSelectedBiome) return;
+    bcPreviewBtn.disabled = true;
+    try {
+      const res = await fetch('/api/biomes/preview', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(currentBiomeRequest()),
+      });
+      const data = await res.json();
+      renderBcResult(data, false);
+      bcLastPreviewPassed = !!(data.validation && data.validation.passed);
+      bcApplyBtn.disabled = !bcLastPreviewPassed;
+    } catch (e) {
+      bcResult.style.display = 'flex';
+      bcResult.innerHTML = `<div class="bc-status fail">Request failed: ${e}</div>`;
+    } finally {
+      bcPreviewBtn.disabled = false;
+    }
+  });
+
+  bcApplyBtn.addEventListener('click', async () => {
+    if (!bcSelectedBiome || !bcLastPreviewPassed) return;
+    bcApplyBtn.disabled = true;
+    try {
+      const res = await fetch('/api/biomes/apply', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(currentBiomeRequest()),
+      });
+      const data = await res.json();
+      renderBcResult(data, true);
+      if (data.applied) {
+        bcLastPreviewPassed = false;
+        await loadAvailableBiomes();
+      }
+    } catch (e) {
+      bcResult.style.display = 'flex';
+      bcResult.innerHTML = `<div class="bc-status fail">Request failed: ${e}</div>`;
+    } finally {
+      bcApplyBtn.disabled = !bcLastPreviewPassed;
+    }
+  });
+
   // ── Init ──
   async function init() {
     try {
@@ -1493,6 +1815,7 @@
   }
 
   init();
+  loadAvailableBiomes();
 </script>
 </body>
 </html>

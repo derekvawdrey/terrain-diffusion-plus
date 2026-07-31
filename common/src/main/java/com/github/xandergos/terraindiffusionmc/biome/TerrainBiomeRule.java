@@ -39,6 +39,22 @@ public final class TerrainBiomeRule {
     @SerializedName("noiseConditions")
     private List<TerrainBiomeCondition> noiseConditions;
 
+    /** No-arg constructor kept for Gson (which uses Unsafe and never actually calls it). */
+    public TerrainBiomeRule() {
+    }
+
+    /**
+     * Programmatic constructor for code that builds rules at runtime (e.g. the terrain
+     * explorer's "Biome Config" rule generator) instead of deserializing them from JSON.
+     */
+    public TerrainBiomeRule(String zone, int priority, List<TerrainBiomeCondition> conditions,
+                             List<TerrainBiomeCondition> noiseConditions) {
+        this.zone = zone;
+        this.priority = priority;
+        this.conditions = conditions;
+        this.noiseConditions = noiseConditions;
+    }
+
     public String zone() {
         return zone;
     }

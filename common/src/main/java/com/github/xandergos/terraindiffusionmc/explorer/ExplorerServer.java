@@ -1,6 +1,9 @@
 package com.github.xandergos.terraindiffusionmc.explorer;
 
+import com.github.xandergos.terraindiffusionmc.biome.BiomeRuleGenerator;
 import com.github.xandergos.terraindiffusionmc.biome.TerrainBiomeRegistry;
+import com.github.xandergos.terraindiffusionmc.biome.TerrainBiomeRule;
+import com.github.xandergos.terraindiffusionmc.biome.TerrainBiomeSettlement;
 import com.github.xandergos.terraindiffusionmc.config.TerrainDiffusionConfig;
 import com.github.xandergos.terraindiffusionmc.infinitetensor.FloatTensor;
 import com.github.xandergos.terraindiffusionmc.pipeline.LocalTerrainProvider;
@@ -27,8 +30,11 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.Executors;
 
 /**
@@ -50,6 +56,16 @@ public final class ExplorerServer {
     private static volatile int SERVER_PORT = -1;
     private static volatile double COMMAND_ORIGIN_X = Double.NaN;
     private static volatile double COMMAND_ORIGIN_Z = Double.NaN;
+
+    /**
+     * Every biome key ({@code namespace:path}) currently in the running instance's real
+     * Minecraft biome registry (vanilla + every installed mod), as resolved by the
+     * version-specific lifecycle code from a live {@code RegistryAccess}/{@code Registries.BIOME}
+     * at the {@code /td-explore} command call site (this top-level {@code common} module can't
+     * reference Minecraft-version-specific registry types directly -- see
+     * {@link #setAvailableBiomeKeys}). Backs {@code /api/biomes/available}.
+     */
+    private static volatile List<String> AVAILABLE_BIOME_KEYS = List.of();
 
     private ExplorerServer() {}
 
@@ -74,6 +90,9 @@ public final class ExplorerServer {
         server.createContext("/api/coarse_stats", ExplorerServer::handleCoarseStats);
         server.createContext("/api/detail.png", ExplorerServer::handleDetailPng);
         server.createContext("/api/detail_raw", ExplorerServer::handleDetailRaw);
+        server.createContext("/api/biomes/available", ExplorerServer::handleBiomesAvailable);
+        server.createContext("/api/biomes/preview", ExplorerServer::handleBiomesPreview);
+        server.createContext("/api/biomes/apply", ExplorerServer::handleBiomesApply);
         // Single-thread executor matches Python's threaded=False
         server.setExecutor(Executors.newSingleThreadExecutor(r -> {
             Thread t = new Thread(r, "terrain-explorer-http");
@@ -111,6 +130,18 @@ public final class ExplorerServer {
     public static void setCommandOrigin(double x, double z) {
         COMMAND_ORIGIN_X = x;
         COMMAND_ORIGIN_Z = z;
+    }
+
+    /**
+     * Called by each version-specific {@code TerrainDiffusionLifecycle.executeExplore} with the
+     * full list of biome keys ({@code namespace:path}) currently in the live server's
+     * {@code Registries.BIOME}, resolved there (not here) because only version-specific code can
+     * reference {@code RegistryAccess}/{@code ResourceKey} types -- this module stays
+     * Minecraft-version-agnostic. Safe to call every time {@code /td-explore} runs, even if the
+     * server is already up, so the list stays fresh if it's ever called again in the same JVM.
+     */
+    public static void setAvailableBiomeKeys(List<String> biomeKeys) {
+        AVAILABLE_BIOME_KEYS = biomeKeys != null ? List.copyOf(biomeKeys) : List.of();
     }
 
     // =========================================================================
@@ -452,6 +483,182 @@ public final class ExplorerServer {
         } finally {
             ex.close();
         }
+    }
+
+    // =========================================================================
+    // Biome Config — enumerate real biomes, generate/validate/apply catalog rules
+    // =========================================================================
+
+    /**
+     * GET /api/biomes/available — every biome in {@link #AVAILABLE_BIOME_KEYS} (the live
+     * Minecraft biome registry, vanilla + all installed mods), each annotated with whether it
+     * already has a {@code biome_catalog.json} entry and, if so, a short rule summary.
+     */
+    private static void handleBiomesAvailable(HttpExchange ex) throws IOException {
+        if (!ex.getRequestMethod().equalsIgnoreCase("GET")) { send405(ex); return; }
+        try {
+            TerrainBiomeRegistry registry = TerrainBiomeRegistry.instance();
+            List<Map<String, Object>> biomes = new ArrayList<>();
+            for (String key : AVAILABLE_BIOME_KEYS) {
+                TerrainBiomeSettlement settlement = registry.byKey(key);
+                Map<String, Object> entry = new LinkedHashMap<>();
+                entry.put("key", key);
+                int colon = key.indexOf(':');
+                entry.put("namespace", colon >= 0 ? key.substring(0, colon) : "");
+                boolean configured = settlement != null;
+                entry.put("configured", configured);
+                if (configured) {
+                    Set<String> zones = new LinkedHashSet<>();
+                    for (TerrainBiomeRule rule : settlement.rules()) zones.add(rule.zone());
+                    entry.put("zones", new ArrayList<>(zones));
+                    entry.put("ruleCount", settlement.rules().size());
+                    entry.put("index", settlement.index());
+                } else {
+                    entry.put("zones", List.of());
+                    entry.put("ruleCount", 0);
+                }
+                biomes.add(entry);
+            }
+            Map<String, Object> resp = new LinkedHashMap<>();
+            resp.put("biomes", biomes);
+            resp.put("count", biomes.size());
+            if (AVAILABLE_BIOME_KEYS.isEmpty()) {
+                resp.put("warning", "No biome registry data yet — run /td-explore in-world once "
+                        + "so the server can enumerate Registries.BIOME.");
+            }
+            sendJson(ex, 200, resp);
+        } catch (Exception e) {
+            sendError(ex, 500, e.getMessage());
+        }
+    }
+
+    /** POST /api/biomes/preview — generate + validate a rule, never mutates or persists. */
+    private static void handleBiomesPreview(HttpExchange ex) throws IOException {
+        if (!ex.getRequestMethod().equalsIgnoreCase("POST")) { send405(ex); return; }
+        try {
+            Map<String, Object> data = readJsonBody(ex);
+            BiomeRuleGenerator.Request req = parseBiomeRequest(data);
+            BiomeRuleGenerator.Result result =
+                    BiomeRuleGenerator.generate(TerrainBiomeRegistry.instance(), req);
+            Map<String, Object> resp = buildGenerationResponse(result);
+            resp.put("ok", true);
+            resp.put("applied", false);
+            sendJson(ex, 200, resp);
+        } catch (IllegalArgumentException e) {
+            sendError(ex, 400, e.getMessage());
+        } catch (Exception e) {
+            LOG.error("biomes/preview error", e);
+            sendError(ex, 500, e.getMessage());
+        }
+    }
+
+    /**
+     * POST /api/biomes/apply — generate + validate a rule; if (and only if) validation passes,
+     * add it to the in-memory {@link TerrainBiomeRegistry} and persist the whole catalog back to
+     * the config-dir {@code biome_catalog.json} (backing up the previous file first). Refuses to
+     * write anything on a validation failure.
+     */
+    private static void handleBiomesApply(HttpExchange ex) throws IOException {
+        if (!ex.getRequestMethod().equalsIgnoreCase("POST")) { send405(ex); return; }
+        try {
+            Map<String, Object> data = readJsonBody(ex);
+            BiomeRuleGenerator.Request req = parseBiomeRequest(data);
+            TerrainBiomeRegistry registry = TerrainBiomeRegistry.instance();
+            BiomeRuleGenerator.Result result = BiomeRuleGenerator.generate(registry, req);
+            Map<String, Object> resp = buildGenerationResponse(result);
+
+            if (!result.valid()) {
+                resp.put("ok", false);
+                resp.put("applied", false);
+                resp.put("error", "Validation failed — this rule can never match a real pixel, "
+                        + "refusing to write it. See validation.findings for why.");
+                sendJson(ex, 200, resp);
+                return;
+            }
+
+            result.settlement().addRule(result.rule());
+            registry.register(result.settlement());
+            registry.rebuild();
+            registry.saveToConfigDir();
+
+            resp.put("ok", true);
+            resp.put("applied", true);
+            sendJson(ex, 200, resp);
+        } catch (IllegalArgumentException e) {
+            sendError(ex, 400, e.getMessage());
+        } catch (Exception e) {
+            LOG.error("biomes/apply error", e);
+            sendError(ex, 500, "Failed to apply rule: " + e.getMessage());
+        }
+    }
+
+    private static Map<String, Object> readJsonBody(HttpExchange ex) throws IOException {
+        String body = readBody(ex, 8192);
+        @SuppressWarnings("unchecked")
+        Map<String, Object> data = GSON.fromJson(body, Map.class);
+        if (data == null) throw new IllegalArgumentException("Request body must be a JSON object");
+        return data;
+    }
+
+    private static BiomeRuleGenerator.Request parseBiomeRequest(Map<String, Object> data) {
+        String biomeKey = requireString(data, "biomeKey");
+        String zone = requireString(data, "zone");
+        if (!BiomeRuleGenerator.ZONES.contains(zone)) {
+            throw new IllegalArgumentException("Unknown zone '" + zone + "', expected one of "
+                    + BiomeRuleGenerator.ZONES);
+        }
+        BiomeRuleGenerator.TemperatureBand temperatureBand =
+                parseEnum(BiomeRuleGenerator.TemperatureBand.class, requireString(data, "temperatureBand"));
+        BiomeRuleGenerator.MoistureBand moistureBand =
+                parseEnum(BiomeRuleGenerator.MoistureBand.class, requireString(data, "moistureBand"));
+        BiomeRuleGenerator.TreeDensity treeDensity =
+                parseEnum(BiomeRuleGenerator.TreeDensity.class, requireString(data, "treeDensity"));
+        BiomeRuleGenerator.Rarity rarity =
+                parseEnum(BiomeRuleGenerator.Rarity.class, requireString(data, "rarity"));
+        return new BiomeRuleGenerator.Request(biomeKey, zone, temperatureBand, moistureBand, treeDensity, rarity);
+    }
+
+    private static String requireString(Map<String, Object> data, String key) {
+        Object value = data.get(key);
+        if (!(value instanceof String str) || str.isBlank()) {
+            throw new IllegalArgumentException("'" + key + "' is required");
+        }
+        return str;
+    }
+
+    private static <E extends Enum<E>> E parseEnum(Class<E> type, String raw) {
+        String normalized = raw.trim().toUpperCase(Locale.ROOT).replace('-', '_');
+        try {
+            return Enum.valueOf(type, normalized);
+        } catch (IllegalArgumentException e) {
+            throw new IllegalArgumentException("Invalid value '" + raw + "', expected one of "
+                    + Arrays.toString(type.getEnumConstants()));
+        }
+    }
+
+    private static Map<String, Object> buildGenerationResponse(BiomeRuleGenerator.Result result) {
+        Map<String, Object> resp = new LinkedHashMap<>();
+        resp.put("biomeKey", result.biomeKey());
+        resp.put("newSettlement", result.newSettlement());
+        resp.put("assignedIndex", result.assignedIndex());
+        resp.put("priority", result.priority());
+        resp.put("newTier", result.newTier());
+        if (result.anchor() != null) {
+            Map<String, Object> anchor = new LinkedHashMap<>();
+            anchor.put("biomeKey", result.anchor().biomeKey());
+            anchor.put("biomeIndex", result.anchor().biomeIndex());
+            anchor.put("priority", result.anchor().priority());
+            anchor.put("reason", result.anchor().reason());
+            resp.put("anchor", anchor);
+        } else {
+            resp.put("anchor", null);
+        }
+        resp.put("rule", GSON.toJsonTree(result.rule()));
+        Map<String, Object> validation = new LinkedHashMap<>();
+        validation.put("passed", result.valid());
+        validation.put("findings", result.validationFindings());
+        resp.put("validation", validation);
+        return resp;
     }
 
     private static void applyWaterOverlay(float[][] rgba, byte[] waterMask, short[] biomes) {

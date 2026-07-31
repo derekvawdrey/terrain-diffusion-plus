@@ -53,6 +53,38 @@ public final class TerrainBiomeCondition {
     /** Populated by {@link #resolve()}; Gson leaves transient fields at their default. */
     private transient Variable resolvedVariable;
 
+    /** No-arg constructor kept for Gson (which uses Unsafe and never actually calls it). */
+    public TerrainBiomeCondition() {
+    }
+
+    /**
+     * Programmatic constructor for code that builds conditions at runtime (e.g. the terrain
+     * explorer's "Biome Config" rule generator) instead of deserializing them from JSON.
+     */
+    public TerrainBiomeCondition(String variable, Operator operator, Number value, Number value2, Boolean boolValue) {
+        this.variable = variable;
+        this.operator = operator;
+        this.value = value;
+        this.value2 = value2;
+        this.boolValue = boolValue;
+        resolve();
+    }
+
+    /** Convenience factory for a single-threshold numeric condition (eq/gt/gte/lt/lte). */
+    public static TerrainBiomeCondition numeric(String variable, Operator op, double value) {
+        return new TerrainBiomeCondition(variable, op, value, null, null);
+    }
+
+    /** Convenience factory for a {@code between} numeric condition. */
+    public static TerrainBiomeCondition between(String variable, double lo, double hi) {
+        return new TerrainBiomeCondition(variable, Operator.BETWEEN, lo, hi, null);
+    }
+
+    /** Convenience factory for a boolean-equality condition. */
+    public static TerrainBiomeCondition bool(String variable, boolean value) {
+        return new TerrainBiomeCondition(variable, Operator.EQ, null, null, value);
+    }
+
     public String variable() {
         return variable;
     }

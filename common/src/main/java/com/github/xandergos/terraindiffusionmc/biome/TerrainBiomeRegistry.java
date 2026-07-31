@@ -4,11 +4,16 @@ import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import com.google.gson.reflect.TypeToken;
 
+import java.io.IOException;
 import java.io.Reader;
+import java.io.Writer;
 import java.lang.reflect.Type;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.LinkedHashMap;
@@ -109,6 +114,42 @@ public final class TerrainBiomeRegistry {
      */
     public void rebuild() {
         build();
+    }
+
+    /**
+     * Persists the current in-memory settlement list back to
+     * {@code <config-dir>/terrain-diffusion-mc/biome_catalog.json}, preserving the exact JSON
+     * schema Gson already round-trips (same field names/structure the file was loaded with).
+     * If a file already exists at that path it is backed up first, following the same
+     * {@code biome_catalog.pre-<label>-<timestamp>.json} naming pattern used for the earlier
+     * hand-fix backup, so an apply that turns out to be wrong is always recoverable.
+     *
+     * <p>Used by the terrain explorer's "Biome Config" apply flow
+     * ({@code ExplorerServer}'s {@code /api/biomes/apply} handler). Callers should already have
+     * validated the newly added rule (see {@code BiomeRuleValidator}) before calling this --
+     * this method just writes whatever the in-memory state currently is.</p>
+     */
+    public synchronized void saveToConfigDir() throws IOException {
+        saveToConfigDir(com.github.xandergos.terraindiffusionmc.platform.PlatformPaths.configDir());
+    }
+
+    /**
+     * Same as {@link #saveToConfigDir()} but against an arbitrary base config directory --
+     * used by standalone test harnesses to verify the save/backup logic against a scratch
+     * directory without ever touching a real installation's live catalog.
+     */
+    public synchronized void saveToConfigDir(Path baseConfigDir) throws IOException {
+        Path configBiomeDir = baseConfigDir.resolve("terrain-diffusion-mc");
+        Files.createDirectories(configBiomeDir);
+        Path filePath = configBiomeDir.resolve(CONFIG_FILE_NAME);
+        if (Files.exists(filePath)) {
+            String timestamp = DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss").format(LocalDateTime.now());
+            Path backup = configBiomeDir.resolve("biome_catalog.pre-apply-" + timestamp + ".json");
+            Files.copy(filePath, backup, StandardCopyOption.REPLACE_EXISTING);
+        }
+        try (Writer writer = Files.newBufferedWriter(filePath, StandardCharsets.UTF_8)) {
+            GSON.toJson(settlements, LIST_TYPE, writer);
+        }
     }
 
     private void build() {

@@ -300,10 +300,18 @@ subprojects { subproject ->
 
                 // YUNG's Better Caves (LGPL-3.0) + its required YUNG's API, bundled jar-in-jar so caves
                 // work out of the box. See NOTICE.md for attribution/license details.
+                // Better Caves' own carver stops at y=80, which is below most of our terrain; we ship
+                // data/bettercaves/worldgen/configured_carver/better_cave.json to raise top_y to the
+                // top of our dimension so caves follow the surface at every world scale.
                 modImplementation 'maven.modrinth:yungs-api:1.21.1-Fabric-5.1.6'
                 include 'maven.modrinth:yungs-api:1.21.1-Fabric-5.1.6'
                 modImplementation 'maven.modrinth:yungs-better-caves:1.21.1-Fabric-3.1.4'
                 include 'maven.modrinth:yungs-better-caves:1.21.1-Fabric-3.1.4'
+                // Better Caves' Fabric build hard-depends on Cloth Config (config screen).
+                // A nested mod whose dependencies are unsatisfied is silently dropped by Fabric
+                // Loader, so without this Better Caves never loads and its carvers never register.
+                modImplementation 'maven.modrinth:cloth-config:15.0.140+fabric'
+                include 'maven.modrinth:cloth-config:15.0.140+fabric'
             }
 
             subproject.tasks.named('build') {

@@ -55,7 +55,7 @@ public final class PressureRidgeFeaturePlacer implements SurfaceFeaturePlacer {
         if (!TerrainSampling.inBounds(data, row, col)) return;
 
         float elevation = TerrainSampling.elevationAt(data, row, col);
-        if (elevation < 0 || elevation > 5) return;
+        if (elevation < 0 || elevation > SurfaceStamp.blocksToElevation(3f)) return;
 
         TerrainBiomeRegistry registry = TerrainBiomeRegistry.instance();
         short biomeIndex = TerrainSampling.biomeIndexAt(data, row, col);
@@ -67,7 +67,7 @@ public final class PressureRidgeFeaturePlacer implements SurfaceFeaturePlacer {
         boolean nearWater = hasFluvialWater(data, row, col);
         if (!nearWater && SurfaceNoise.unitHash(worldSeed ^ SALT, site.worldX(), site.worldZ() + 500) > 0.5f) return;
 
-        int groundY = chunk.getHeight(Heightmap.Types.WORLD_SURFACE_WG, localX, localZ) - 1;
+        int groundY = SurfaceStamp.surfaceY(chunk, localX, localZ);
         if (groundY <= chunk.getMinY()) return;
         BlockPos.MutableBlockPos probe = new BlockPos.MutableBlockPos(site.worldX(), groundY, site.worldZ());
         if (chunk.getBlockState(probe).isAir()) return;

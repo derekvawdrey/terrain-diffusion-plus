@@ -29,7 +29,8 @@ public final class FallenLogFeaturePlacer implements SurfaceFeaturePlacer {
     private static final float SPAWN_CHANCE = 0.3f;
     private static final int MIN_SPAN = 4;
     private static final int MAX_SPAN = 8;
-    private static final int MIN_GAP_DEPTH = 2;
+    /** A log only bridges something worth bridging: this much drop, in blocks. */
+    private static final float MIN_GAP_DEPTH_BLOCKS = 2f;
 
     private static final BlockState OAK_LOG_X = Blocks.OAK_LOG.defaultBlockState()
             .setValue(RotatedPillarBlock.AXIS, Direction.Axis.X);
@@ -95,7 +96,7 @@ public final class FallenLogFeaturePlacer implements SurfaceFeaturePlacer {
         float elevB = TerrainSampling.elevationAt(data, rowEnd, colEnd);
         float gapDepth = elevA - elevB;
 
-        if (Math.abs(gapDepth) < MIN_GAP_DEPTH) return;
+        if (Math.abs(gapDepth) < SurfaceStamp.blocksToElevation(MIN_GAP_DEPTH_BLOCKS)) return;
 
         boolean isXAxis = Math.abs(dx) > Math.abs(dz);
         stamp(chunk, site, site.worldX(), site.worldZ(), endX, endZ, elevA, elevB, isXAxis);

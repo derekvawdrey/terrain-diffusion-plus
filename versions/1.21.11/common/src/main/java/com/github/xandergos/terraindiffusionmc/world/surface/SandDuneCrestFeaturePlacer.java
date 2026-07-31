@@ -46,10 +46,9 @@ public final class SandDuneCrestFeaturePlacer implements SurfaceFeaturePlacer {
     @Override
     public void place(ChunkAccess chunk, HeightmapData data, int dataOriginX, int dataOriginZ,
                        SiteGrid.Site site, long worldSeed) {
-        int localX = site.worldX() - chunk.getPos().getMinBlockX();
-        int localZ = site.worldZ() - chunk.getPos().getMinBlockZ();
-        if (localX < 0 || localX > 15 || localZ < 0 || localZ > 15) return;
-
+        // No site-in-chunk gate: every column below is anchored and clipped individually, so each
+        // chunk this site reaches draws its own slice instead of the footprint being cut off at the
+        // chunk border.
         if (SurfaceNoise.unitHash(worldSeed ^ SALT, site.worldX(), site.worldZ()) >= SPAWN_CHANCE) return;
 
         int row = site.worldZ() - dataOriginZ;
@@ -68,16 +67,14 @@ public final class SandDuneCrestFeaturePlacer implements SurfaceFeaturePlacer {
         float slope = TerrainSampling.slopeAt(data, row, col, 2);
         if (slope < 0.5f) return;
 
-        int groundY = chunk.getHeight(Heightmap.Types.WORLD_SURFACE_WG, localX, localZ);
-        if (groundY <= chunk.getMinY()) return;
 
         float dRow = (data.heightmap[Math.min(data.height - 1, row + 2)][col] - data.heightmap[Math.max(0, row - 2)][col]) / (float) Math.max(1, Math.min(data.height - 1, row + 2) - Math.max(0, row - 2));
         float dCol = (data.heightmap[row][Math.min(data.width - 1, col + 2)] - data.heightmap[row][Math.max(0, col - 2)]) / (float) Math.max(1, Math.min(data.width - 1, col + 2) - Math.max(0, col - 2));
 
-        stamp(chunk, site, groundY, dRow, dCol);
+        stamp(chunk, site, dRow, dCol);
     }
 
-    private void stamp(ChunkAccess chunk, SiteGrid.Site site, int groundY, float slopeDRow, float dCol) {
+    private void stamp(ChunkAccess chunk, SiteGrid.Site site, float slopeDRow, float dCol) {
         long seed = site.seed();
         int numProtrusions = MIN_PROTRUSIONS + (int) (SurfaceNoise.unitHash(seed, 0, 0) * (MAX_PROTRUSIONS - MIN_PROTRUSIONS + 1));
 
@@ -107,7 +104,7 @@ public final class SandDuneCrestFeaturePlacer implements SurfaceFeaturePlacer {
             int localZ = worldZ - minZ;
             if (localX < 0 || localX > 15 || localZ < 0 || localZ > 15) continue;
 
-            int localGroundY = chunk.getHeight(Heightmap.Types.WORLD_SURFACE_WG, localX, localZ);
+            int localGroundY = SurfaceStamp.surfaceY(chunk, localX, localZ);
             if (localGroundY <= chunk.getMinY()) continue;
 
             int width = 1 + (int) (SurfaceNoise.unitHash(seed, 1 + i, 0) * 2);

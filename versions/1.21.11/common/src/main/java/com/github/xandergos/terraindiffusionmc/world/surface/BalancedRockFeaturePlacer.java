@@ -20,7 +20,7 @@ import net.minecraft.world.level.levelgen.Heightmap;
 public final class BalancedRockFeaturePlacer implements SurfaceFeaturePlacer {
     private static final long SALT = 0x424C414CL;
     private static final float SPAWN_CHANCE = 0.15f;
-    private static final float MAX_SLOPE = 1.0f;
+    private static final float MAX_SLOPE_BLOCKS = 0.2f;
     private static final int CELL_SIZE = 50;
     private static final int PILLAR_RADIUS = 1;
     private static final int PILLAR_MIN_HEIGHT = 3;
@@ -82,9 +82,9 @@ public final class BalancedRockFeaturePlacer implements SurfaceFeaturePlacer {
         if (biomeKey == null || (!biomeKey.contains("badlands") && !biomeKey.contains("mesa"))) {
             return;
         }
-        if (TerrainSampling.slopeAt(data, row, col, 2) > MAX_SLOPE) return;
+        if (TerrainSampling.slopeAt(data, row, col, 2) > SurfaceStamp.slopeFromBlocks(MAX_SLOPE_BLOCKS)) return;
 
-        int groundY = chunk.getHeight(Heightmap.Types.WORLD_SURFACE_WG, localX, localZ) - 1;
+        int groundY = SurfaceStamp.surfaceY(chunk, localX, localZ);
         if (groundY <= chunk.getMinY()) return;
         BlockPos.MutableBlockPos pos = new BlockPos.MutableBlockPos(site.worldX(), groundY, site.worldZ());
         if (!isSolidGround(chunk.getBlockState(pos))) return;

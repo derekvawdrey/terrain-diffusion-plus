@@ -29,9 +29,14 @@ public final class BasaltColumnFeaturePlacer implements SurfaceFeaturePlacer {
     private static final float PLACEMENT_NOISE_WAVELENGTH = 200.0f;
     private static final float PLACEMENT_THRESHOLD = 0.3f;
 
+    /**
+     * Kept to blocks that exist on every supported Minecraft version -- {@code POLISHED_TUFF}
+     * arrived in 1.21 and broke the 1.20.1 build. Deepslate also reads better here than a polished
+     * block: columnar basalt is raw stone, not something quarried.
+     */
     private static final BlockState[] BASALT_BLOCKS = {
             Blocks.TUFF.defaultBlockState(),
-            Blocks.POLISHED_TUFF.defaultBlockState(),
+            Blocks.DEEPSLATE.defaultBlockState(),
     };
 
     @Override
@@ -90,7 +95,7 @@ public final class BasaltColumnFeaturePlacer implements SurfaceFeaturePlacer {
             int localZ = columnWorldZ - minZ;
             if (localX < 0 || localX > 15 || localZ < 0 || localZ > 15) continue;
 
-            int groundY = chunk.getHeight(Heightmap.Types.WORLD_SURFACE_WG, localX, localZ) - 1;
+            int groundY = SurfaceStamp.surfaceY(chunk, localX, localZ);
             if (groundY <= chunk.getMinY()) continue;
             BlockPos.MutableBlockPos probe = new BlockPos.MutableBlockPos(columnWorldX, groundY, columnWorldZ);
             if (chunk.getBlockState(probe).isAir()) continue;

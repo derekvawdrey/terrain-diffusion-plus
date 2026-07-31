@@ -18,7 +18,7 @@ import net.minecraft.world.level.levelgen.Heightmap;
 public final class BeachedIcebergFeaturePlacer implements SurfaceFeaturePlacer {
     private static final long SALT = 0x42454149L;
     private static final float SPAWN_CHANCE = 0.1f;
-    private static final float MAX_SLOPE = 1.0f;
+    private static final float MAX_SLOPE_BLOCKS = 0.2f;
     private static final int MAX_RADIUS = 4;
     private static final int CELL_SIZE = 72;
 
@@ -56,7 +56,8 @@ public final class BeachedIcebergFeaturePlacer implements SurfaceFeaturePlacer {
         if (!TerrainSampling.inBounds(data, row, col)) return;
 
         float elevation = TerrainSampling.elevationAt(data, row, col);
-        if (elevation < -2f || elevation > 5f) return;
+        if (elevation < SurfaceStamp.blocksToElevation(-1f)
+                || elevation > SurfaceStamp.blocksToElevation(3f)) return;
 
         TerrainBiomeRegistry registry = TerrainBiomeRegistry.instance();
         short biomeIndex = TerrainSampling.biomeIndexAt(data, row, col);
@@ -66,9 +67,9 @@ public final class BeachedIcebergFeaturePlacer implements SurfaceFeaturePlacer {
                 && !biomeKey.contains("tundra")) {
             return;
         }
-        if (TerrainSampling.slopeAt(data, row, col, 2) > MAX_SLOPE) return;
+        if (TerrainSampling.slopeAt(data, row, col, 2) > SurfaceStamp.slopeFromBlocks(MAX_SLOPE_BLOCKS)) return;
 
-        int groundY = chunk.getHeight(Heightmap.Types.WORLD_SURFACE_WG, localX, localZ) - 1;
+        int groundY = SurfaceStamp.surfaceY(chunk, localX, localZ);
         if (groundY <= chunk.getMinY()) return;
         BlockPos.MutableBlockPos pos = new BlockPos.MutableBlockPos(site.worldX(), groundY, site.worldZ());
         if (!isSolidGround(chunk.getBlockState(pos))) return;

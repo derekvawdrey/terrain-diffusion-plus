@@ -109,7 +109,7 @@ public final class HoodooClusterFeaturePlacer implements SurfaceFeaturePlacer {
             int localZ = columnWorldZ - minZ;
             if (localX < 0 || localX > 15 || localZ < 0 || localZ > 15) continue;
 
-            int groundY = chunk.getHeight(Heightmap.Types.WORLD_SURFACE_WG, localX, localZ) - 1;
+            int groundY = SurfaceStamp.surfaceY(chunk, localX, localZ);
             if (groundY <= chunk.getMinY()) continue;
             BlockPos.MutableBlockPos probe = new BlockPos.MutableBlockPos(columnWorldX, groundY, columnWorldZ);
             if (chunk.getBlockState(probe).isAir()) continue;

@@ -25,9 +25,9 @@ public final class DriftwoodFeaturePlacer implements SurfaceFeaturePlacer {
     private static final long SALT = 0x44524946L;
     private static final int CELL_SIZE = 24;
     private static final float SPAWN_CHANCE = 0.4f;
-    private static final float MAX_SLOPE = 1.0f;
-    private static final int MIN_ELEVATION = 0;
-    private static final int MAX_ELEVATION = 5;
+    private static final float MAX_SLOPE_BLOCKS = 0.15f;
+    private static final float MIN_ELEVATION_BLOCKS = 0f;
+    private static final float MAX_ELEVATION_BLOCKS = 3f;
     private static final int MIN_LOGS = 2;
     private static final int MAX_LOGS = 4;
     private static final int SCATTER_RADIUS = 1;
@@ -64,37 +64,30 @@ public final class DriftwoodFeaturePlacer implements SurfaceFeaturePlacer {
     @Override
     public void place(ChunkAccess chunk, HeightmapData data, int dataOriginX, int dataOriginZ,
                        SiteGrid.Site site, long worldSeed) {
-        int localX = site.worldX() - chunk.getPos().getMinBlockX();
-        int localZ = site.worldZ() - chunk.getPos().getMinBlockZ();
-        if (localX < 0 || localX > 15 || localZ < 0 || localZ > 15) return;
-
+        // No site-in-chunk gate: every column below is anchored and clipped individually, so each
+        // chunk this site reaches draws its own slice instead of the footprint being cut off at the
+        // chunk border.
         if (SurfaceNoise.unitHash(worldSeed ^ SALT, site.worldX(), site.worldZ()) >= SPAWN_CHANCE) return;
 
         int row = site.worldZ() - dataOriginZ;
         int col = site.worldX() - dataOriginX;
         if (!TerrainSampling.inBounds(data, row, col)) return;
         float elevation = TerrainSampling.elevationAt(data, row, col);
-        if (elevation < MIN_ELEVATION || elevation > MAX_ELEVATION) return;
+        if (elevation < SurfaceStamp.blocksToElevation(MIN_ELEVATION_BLOCKS) || elevation > SurfaceStamp.blocksToElevation(MAX_ELEVATION_BLOCKS)) return;
 
         TerrainBiomeRegistry registry = TerrainBiomeRegistry.instance();
         short biomeIndex = TerrainSampling.biomeIndexAt(data, row, col);
         String biomeKey = registry.keyForIndex(biomeIndex);
         if (biomeKey == null || (!biomeKey.contains("beach") && !biomeKey.contains("stony"))) return;
-        if (TerrainSampling.slopeAt(data, row, col, 2) > MAX_SLOPE) return;
+        if (TerrainSampling.slopeAt(data, row, col, 2) > SurfaceStamp.slopeFromBlocks(MAX_SLOPE_BLOCKS)) return;
 
-        int groundY = chunk.getHeight(Heightmap.Types.WORLD_SURFACE_WG, localX, localZ);
-        if (groundY <= chunk.getMinBuildHeight()) return;
-        BlockPos.MutableBlockPos pos = new BlockPos.MutableBlockPos(site.worldX(), groundY, site.worldZ());
-        if (!isSolidGround(chunk.getBlockState(pos))) return;
-
-        stamp(chunk, site, groundY);
+        stamp(chunk, site);
     }
 
-    private void stamp(ChunkAccess chunk, SiteGrid.Site site, int groundY) {
-        int logCount = MIN_LOGS + (int) (SurfaceNoise.unitHash(site.seed(), 0, 0) * (MAX_LOGS - MIN_LOGS + 1));
+    private void stamp(ChunkAccess chunk, SiteGrid.Site site) {
+        int logCount = SurfaceStamp.randRange(site.seed(), 0, 0, MIN_LOGS, MAX_LOGS);
         Heightmap worldSurface = chunk.getOrCreateHeightmapUnprimed(Heightmap.Types.WORLD_SURFACE_WG);
         Heightmap motionBlocking = chunk.getOrCreateHeightmapUnprimed(Heightmap.Types.MOTION_BLOCKING);
-        BlockPos.MutableBlockPos pos = new BlockPos.MutableBlockPos();
         int minX = chunk.getPos().getMinBlockX();
         int minZ = chunk.getPos().getMinBlockZ();
 
@@ -102,7 +95,7 @@ public final class DriftwoodFeaturePlacer implements SurfaceFeaturePlacer {
             long logSeed = SurfaceNoise.hash(site.seed(), i, 3000 + i);
             int dx = Math.round((float) (SurfaceNoise.unitHash(logSeed, 1, 0) * SCATTER_RADIUS * 2 - SCATTER_RADIUS));
             int dz = Math.round((float) (SurfaceNoise.unitHash(logSeed, 2, 0) * SCATTER_RADIUS * 2 - SCATTER_RADIUS));
-            int stackY = (int) (SurfaceNoise.unitHash(logSeed, 3, 0) * 2);
+            boolean stacked = SurfaceNoise.unitHash(logSeed, 3, 0) < 0.5f;
 
             int logWorldX = site.worldX() + dx;
             int logWorldZ = site.worldZ() + dz;
@@ -113,12 +106,20 @@ public final class DriftwoodFeaturePlacer implements SurfaceFeaturePlacer {
             boolean isXAxis = SurfaceNoise.unitHash(logSeed, 4, 0) < 0.5f;
             BlockState logState = logStateFor(logSeed, isXAxis);
 
-            int worldY = groundY + 1 + stackY;
-            pos.set(logWorldX, worldY, logWorldZ);
-            if (!chunk.getBlockState(pos).isAir()) continue;
-            chunk.setBlockState(pos, logState, false);
-            worldSurface.update(logLocalX, worldY, logLocalZ, logState);
-            motionBlocking.update(logLocalX, worldY, logLocalZ, logState);
+            // Rest each log on whatever is under it rather than on the site's own ground height,
+            // and only stack a second log where the first one actually landed -- the old fixed
+            // +1 offset left half the pile hanging a block above the sand.
+            int logGroundY = SurfaceStamp.surfaceY(chunk, logLocalX, logLocalZ);
+            if (logGroundY <= chunk.getMinBuildHeight()) continue;
+
+            if (!SurfaceStamp.placeIfAir(chunk, worldSurface, motionBlocking,
+                    logWorldX, logGroundY + 1, logWorldZ, logState)) {
+                continue;
+            }
+            if (stacked) {
+                SurfaceStamp.placeIfAir(chunk, worldSurface, motionBlocking,
+                        logWorldX, logGroundY + 2, logWorldZ, logStateFor(logSeed, !isXAxis));
+            }
         }
     }
 

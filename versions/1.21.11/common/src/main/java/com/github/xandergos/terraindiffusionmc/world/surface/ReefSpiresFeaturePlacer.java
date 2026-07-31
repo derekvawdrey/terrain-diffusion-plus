@@ -5,7 +5,6 @@ import com.github.xandergos.terraindiffusionmc.pipeline.LocalTerrainProvider.Hei
 import com.github.xandergos.terraindiffusionmc.worldgen.surface.SiteGrid;
 import com.github.xandergos.terraindiffusionmc.worldgen.surface.SurfaceNoise;
 import com.github.xandergos.terraindiffusionmc.worldgen.surface.TerrainSampling;
-import net.minecraft.core.BlockPos;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.chunk.ChunkAccess;
@@ -94,8 +93,11 @@ public final class ReefSpiresFeaturePlacer implements SurfaceFeaturePlacer {
             int sLocalZ = spireWorldZ - minZ;
             if (sLocalX < 0 || sLocalX > 15 || sLocalZ < 0 || sLocalZ > 15) continue;
 
-            int groundY = chunk.getHeight(Heightmap.Types.WORLD_SURFACE_WG, sLocalX, sLocalZ) - 1;
-            if (groundY <= chunk.getMinY()) continue;
+            // The ocean floor, not the water surface: WORLD_SURFACE_WG counts fluids, so
+            // surfaceY() over open water returns sea level and every spire was rejected by the
+            // clearance check below before placing a single block.
+            int groundY = SurfaceStamp.seabedY(chunk, spireWorldX, sLocalX, spireWorldZ, sLocalZ);
+            if (groundY == Integer.MIN_VALUE) continue;
             if (groundY >= SEA_LEVEL - SURFACE_CLEARANCE) continue;
 
             int height = MIN_SPIRE_HEIGHT
@@ -105,13 +107,12 @@ public final class ReefSpiresFeaturePlacer implements SurfaceFeaturePlacer {
             if (height < 1) continue;
 
             placeSpire(chunk, worldSurface, motionBlocking, spireSeed, spireWorldX, spireWorldZ,
-                    sLocalX, sLocalZ, groundY, height);
+                    groundY, height);
         }
     }
 
     private void placeSpire(ChunkAccess chunk, Heightmap worldSurface, Heightmap motionBlocking, long spireSeed,
-                             int worldX, int worldZ, int localX, int localZ, int groundY, int height) {
-        BlockPos.MutableBlockPos pos = new BlockPos.MutableBlockPos();
+                             int worldX, int worldZ, int groundY, int height) {
         int baseWidth = 1 + (int) (SurfaceNoise.unitHash(spireSeed, 5, 0) * 2);
 
         for (int dy = 0; dy <= height; dy++) {
@@ -120,21 +121,16 @@ public final class ReefSpiresFeaturePlacer implements SurfaceFeaturePlacer {
             int r = Math.max(0, Math.round(baseWidth * taper * 0.5f));
 
             for (int dz = -r; dz <= r; dz++) {
-                int lz = localZ + dz;
-                if (lz < 0 || lz > 15) continue;
                 for (int dx = -r; dx <= r; dx++) {
-                    int lx = localX + dx;
-                    if (lx < 0 || lx > 15) continue;
                     if (r > 0 && Math.sqrt(dx * dx + dz * dz) > r + 0.3f) continue;
 
                     int wx = worldX + dx;
                     int wz = worldZ + dz;
-                    pos.set(wx, worldY, wz);
-                    if (!chunk.getBlockState(pos).isAir() && !chunk.getBlockState(pos).getFluidState().isEmpty()) continue;
+                    // Every target here is water, so the spire has to displace fluid. The old test
+                    // skipped exactly the water blocks it needed to fill and happily overwrote
+                    // solid seabed instead.
                     BlockState block = reefBlockFor(spireSeed, wx, worldY, wz);
-                    chunk.setBlockState(pos, block);
-                    worldSurface.update(lx, worldY, lz, block);
-                    motionBlocking.update(lx, worldY, lz, block);
+                    SurfaceStamp.placeIfAirOrFluid(chunk, worldSurface, motionBlocking, wx, worldY, wz, block);
                 }
             }
         }

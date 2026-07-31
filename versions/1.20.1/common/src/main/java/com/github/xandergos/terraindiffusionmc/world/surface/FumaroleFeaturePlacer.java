@@ -26,7 +26,7 @@ public final class FumaroleFeaturePlacer implements SurfaceFeaturePlacer {
     private static final float PLACEMENT_NOISE_WAVELENGTH = 250.0f;
     private static final float PLACEMENT_THRESHOLD = 0.5f;
 
-    private static final int MIN_ELEVATION = 50;
+    private static final float MIN_ELEVATION_BLOCKS = 40f;
 
     @Override
     public String id() {
@@ -60,7 +60,7 @@ public final class FumaroleFeaturePlacer implements SurfaceFeaturePlacer {
         int row = site.worldZ() - dataOriginZ;
         int col = site.worldX() - dataOriginX;
         if (!TerrainSampling.inBounds(data, row, col)) return;
-        if (TerrainSampling.elevationAt(data, row, col) <= MIN_ELEVATION) return;
+        if (TerrainSampling.elevationAt(data, row, col) <= SurfaceStamp.blocksToElevation(MIN_ELEVATION_BLOCKS)) return;
 
         TerrainBiomeRegistry registry = TerrainBiomeRegistry.instance();
         short biomeIndex = TerrainSampling.biomeIndexAt(data, row, col);
@@ -72,7 +72,7 @@ public final class FumaroleFeaturePlacer implements SurfaceFeaturePlacer {
                 site.worldX() / PLACEMENT_NOISE_WAVELENGTH, site.worldZ() / PLACEMENT_NOISE_WAVELENGTH);
         if (placement <= PLACEMENT_THRESHOLD) return;
 
-        int groundY = chunk.getHeight(Heightmap.Types.WORLD_SURFACE_WG, localX, localZ) - 1;
+        int groundY = SurfaceStamp.surfaceY(chunk, localX, localZ);
         if (groundY <= chunk.getMinBuildHeight()) return;
         BlockPos.MutableBlockPos pos = new BlockPos.MutableBlockPos(site.worldX(), groundY, site.worldZ());
         if (!isSolidGround(chunk.getBlockState(pos))) return;
@@ -90,7 +90,6 @@ public final class FumaroleFeaturePlacer implements SurfaceFeaturePlacer {
         BlockState magma = Blocks.MAGMA_BLOCK.defaultBlockState();
         BlockState tuff = Blocks.TUFF.defaultBlockState();
 
-        // Place the central magma block at ground level (replaces the top block)
         int worldX = site.worldX();
         int worldZ = site.worldZ();
         int lx = worldX - minX;
@@ -102,7 +101,6 @@ public final class FumaroleFeaturePlacer implements SurfaceFeaturePlacer {
             motionBlocking.update(lx, groundY + 1, lz, magma);
         }
 
-        // Place a ring of 8 tuff blocks around the magma block at radius 2
         int[] dxDirs = {-1, -1, 0, 1, 1, 1, 0, -1};
         int[] dzDirs = {0, 1, 1, 1, 0, -1, -1, -1};
         for (int i = 0; i < dxDirs.length; i++) {

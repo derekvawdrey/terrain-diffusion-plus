@@ -23,9 +23,9 @@ public final class BlowholeFeaturePlacer implements SurfaceFeaturePlacer {
     private static final long SALT = 0x424C5748L;
     private static final float SPAWN_CHANCE = 0.15f;
     private static final int CELL_SIZE = 56;
-    private static final float MIN_SLOPE = 1.5f;
-    private static final int MIN_ELEVATION = 0;
-    private static final int MAX_ELEVATION = 15;
+    private static final float MIN_SLOPE_BLOCKS = 0.6f;
+    private static final float MIN_ELEVATION_BLOCKS = 0f;
+    private static final float MAX_ELEVATION_BLOCKS = 6f;
     private static final int MIN_SHAFT_DEPTH = 3;
     private static final int MAX_SHAFT_DEPTH = 5;
 
@@ -73,16 +73,16 @@ public final class BlowholeFeaturePlacer implements SurfaceFeaturePlacer {
         if (!TerrainSampling.inBounds(data, row, col)) return;
 
         float elevation = TerrainSampling.elevationAt(data, row, col);
-        if (elevation < MIN_ELEVATION || elevation > MAX_ELEVATION) return;
+        if (elevation < SurfaceStamp.blocksToElevation(MIN_ELEVATION_BLOCKS) || elevation > SurfaceStamp.blocksToElevation(MAX_ELEVATION_BLOCKS)) return;
 
         TerrainBiomeRegistry registry = TerrainBiomeRegistry.instance();
         short biomeIndex = TerrainSampling.biomeIndexAt(data, row, col);
         String biomeKey = registry.keyForIndex(biomeIndex);
         if (biomeKey == null || !isCoastalBiome(biomeKey)) return;
 
-        if (TerrainSampling.slopeAt(data, row, col, 2) < MIN_SLOPE) return;
+        if (TerrainSampling.slopeAt(data, row, col, 2) < SurfaceStamp.slopeFromBlocks(MIN_SLOPE_BLOCKS)) return;
 
-        int groundY = chunk.getHeight(Heightmap.Types.WORLD_SURFACE_WG, localX, localZ) - 1;
+        int groundY = SurfaceStamp.surfaceY(chunk, localX, localZ);
         if (groundY <= chunk.getMinY()) return;
         BlockPos.MutableBlockPos pos = new BlockPos.MutableBlockPos(site.worldX(), groundY, site.worldZ());
         if (!isCarvable(chunk.getBlockState(pos))) return;

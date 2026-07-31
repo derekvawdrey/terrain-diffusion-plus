@@ -16,16 +16,21 @@ import net.minecraft.world.level.levelgen.Heightmap;
  * Targets badlands/mesa biomes at high elevation on flat plateaus, creating the characteristic
  * layered terracotta coloration seen on real mesas.
  *
- * <p>Unlike BoulderFeaturePlacer which stamps new blocks, this modifies existing blocks on
- * exposed faces where the block above is air. It cycles through terracotta colors based on
- * Y coordinate to create horizontal bands.</p>
+ * <p>Unlike BoulderFeaturePlacer which stamps new blocks, this recolors the existing crust: for
+ * every column in range it repaints from the surface block down {@link #BAND_DEPTH} blocks,
+ * cycling terracotta colors by Y so the bands line up across neighbouring columns and read as
+ * continuous strata on an exposed flank.</p>
  */
 public final class MesasFeaturePlacer implements SurfaceFeaturePlacer {
     private static final long SALT = 0x4D455341L;
     private static final float SPAWN_CHANCE = 0.3f;
-    private static final float MAX_SLOPE = 0.5f;
+    private static final float MAX_SLOPE_BLOCKS = 0.15f;
     private static final int RADIUS = 12;
     private static final int CELL_SIZE = 60;
+    /** How far below the surface the banding is painted, in blocks. */
+    private static final int BAND_DEPTH = 12;
+    /** Only band terrain that actually stands above the surrounding plain, in blocks. */
+    private static final float MIN_ELEVATION_BLOCKS = 6f;
 
     @Override
     public String id() {
@@ -50,16 +55,16 @@ public final class MesasFeaturePlacer implements SurfaceFeaturePlacer {
     @Override
     public void place(ChunkAccess chunk, HeightmapData data, int dataOriginX, int dataOriginZ,
                        SiteGrid.Site site, long worldSeed) {
-        int localX = site.worldX() - chunk.getPos().getMinBlockX();
-        int localZ = site.worldZ() - chunk.getPos().getMinBlockZ();
-        if (localX < 0 || localX > 15 || localZ < 0 || localZ > 15) return;
-
+        // No site-in-chunk gate: every column below is anchored and clipped individually, so each
+        // chunk this site reaches draws its own slice instead of the footprint being cut off at the
+        // chunk border.
         if (SurfaceNoise.unitHash(worldSeed ^ SALT, site.worldX(), site.worldZ()) >= SPAWN_CHANCE) return;
 
         int row = site.worldZ() - dataOriginZ;
         int col = site.worldX() - dataOriginX;
         if (!TerrainSampling.inBounds(data, row, col)) return;
-        if (TerrainSampling.elevationAt(data, row, col) <= 20f) return;
+        if (TerrainSampling.elevationAt(data, row, col)
+                <= SurfaceStamp.blocksToElevation(MIN_ELEVATION_BLOCKS)) return;
 
         TerrainBiomeRegistry registry = TerrainBiomeRegistry.instance();
         short biomeIndex = TerrainSampling.biomeIndexAt(data, row, col);
@@ -68,15 +73,12 @@ public final class MesasFeaturePlacer implements SurfaceFeaturePlacer {
         if (biomeKey == null || (!biomeKey.contains("badlands") && !biomeKey.contains("mesa"))) {
             return;
         }
-        if (TerrainSampling.slopeAt(data, row, col, 2) > MAX_SLOPE) return;
+        if (TerrainSampling.slopeAt(data, row, col, 2) > SurfaceStamp.slopeFromBlocks(MAX_SLOPE_BLOCKS)) return;
 
-        int groundY = chunk.getHeight(Heightmap.Types.WORLD_SURFACE_WG, localX, localZ);
-        if (groundY <= chunk.getMinBuildHeight()) return;
-
-        stampTerracing(chunk, site, groundY);
+        stampTerracing(chunk, site);
     }
 
-    private void stampTerracing(ChunkAccess chunk, SiteGrid.Site site, int groundY) {
+    private void stampTerracing(ChunkAccess chunk, SiteGrid.Site site) {
         Heightmap worldSurface = chunk.getOrCreateHeightmapUnprimed(Heightmap.Types.WORLD_SURFACE_WG);
         Heightmap motionBlocking = chunk.getOrCreateHeightmapUnprimed(Heightmap.Types.MOTION_BLOCKING);
         BlockPos.MutableBlockPos pos = new BlockPos.MutableBlockPos();
@@ -95,18 +97,20 @@ public final class MesasFeaturePlacer implements SurfaceFeaturePlacer {
                 float horizontal = (float) Math.sqrt(dx * dx + dz * dz);
                 if (horizontal > RADIUS) continue;
 
-                int localGroundY = chunk.getHeight(Heightmap.Types.WORLD_SURFACE_WG, localX, localZ);
+                int localGroundY = SurfaceStamp.surfaceY(chunk, localX, localZ);
                 if (localGroundY <= chunk.getMinBuildHeight()) continue;
 
-                for (int y = localGroundY - 1; y >= chunk.getMinBuildHeight(); y--) {
+                // Start at the exposed surface block itself and only band the shallow crust below
+                // it. Scanning from localGroundY - 1 skips the surface entirely (its neighbour above
+                // is solid by definition), and running to the world floor repaints every
+                // cave-exposed stone face in the column instead of the mesa flank.
+                int lowestY = Math.max(chunk.getMinBuildHeight(), localGroundY - BAND_DEPTH);
+                for (int y = localGroundY; y >= lowestY; y--) {
                     pos.set(worldX, y, worldZ);
                     BlockState state = chunk.getBlockState(pos);
                     if (!isReplaceableBlock(state)) continue;
 
-                    BlockState above = chunk.getBlockState(pos.set(worldX, y + 1, worldZ));
-                    if (!above.isAir()) continue;
-
-                    BlockState terracotta = terracottaForY(y, site.seed());
+                    BlockState terracotta = terracottaForY(y);
                     chunk.setBlockState(pos.set(worldX, y, worldZ), terracotta, false);
                     worldSurface.update(localX, y, localZ, terracotta);
                     motionBlocking.update(localX, y, localZ, terracotta);
@@ -115,7 +119,7 @@ public final class MesasFeaturePlacer implements SurfaceFeaturePlacer {
         }
     }
 
-    private static BlockState terracottaForY(int y, long seed) {
+    private static BlockState terracottaForY(int y) {
         int band = Math.floorDiv(y, 4) % 4;
         if (band < 0) band += 4;
         switch (band) {
@@ -126,10 +130,20 @@ public final class MesasFeaturePlacer implements SurfaceFeaturePlacer {
         }
     }
 
+    /**
+     * Blocks a badlands column is actually made of. Stone/dirt alone never matched the surface --
+     * the biome's own surface rules put red sand and terracotta there -- so the pass had nothing
+     * to recolor.
+     */
     private static boolean isReplaceableBlock(BlockState state) {
-        return state == Blocks.STONE.defaultBlockState()
-                || state == Blocks.ANDESITE.defaultBlockState()
-                || state == Blocks.DIRT.defaultBlockState()
-                || state == Blocks.COARSE_DIRT.defaultBlockState();
+        return state.is(Blocks.STONE)
+                || state.is(Blocks.ANDESITE)
+                || state.is(Blocks.DIRT)
+                || state.is(Blocks.COARSE_DIRT)
+                || state.is(Blocks.RED_SAND)
+                || state.is(Blocks.SAND)
+                || state.is(Blocks.SANDSTONE)
+                || state.is(Blocks.RED_SANDSTONE)
+                || state.is(Blocks.TERRACOTTA);
     }
 }

@@ -5,8 +5,8 @@ import com.github.xandergos.terraindiffusionmc.pipeline.LocalTerrainProvider.Hei
 import com.github.xandergos.terraindiffusionmc.worldgen.surface.SiteGrid;
 import com.github.xandergos.terraindiffusionmc.worldgen.surface.SurfaceNoise;
 import com.github.xandergos.terraindiffusionmc.worldgen.surface.TerrainSampling;
-import net.minecraft.core.BlockPos;
 import net.minecraft.world.level.block.Blocks;
+import net.minecraft.world.level.block.LeavesBlock;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.chunk.ChunkAccess;
 import net.minecraft.world.level.levelgen.Heightmap;
@@ -19,11 +19,16 @@ import net.minecraft.world.level.levelgen.Heightmap;
 public final class OasisSinkholeFeaturePlacer implements SurfaceFeaturePlacer {
     private static final long SALT = 0x4F415349L;
     private static final float SPAWN_CHANCE = 0.08f;
-    private static final float MAX_SLOPE = 1.0f;
+    private static final float MAX_SLOPE_BLOCKS = 0.08f;
+    /** Oases sit in low desert basins, measured in blocks above sea level. */
+    private static final float MAX_ELEVATION_BLOCKS = 40f;
     private static final int CELL_SIZE = 80;
+    private static final int MIN_RADIUS = 4;
     private static final int MAX_RADIUS = 5;
     private static final int MIN_TREE_COUNT = 3;
     private static final int MAX_TREE_COUNT = 5;
+    private static final int MIN_TREE_HEIGHT = 4;
+    private static final int MAX_TREE_HEIGHT = 6;
 
     @Override
     public String id() {
@@ -59,7 +64,7 @@ public final class OasisSinkholeFeaturePlacer implements SurfaceFeaturePlacer {
         if (!TerrainSampling.inBounds(data, row, col)) return;
 
         float elevation = TerrainSampling.elevationAt(data, row, col);
-        if (elevation <= 0f || elevation >= 60f) return;
+        if (elevation <= 0f || elevation >= SurfaceStamp.blocksToElevation(MAX_ELEVATION_BLOCKS)) return;
 
         TerrainBiomeRegistry registry = TerrainBiomeRegistry.instance();
         short biomeIndex = TerrainSampling.biomeIndexAt(data, row, col);
@@ -67,9 +72,9 @@ public final class OasisSinkholeFeaturePlacer implements SurfaceFeaturePlacer {
         String biomeKey = registry.keyForIndex(biomeIndex);
         if (biomeKey == null || !biomeKey.contains("desert")) return;
 
-        if (TerrainSampling.slopeAt(data, row, col, 2) > MAX_SLOPE) return;
+        if (TerrainSampling.slopeAt(data, row, col, 2) > SurfaceStamp.slopeFromBlocks(MAX_SLOPE_BLOCKS)) return;
 
-        int groundY = chunk.getHeight(Heightmap.Types.WORLD_SURFACE_WG, localX, localZ);
+        int groundY = SurfaceStamp.surfaceY(chunk, localX, localZ);
         if (groundY <= chunk.getMinY()) return;
 
         stamp(chunk, site, groundY);
@@ -77,11 +82,9 @@ public final class OasisSinkholeFeaturePlacer implements SurfaceFeaturePlacer {
 
     private void stamp(ChunkAccess chunk, SiteGrid.Site site, int groundY) {
         long seed = site.seed();
-        int radius = 4 + (int) (SurfaceNoise.unitHash(seed, 0, 0) * 3);
-        radius = Math.min(radius, MAX_RADIUS);
+        int radius = SurfaceStamp.randRange(seed, 0, 0, MIN_RADIUS, MAX_RADIUS);
         Heightmap worldSurface = chunk.getOrCreateHeightmapUnprimed(Heightmap.Types.WORLD_SURFACE_WG);
         Heightmap motionBlocking = chunk.getOrCreateHeightmapUnprimed(Heightmap.Types.MOTION_BLOCKING);
-        BlockPos.MutableBlockPos pos = new BlockPos.MutableBlockPos();
         int minX = chunk.getPos().getMinBlockX();
         int minZ = chunk.getPos().getMinBlockZ();
 
@@ -103,38 +106,26 @@ public final class OasisSinkholeFeaturePlacer implements SurfaceFeaturePlacer {
                 int digDepth = Math.max(1, (int) (3f * (1f - normalizedDist)));
 
                 if (dist <= waterRadius) {
+                    // Fill the whole basin with water up to the waterline. Watering only the floor
+                    // and the top course left an air gap between them, so the upper sheet had
+                    // nothing holding it up and drained the moment the chunk ticked.
                     for (int dy = -digDepth; dy <= 0; dy++) {
-                        int worldY = groundY + dy;
-                        pos.set(worldX, worldY, worldZ);
-                        BlockState current = chunk.getBlockState(pos);
-                        if (!current.isAir() && !current.getFluidState().isEmpty()) continue;
-
-                        if (dy == -digDepth || dy == -1) {
-                            chunk.setBlockState(pos, Blocks.WATER.defaultBlockState());
-                        } else {
-                            chunk.setBlockState(pos, Blocks.AIR.defaultBlockState());
-                        }
+                        SurfaceStamp.fill(chunk, worldSurface, motionBlocking, worldX, groundY + dy, worldZ,
+                                Blocks.WATER.defaultBlockState());
                     }
                 } else {
                     for (int dy = -digDepth; dy <= 0; dy++) {
                         int worldY = groundY + dy;
-                        pos.set(worldX, worldY, worldZ);
-                        BlockState current = chunk.getBlockState(pos);
-                        if (!current.isAir() && !current.getFluidState().isEmpty()) continue;
-
-                        BlockState fillBlock;
-                        if (SurfaceNoise.unitHash(seed, worldX, worldZ) < 0.5f) {
-                            fillBlock = Blocks.SAND.defaultBlockState();
-                        } else {
-                            fillBlock = Blocks.GRASS_BLOCK.defaultBlockState();
-                        }
-                        chunk.setBlockState(pos, fillBlock);
+                        BlockState fillBlock = SurfaceNoise.unitHash(seed, worldX, worldZ) < 0.5f
+                                ? Blocks.SAND.defaultBlockState()
+                                : Blocks.GRASS_BLOCK.defaultBlockState();
+                        SurfaceStamp.fill(chunk, worldSurface, motionBlocking, worldX, worldY, worldZ, fillBlock);
                     }
                 }
             }
         }
 
-        int numTrees = MIN_TREE_COUNT + (int) (SurfaceNoise.unitHash(seed, 1, 0) * (MAX_TREE_COUNT - MIN_TREE_COUNT + 1));
+        int numTrees = SurfaceStamp.randRange(seed, 1, 0, MIN_TREE_COUNT, MAX_TREE_COUNT);
         for (int i = 0; i < numTrees; i++) {
             float angle = SurfaceNoise.unitHash(seed, 10 + i, 0) * (float) (Math.PI * 2);
             float treeDist = waterRadius + 0.5f + SurfaceNoise.unitHash(seed, 11 + i, 0) * 1.5f;
@@ -146,18 +137,39 @@ public final class OasisSinkholeFeaturePlacer implements SurfaceFeaturePlacer {
             int treeLocalZ = treeWorldZ - minZ;
             if (treeLocalX < 0 || treeLocalX > 15 || treeLocalZ < 0 || treeLocalZ > 15) continue;
 
-            int treeGroundY = chunk.getHeight(Heightmap.Types.WORLD_SURFACE_WG, treeLocalX, treeLocalZ);
+            int treeGroundY = SurfaceStamp.surfaceY(chunk, treeLocalX, treeLocalZ);
             if (treeGroundY <= chunk.getMinY()) continue;
 
-            int treeHeight = 3 + (int) (SurfaceNoise.unitHash(seed, 20 + i, 0) * 3);
-            for (int dy = 1; dy <= treeHeight; dy++) {
-                int worldY = treeGroundY + dy;
-                pos.set(treeWorldX, worldY, treeWorldZ);
-                if (!chunk.getBlockState(pos).isAir()) continue;
-                chunk.setBlockState(pos, Blocks.OAK_LOG.defaultBlockState());
-                worldSurface.update(treeLocalX, worldY, treeLocalZ, Blocks.OAK_LOG.defaultBlockState());
-                motionBlocking.update(treeLocalX, worldY, treeLocalZ, Blocks.OAK_LOG.defaultBlockState());
+            int treeHeight = SurfaceStamp.randRange(seed, 20 + i, 0, MIN_TREE_HEIGHT, MAX_TREE_HEIGHT);
+            placePalm(chunk, worldSurface, motionBlocking, treeWorldX, treeWorldZ, treeGroundY, treeHeight);
+        }
+    }
+
+    /**
+     * A trunk with a frond crown on top. The trunk alone -- which is all this used to place -- reads
+     * as a bare post, not a palm.
+     */
+    private void placePalm(ChunkAccess chunk, Heightmap worldSurface, Heightmap motionBlocking,
+                            int worldX, int worldZ, int groundY, int height) {
+        BlockState log = Blocks.JUNGLE_LOG.defaultBlockState();
+        for (int dy = 1; dy <= height; dy++) {
+            if (!SurfaceStamp.placeIfAir(chunk, worldSurface, motionBlocking, worldX, groundY + dy, worldZ, log)) {
+                return;
             }
+        }
+
+        int crownY = groundY + height;
+        BlockState frond = Blocks.JUNGLE_LEAVES.defaultBlockState().setValue(LeavesBlock.DISTANCE, 1);
+        BlockState outerFrond = Blocks.JUNGLE_LEAVES.defaultBlockState().setValue(LeavesBlock.DISTANCE, 2);
+
+        SurfaceStamp.placeIfAir(chunk, worldSurface, motionBlocking, worldX, crownY + 1, worldZ, frond);
+        int[] dxDirs = {-1, 1, 0, 0};
+        int[] dzDirs = {0, 0, -1, 1};
+        for (int i = 0; i < dxDirs.length; i++) {
+            SurfaceStamp.placeIfAir(chunk, worldSurface, motionBlocking,
+                    worldX + dxDirs[i], crownY, worldZ + dzDirs[i], frond);
+            SurfaceStamp.placeIfAir(chunk, worldSurface, motionBlocking,
+                    worldX + dxDirs[i] * 2, crownY, worldZ + dzDirs[i] * 2, outerFrond);
         }
     }
 }

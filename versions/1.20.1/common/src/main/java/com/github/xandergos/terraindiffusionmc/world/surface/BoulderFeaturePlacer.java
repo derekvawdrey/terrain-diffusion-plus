@@ -25,7 +25,7 @@ import net.minecraft.world.level.levelgen.Heightmap;
 public final class BoulderFeaturePlacer implements SurfaceFeaturePlacer {
     private static final long SALT = 0xB0F1DE12L;
     private static final float SPAWN_CHANCE = 0.35f;
-    private static final float MAX_SLOPE = 2.0f;
+    private static final float MAX_SLOPE_BLOCKS = 0.25f;
     private static final int MAX_RADIUS = 2;
     private static final int CELL_SIZE = 28;
 
@@ -76,10 +76,10 @@ public final class BoulderFeaturePlacer implements SurfaceFeaturePlacer {
                 || biomeKey.contains("mesa")) {
             return;
         }
-        if (TerrainSampling.slopeAt(data, row, col, 2) > MAX_SLOPE) return;
+        if (TerrainSampling.slopeAt(data, row, col, 2) > SurfaceStamp.slopeFromBlocks(MAX_SLOPE_BLOCKS)) return;
 
         // 4. Anchor to the real generated surface (not the raster) now that we're committing.
-        int groundY = chunk.getHeight(Heightmap.Types.WORLD_SURFACE_WG, localX, localZ) - 1;
+        int groundY = SurfaceStamp.surfaceY(chunk, localX, localZ);
         if (groundY <= chunk.getMinBuildHeight()) return;
         BlockPos.MutableBlockPos pos = new BlockPos.MutableBlockPos(site.worldX(), groundY, site.worldZ());
         if (!isSolidGround(chunk.getBlockState(pos))) return;

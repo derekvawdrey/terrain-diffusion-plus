@@ -57,7 +57,7 @@ public final class IceSpikeFeaturePlacer implements SurfaceFeaturePlacer {
         if (!TerrainSampling.inBounds(data, row, col)) return;
 
         float elevation = TerrainSampling.elevationAt(data, row, col);
-        if (elevation < 0 || elevation > 5) return;
+        if (elevation < 0 || elevation > SurfaceStamp.blocksToElevation(3f)) return;
 
         TerrainBiomeRegistry registry = TerrainBiomeRegistry.instance();
         short biomeIndex = TerrainSampling.biomeIndexAt(data, row, col);
@@ -92,7 +92,7 @@ public final class IceSpikeFeaturePlacer implements SurfaceFeaturePlacer {
             int localZ = columnWorldZ - minZ;
             if (localX < 0 || localX > 15 || localZ < 0 || localZ > 15) continue;
 
-            int groundY = chunk.getHeight(Heightmap.Types.WORLD_SURFACE_WG, localX, localZ) - 1;
+            int groundY = SurfaceStamp.surfaceY(chunk, localX, localZ);
             if (groundY <= chunk.getMinBuildHeight()) continue;
             BlockPos.MutableBlockPos probe = new BlockPos.MutableBlockPos(columnWorldX, groundY, columnWorldZ);
             if (chunk.getBlockState(probe).isAir()) continue;

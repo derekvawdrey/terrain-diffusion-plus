@@ -19,8 +19,8 @@ import net.minecraft.world.level.levelgen.Heightmap;
 public final class CorniceFeaturePlacer implements SurfaceFeaturePlacer {
     private static final long SALT = 0x434F524EL;
     private static final float SPAWN_CHANCE = 0.2f;
-    private static final float MIN_SLOPE = 1.5f;
-    private static final int MIN_ELEVATION = 120;
+    private static final float MIN_SLOPE_BLOCKS = 0.5f;
+    private static final float MIN_ELEVATION_BLOCKS = 90f;
     private static final int CELL_SIZE = 36;
     private static final int SAMPLE_STEP = 4;
 
@@ -56,7 +56,7 @@ public final class CorniceFeaturePlacer implements SurfaceFeaturePlacer {
         int row = site.worldZ() - dataOriginZ;
         int col = site.worldX() - dataOriginX;
         if (!TerrainSampling.inBounds(data, row, col)) return;
-        if (TerrainSampling.elevationAt(data, row, col) <= MIN_ELEVATION) return;
+        if (TerrainSampling.elevationAt(data, row, col) <= SurfaceStamp.blocksToElevation(MIN_ELEVATION_BLOCKS)) return;
 
         TerrainBiomeRegistry registry = TerrainBiomeRegistry.instance();
         short biomeIndex = TerrainSampling.biomeIndexAt(data, row, col);
@@ -66,9 +66,9 @@ public final class CorniceFeaturePlacer implements SurfaceFeaturePlacer {
                 && !biomeKey.contains("grove"))) {
             return;
         }
-        if (TerrainSampling.slopeAt(data, row, col, 2) < MIN_SLOPE) return;
+        if (TerrainSampling.slopeAt(data, row, col, 2) < SurfaceStamp.slopeFromBlocks(MIN_SLOPE_BLOCKS)) return;
 
-        int groundY = chunk.getHeight(Heightmap.Types.WORLD_SURFACE_WG, localX, localZ) - 1;
+        int groundY = SurfaceStamp.surfaceY(chunk, localX, localZ);
         if (groundY <= chunk.getMinY()) return;
 
         int dx = 0;

@@ -5,7 +5,6 @@ import com.github.xandergos.terraindiffusionmc.pipeline.LocalTerrainProvider.Hei
 import com.github.xandergos.terraindiffusionmc.worldgen.surface.SiteGrid;
 import com.github.xandergos.terraindiffusionmc.worldgen.surface.SurfaceNoise;
 import com.github.xandergos.terraindiffusionmc.worldgen.surface.TerrainSampling;
-import net.minecraft.core.BlockPos;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.chunk.ChunkAccess;
@@ -31,6 +30,9 @@ public final class SeaStackFeaturePlacer implements SurfaceFeaturePlacer {
 
     private static final float PLACEMENT_NOISE_WAVELENGTH = 200.0f;
     private static final float PLACEMENT_THRESHOLD = 0.4f;
+    private static final int SEA_LEVEL = 63;
+    /** How far offshore, in blocks, a stack may stand from the column that anchors the site. */
+    private static final int WATER_SEARCH_RADIUS = 10;
 
     private static final BlockState[] COASTAL_BANDS = {
             Blocks.STONE.defaultBlockState(),
@@ -99,16 +101,16 @@ public final class SeaStackFeaturePlacer implements SurfaceFeaturePlacer {
             int localZ = columnWorldZ - minZ;
             if (localX < 0 || localX > 15 || localZ < 0 || localZ > 15) continue;
 
-            int groundY = chunk.getHeight(Heightmap.Types.WORLD_SURFACE_WG, localX, localZ) - 1;
-            if (groundY <= chunk.getMinY()) continue;
-            if (groundY > 62) continue;
-            BlockPos.MutableBlockPos probe = new BlockPos.MutableBlockPos(columnWorldX, groundY, columnWorldZ);
-            if (chunk.getBlockState(probe).isAir()) continue;
+            // Sit on the seabed, not on the water: WORLD_SURFACE_WG counts fluids, so anchoring to
+            // it in shallow water started the column at sea level with nothing underneath it.
+            int groundY = SurfaceStamp.seabedY(chunk, columnWorldX, localX, columnWorldZ, localZ);
+            if (groundY == Integer.MIN_VALUE) continue;
+            if (groundY > SEA_LEVEL - 1) continue;
 
             int height = MIN_COLUMN_HEIGHT
                     + (int) (SurfaceNoise.unitHash(columnSeed, 3, 0) * (MAX_COLUMN_HEIGHT - MIN_COLUMN_HEIGHT));
             placeColumn(chunk, worldSurface, motionBlocking, columnSeed, columnWorldX, columnWorldZ,
-                    localX, localZ, groundY, height);
+                    groundY, height);
         }
     }
 
@@ -117,15 +119,22 @@ public final class SeaStackFeaturePlacer implements SurfaceFeaturePlacer {
                 || biomeKey.contains("coast") || biomeKey.contains("frozen_ocean");
     }
 
+    /**
+     * True when open water is within {@link #WATER_SEARCH_RADIUS} blocks.
+     *
+     * <p>{@code riverWater}/{@code riverWaterSurface} are <em>fluvial</em> masks -- rivers and
+     * lakes only, never the sea -- so testing them alone made a "sea" stack require a river mouth
+     * within ten blocks and essentially never fire. Sub-sea-level raster elevation is what actually
+     * marks ocean; the fluvial masks stay in as a secondary source so estuaries still count.</p>
+     */
     private boolean isNearWater(HeightmapData data, int dataOriginX, int dataOriginZ, int worldX, int worldZ) {
-        if (data.riverWater == null && data.riverWaterSurface == null) return false;
-        int radius = 10;
-        for (int dz = -radius; dz <= radius; dz++) {
+        for (int dz = -WATER_SEARCH_RADIUS; dz <= WATER_SEARCH_RADIUS; dz++) {
             int row = worldZ + dz - dataOriginZ;
             if (row < 0 || row >= data.height) continue;
-            for (int dx = -radius; dx <= radius; dx++) {
+            for (int dx = -WATER_SEARCH_RADIUS; dx <= WATER_SEARCH_RADIUS; dx++) {
                 int col = worldX + dx - dataOriginX;
                 if (col < 0 || col >= data.width) continue;
+                if (TerrainSampling.elevationAt(data, row, col) <= 0f) return true;
                 if (data.riverWater != null && data.riverWater[row][col] != 0) return true;
                 if (data.riverWaterSurface != null
                         && data.riverWaterSurface[row][col] != HeightmapData.NO_FLUVIAL_WATER) return true;
@@ -135,8 +144,7 @@ public final class SeaStackFeaturePlacer implements SurfaceFeaturePlacer {
     }
 
     private void placeColumn(ChunkAccess chunk, Heightmap worldSurface, Heightmap motionBlocking, long columnSeed,
-                              int worldX, int worldZ, int localX, int localZ, int groundY, int height) {
-        BlockPos.MutableBlockPos pos = new BlockPos.MutableBlockPos();
+                              int worldX, int worldZ, int groundY, int height) {
         int capLayer = height - 1;
         for (int dy = 0; dy <= height; dy++) {
             int worldY = groundY + 1 + dy;
@@ -148,21 +156,14 @@ public final class SeaStackFeaturePlacer implements SurfaceFeaturePlacer {
 
             int r = Math.max(0, Math.round(radius));
             for (int dz = -r; dz <= r; dz++) {
-                int lz = localZ + dz;
-                if (lz < 0 || lz > 15) continue;
                 for (int dx = -r; dx <= r; dx++) {
-                    int lx = localX + dx;
-                    if (lx < 0 || lx > 15) continue;
                     if (Math.sqrt(dx * dx + dz * dz) > radius + 0.3f) continue;
 
                     int wx = worldX + dx;
                     int wz = worldZ + dz;
-                    pos.set(wx, worldY, wz);
-                    if (!chunk.getBlockState(pos).isAir()) continue;
+                    // Displaces the water column the stack rises through, not just air.
                     BlockState block = bandFor(columnSeed, wx, worldY, wz);
-                    chunk.setBlockState(pos, block);
-                    worldSurface.update(lx, worldY, lz, block);
-                    motionBlocking.update(lx, worldY, lz, block);
+                    SurfaceStamp.placeIfAirOrFluid(chunk, worldSurface, motionBlocking, wx, worldY, wz, block);
                 }
             }
         }

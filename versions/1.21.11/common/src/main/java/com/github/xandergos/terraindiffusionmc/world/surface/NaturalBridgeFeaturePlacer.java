@@ -41,9 +41,9 @@ public final class NaturalBridgeFeaturePlacer implements SurfaceFeaturePlacer {
     private static final int SEARCH_MIN_SPAN = 8;
     private static final int SEARCH_MAX_SPAN = 14;
     private static final int RING_SAMPLES = 10;
-    private static final float ELEVATION_TOLERANCE = 5.0f;
-    private static final float MIN_GAP_DEPTH = 5.0f;
-    private static final float MIN_ANCHOR_SLOPE = 1.2f;
+    private static final float ELEVATION_TOLERANCE_BLOCKS = 2.5f;
+    private static final float MIN_GAP_DEPTH_BLOCKS = 4f;
+    private static final float MIN_ANCHOR_SLOPE_BLOCKS = 0.5f;
 
     private static final int LEG_RADIUS = 1;
     private static final int ARCH_HALF_WIDTH = 2;
@@ -89,7 +89,7 @@ public final class NaturalBridgeFeaturePlacer implements SurfaceFeaturePlacer {
                 || biomeKey.contains("badlands") || biomeKey.contains("mesa")
                 || biomeKey.contains("stony") || biomeKey.contains("peaks");
         if (!rockyBiome) return;
-        if (TerrainSampling.slopeAt(data, rowA, colA, 2) < MIN_ANCHOR_SLOPE) return;
+        if (TerrainSampling.slopeAt(data, rowA, colA, 2) < SurfaceStamp.slopeFromBlocks(MIN_ANCHOR_SLOPE_BLOCKS)) return;
 
         Candidate best = findOpposingAnchor(data, dataOriginX, dataOriginZ, site, elevA);
         if (best == null) return;
@@ -113,7 +113,7 @@ public final class NaturalBridgeFeaturePlacer implements SurfaceFeaturePlacer {
             int colB = bx - dataOriginX;
             if (!TerrainSampling.inBounds(data, rowB, colB)) continue;
             float elevB = TerrainSampling.elevationAt(data, rowB, colB);
-            if (elevB <= 0f || Math.abs(elevB - elevA) > ELEVATION_TOLERANCE) continue;
+            if (elevB <= 0f || Math.abs(elevB - elevA) > SurfaceStamp.blocksToElevation(ELEVATION_TOLERANCE_BLOCKS)) continue;
 
             int mx = (site.worldX() + bx) / 2;
             int mz = (site.worldZ() + bz) / 2;
@@ -122,7 +122,7 @@ public final class NaturalBridgeFeaturePlacer implements SurfaceFeaturePlacer {
             if (!TerrainSampling.inBounds(data, rowM, colM)) continue;
             float elevM = TerrainSampling.elevationAt(data, rowM, colM);
             float depth = (elevA + elevB) / 2f - elevM;
-            if (depth < MIN_GAP_DEPTH) continue;
+            if (depth < SurfaceStamp.blocksToElevation(MIN_GAP_DEPTH_BLOCKS)) continue;
 
             if (data.riverWater != null && TerrainSampling.inBounds(data, rowM, colM)) {
                 boolean hasWater = data.riverWater[rowM][colM] != 0

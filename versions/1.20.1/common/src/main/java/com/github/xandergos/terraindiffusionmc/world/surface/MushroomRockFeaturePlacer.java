@@ -19,7 +19,7 @@ import net.minecraft.world.level.levelgen.Heightmap;
 public final class MushroomRockFeaturePlacer implements SurfaceFeaturePlacer {
     private static final long SALT = 0x4D569601L;
     private static final float SPAWN_CHANCE = 0.25f;
-    private static final float MAX_SLOPE = 1.5f;
+    private static final float MAX_SLOPE_BLOCKS = 0.3f;
     private static final int CELL_SIZE = 36;
     private static final int STEM_RADIUS = 1;
     private static final int STEM_MIN_HEIGHT = 4;
@@ -76,9 +76,9 @@ public final class MushroomRockFeaturePlacer implements SurfaceFeaturePlacer {
         if (biomeKey == null || (!biomeKey.contains("badlands") && !biomeKey.contains("mesa"))) {
             return;
         }
-        if (TerrainSampling.slopeAt(data, row, col, 2) > MAX_SLOPE) return;
+        if (TerrainSampling.slopeAt(data, row, col, 2) > SurfaceStamp.slopeFromBlocks(MAX_SLOPE_BLOCKS)) return;
 
-        int groundY = chunk.getHeight(Heightmap.Types.WORLD_SURFACE_WG, localX, localZ) - 1;
+        int groundY = SurfaceStamp.surfaceY(chunk, localX, localZ);
         if (groundY <= chunk.getMinBuildHeight()) return;
         BlockPos.MutableBlockPos pos = new BlockPos.MutableBlockPos(site.worldX(), groundY, site.worldZ());
         if (!isSolidGround(chunk.getBlockState(pos))) return;

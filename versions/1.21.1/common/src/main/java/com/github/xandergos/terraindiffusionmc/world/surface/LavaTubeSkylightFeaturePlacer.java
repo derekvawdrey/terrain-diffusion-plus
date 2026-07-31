@@ -23,8 +23,8 @@ public final class LavaTubeSkylightFeaturePlacer implements SurfaceFeaturePlacer
     private static final long SALT = 0x4C565453L;
     private static final float SPAWN_CHANCE = 0.06f;
     private static final int CELL_SIZE = 80;
-    private static final float MAX_SLOPE = 1.5f;
-    private static final int MIN_ELEVATION = 30;
+    private static final float MAX_SLOPE_BLOCKS = 0.3f;
+    private static final float MIN_ELEVATION_BLOCKS = 25f;
     private static final int HOLE_RADIUS_MIN = 2;
     private static final int HOLE_RADIUS_MAX = 3;
     private static final int HOLE_DEPTH_MIN = 3;
@@ -79,20 +79,20 @@ public final class LavaTubeSkylightFeaturePlacer implements SurfaceFeaturePlacer
         if (!TerrainSampling.inBounds(data, row, col)) return;
 
         float elevation = TerrainSampling.elevationAt(data, row, col);
-        if (elevation <= MIN_ELEVATION) return;
+        if (elevation <= SurfaceStamp.blocksToElevation(MIN_ELEVATION_BLOCKS)) return;
 
         TerrainBiomeRegistry registry = TerrainBiomeRegistry.instance();
         short biomeIndex = TerrainSampling.biomeIndexAt(data, row, col);
         String biomeKey = registry.keyForIndex(biomeIndex);
         if (biomeKey == null || !isVolcanicBiome(biomeKey)) return;
 
-        if (TerrainSampling.slopeAt(data, row, col, 2) > MAX_SLOPE) return;
+        if (TerrainSampling.slopeAt(data, row, col, 2) > SurfaceStamp.slopeFromBlocks(MAX_SLOPE_BLOCKS)) return;
 
         float placement = SurfaceNoise.valueNoise(worldSeed ^ SALT,
                 site.worldX() / PLACEMENT_NOISE_WAVELENGTH, site.worldZ() / PLACEMENT_NOISE_WAVELENGTH);
         if (placement <= PLACEMENT_THRESHOLD) return;
 
-        int groundY = chunk.getHeight(Heightmap.Types.WORLD_SURFACE_WG, localX, localZ) - 1;
+        int groundY = SurfaceStamp.surfaceY(chunk, localX, localZ);
         if (groundY <= chunk.getMinBuildHeight()) return;
         BlockPos.MutableBlockPos pos = new BlockPos.MutableBlockPos(site.worldX(), groundY, site.worldZ());
         if (!isCarvable(chunk.getBlockState(pos))) return;
@@ -142,28 +142,28 @@ public final class LavaTubeSkylightFeaturePlacer implements SurfaceFeaturePlacer
                     BlockState current = chunk.getBlockState(pos);
 
                     if (dy == depth - 1) {
-                        if (dist <= 1f && current.isAir()) {
-                            placeContainedLava(chunk, pos, localX, worldY, localZ, worldSurface, motionBlocking);
+                        // Floor of the shaft. The lava went in only when the target was *already*
+                        // air, which at an uncarved floor block it never is -- so the skylight
+                        // bottomed out in plain air and never showed any lava at all.
+                        if (dist <= 1f) {
+                            placeContainedLava(chunk, worldX, worldY, worldZ, worldSurface, motionBlocking);
                         } else if (isCarvable(current) || current.isAir()) {
-                            BlockState air = Blocks.AIR.defaultBlockState();
-                            chunk.setBlockState(pos, air, false);
-                        }
-                    } else if (dy == depth - 2) {
-                        if (isCarvable(current) || current.isAir()) {
-                            chunk.setBlockState(pos, Blocks.AIR.defaultBlockState(), false);
+                            SurfaceStamp.carve(chunk, worldSurface, motionBlocking, worldX, worldY, worldZ);
                         }
                     } else if (isRim && dy == 0) {
                         if (isCarvable(current)) {
-                            BlockState rimBlock = rimBlockFor(seed, worldX, worldZ);
-                            chunk.setBlockState(pos, rimBlock, false);
+                            SurfaceStamp.placeReplacing(chunk, worldSurface, motionBlocking,
+                                    worldX, worldY, worldZ, rimBlockFor(seed, worldX, worldZ));
                         }
                     } else if (isRim && isWallBlock(dy, depth, dist, radius)) {
                         if (isCarvable(current)) {
-                            BlockState wallBlock = wallBlockFor(seed, worldX, worldY, worldZ);
-                            chunk.setBlockState(pos, wallBlock, false);
+                            SurfaceStamp.placeReplacing(chunk, worldSurface, motionBlocking,
+                                    worldX, worldY, worldZ, wallBlockFor(seed, worldX, worldY, worldZ));
                         }
                     } else if (isCarvable(current) || current.isAir()) {
-                        chunk.setBlockState(pos, Blocks.AIR.defaultBlockState(), false);
+                        // carve() lowers the heightmaps as it goes; a bare setBlockState(AIR) left
+                        // WORLD_SURFACE_WG still reporting the terrain that used to be here.
+                        SurfaceStamp.carve(chunk, worldSurface, motionBlocking, worldX, worldY, worldZ);
                     }
                 }
             }
@@ -187,28 +187,30 @@ public final class LavaTubeSkylightFeaturePlacer implements SurfaceFeaturePlacer
                 : Blocks.MAGMA_BLOCK.defaultBlockState();
     }
 
-    private static void placeContainedLava(ChunkAccess chunk, BlockPos.MutableBlockPos pos,
-                                            int localX, int worldY, int localZ,
+    /**
+     * Places the lava pool and dams any open side of it.
+     *
+     * <p>The containment ring is the one place this feature reaches outside the column it is
+     * carving, so every write goes through {@link SurfaceStamp}: {@code ChunkAccess.setBlockState}
+     * masks coordinates with {@code & 15}, so a raw write one block past the chunk edge silently
+     * lands fifteen blocks away on the opposite side, and the matching {@code Heightmap.update}
+     * with a negative local coordinate indexes out of the heightmap's backing storage and throws
+     * mid-worldgen.</p>
+     */
+    private static void placeContainedLava(ChunkAccess chunk, int worldX, int worldY, int worldZ,
                                             Heightmap worldSurface, Heightmap motionBlocking) {
-        BlockState lava = Blocks.LAVA.defaultBlockState();
-        chunk.setBlockState(pos, lava, false);
-        worldSurface.update(localX, worldY, localZ, lava);
-        motionBlocking.update(localX, worldY, localZ, lava);
+        SurfaceStamp.fill(chunk, worldSurface, motionBlocking, worldX, worldY, worldZ,
+                Blocks.LAVA.defaultBlockState());
 
-        BlockPos.MutableBlockPos containPos = new BlockPos.MutableBlockPos();
         int[] dxDirs = {-1, 1, 0, 0};
         int[] dzDirs = {0, 0, -1, 1};
         for (int i = 0; i < dxDirs.length; i++) {
-            containPos.set(pos.getX() + dxDirs[i], worldY, pos.getZ() + dzDirs[i]);
-            BlockState neighbor = chunk.getBlockState(containPos);
-            if (neighbor.isAir()) {
-                BlockState contain = Blocks.COBBLESTONE.defaultBlockState();
-                chunk.setBlockState(containPos, contain, false);
-                int cLx = containPos.getX() - (pos.getX() - localX);
-                int cLz = containPos.getZ() - (pos.getZ() - localZ);
-                worldSurface.update(cLx, worldY, cLz, contain);
-                motionBlocking.update(cLx, worldY, cLz, contain);
-            }
+            int nx = worldX + dxDirs[i];
+            int nz = worldZ + dzDirs[i];
+            if (!SurfaceStamp.inChunk(chunk, nx, nz)) continue;
+            if (!SurfaceStamp.stateAt(chunk, nx, worldY, nz).isAir()) continue;
+            SurfaceStamp.placeIfAir(chunk, worldSurface, motionBlocking, nx, worldY, nz,
+                    Blocks.COBBLESTONE.defaultBlockState());
         }
     }
 

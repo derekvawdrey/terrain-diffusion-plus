@@ -25,11 +25,13 @@ public final class RootArchFeaturePlacer implements SurfaceFeaturePlacer {
     private static final long SALT = 0x524F4F54L;
     private static final int CELL_SIZE = 56;
     private static final float SPAWN_CHANCE = 0.15f;
-    private static final float MAX_SLOPE = 1.0f;
+    private static final float MAX_SLOPE_BLOCKS = 0.2f;
     private static final int MIN_SPAN = 4;
     private static final int MAX_SPAN = 6;
     private static final int ARCH_HEIGHT = 4;
     private static final int LEG_WIDTH = 2;
+    /** Thickness of the arch crown, in blocks. */
+    private static final int ARCH_THICKNESS = 2;
 
     @Override
     public String id() {
@@ -73,9 +75,9 @@ public final class RootArchFeaturePlacer implements SurfaceFeaturePlacer {
         boolean validBiome = biomeKey.contains("swamp") || biomeKey.contains("forest")
                 || biomeKey.contains("old_growth");
         if (!validBiome) return;
-        if (TerrainSampling.slopeAt(data, row, col, 2) > MAX_SLOPE) return;
+        if (TerrainSampling.slopeAt(data, row, col, 2) > SurfaceStamp.slopeFromBlocks(MAX_SLOPE_BLOCKS)) return;
 
-        int groundY = chunk.getHeight(Heightmap.Types.WORLD_SURFACE_WG, localX, localZ) - 1;
+        int groundY = SurfaceStamp.surfaceY(chunk, localX, localZ);
         if (groundY <= chunk.getMinY()) return;
         BlockPos.MutableBlockPos pos = new BlockPos.MutableBlockPos(site.worldX(), groundY, site.worldZ());
         if (!isSolidGround(chunk.getBlockState(pos))) return;
@@ -88,52 +90,49 @@ public final class RootArchFeaturePlacer implements SurfaceFeaturePlacer {
         int height = ARCH_HEIGHT + (int) (SurfaceNoise.unitHash(site.seed(), 1, 0) * 1);
         Heightmap worldSurface = chunk.getOrCreateHeightmapUnprimed(Heightmap.Types.WORLD_SURFACE_WG);
         Heightmap motionBlocking = chunk.getOrCreateHeightmapUnprimed(Heightmap.Types.MOTION_BLOCKING);
-        BlockPos.MutableBlockPos pos = new BlockPos.MutableBlockPos();
-        int minX = chunk.getPos().getMinBlockX();
-        int minZ = chunk.getPos().getMinBlockZ();
-
         int centerX = site.worldX();
         int centerZ = site.worldZ();
         int halfSpan = span / 2;
 
         for (int dx = -halfSpan; dx <= halfSpan; dx++) {
-            float frac = Math.abs((float) dx / halfSpan);
+            // Position along the span, 0 at one foot and 1 at the other, so 4t(1-t) peaks in the
+            // middle. Using |dx|/halfSpan instead put the peak halfway out on each side and drove
+            // the apex to zero at the centre -- two humps with a hole between them, not an arch.
+            float frac = (dx + halfSpan) / (float) (2 * halfSpan);
             float archY = height * 4f * frac * (1f - frac);
+            int crownY = Math.round(archY);
 
-            int legWidth = Math.round(LEG_WIDTH * (1f - frac * 0.5f));
+            int legWidth = Math.round(LEG_WIDTH * (1f - Math.abs(frac - 0.5f)));
             if (legWidth < 1) legWidth = 1;
 
             for (int dz = -legWidth; dz <= legWidth; dz++) {
                 int wx = centerX + dx;
                 int wz = centerZ + dz;
-                int lx = wx - minX;
-                int lz = wz - minZ;
-                if (lx < 0 || lx > 15 || lz < 0 || lz > 15) continue;
 
-                for (int dy = 1; dy <= Math.round(archY) + 1; dy++) {
+                // Only the crown is solid; below it stays open so the arch is something you can
+                // walk under rather than a solid mound of logs.
+                int lowestY = isFoot(frac) ? 1 : Math.max(1, crownY - ARCH_THICKNESS + 1);
+                for (int dy = lowestY; dy <= crownY + 1; dy++) {
                     int wy = groundY + dy;
-                    if (wy < chunk.getMinY() || wy > chunk.getMaxY()) continue;
 
                     float irregularity = SurfaceNoise.unitHash(site.seed(), dx, dz + dy);
-                    boolean skip = frac > 0.15 && frac < 0.85 && dy <= 2 && irregularity > 0.6f;
-                    if (skip) continue;
+                    if (!isFoot(frac) && dy < crownY && irregularity > 0.7f) continue;
 
-                    pos.set(wx, wy, wz);
-                    if (!chunk.getBlockState(pos).isAir()) continue;
-
-                    BlockState block = blockFor(site.seed(), dx, dz, dy, span, height);
-                    chunk.setBlockState(pos, block);
-                    worldSurface.update(lx, wy, lz, block);
-                    motionBlocking.update(lx, wy, lz, block);
+                    BlockState block = blockFor(site.seed(), dx, dz, dy, frac);
+                    SurfaceStamp.placeIfAir(chunk, worldSurface, motionBlocking, wx, wy, wz, block);
                 }
             }
         }
     }
 
-    private static BlockState blockFor(long seed, int dx, int dz, int dy, int span, int height) {
+    /** The two ends of the span, where the arch comes down to the ground as a solid leg. */
+    private static boolean isFoot(float frac) {
+        return frac < 0.2f || frac > 0.8f;
+    }
+
+    private static BlockState blockFor(long seed, int dx, int dz, int dy, float frac) {
         float roll = SurfaceNoise.unitHash(seed ^ 0x524F4F54L, dx + dy, dz);
-        float frac = Math.abs((float) dx / (span / 2));
-        boolean nearApex = frac > 0.3 && frac < 0.7;
+        boolean nearApex = frac > 0.3f && frac < 0.7f;
 
         if (nearApex && dy > 2 && roll < 0.4f) {
             return Blocks.ROOTED_DIRT.defaultBlockState();

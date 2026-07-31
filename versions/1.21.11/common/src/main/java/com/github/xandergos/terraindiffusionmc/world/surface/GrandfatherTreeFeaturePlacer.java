@@ -7,6 +7,7 @@ import com.github.xandergos.terraindiffusionmc.worldgen.surface.SurfaceNoise;
 import com.github.xandergos.terraindiffusionmc.worldgen.surface.TerrainSampling;
 import net.minecraft.core.BlockPos;
 import net.minecraft.world.level.block.Blocks;
+import net.minecraft.world.level.block.LeavesBlock;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.chunk.ChunkAccess;
 import net.minecraft.world.level.levelgen.Heightmap;
@@ -18,8 +19,8 @@ import net.minecraft.world.level.levelgen.Heightmap;
 public final class GrandfatherTreeFeaturePlacer implements SurfaceFeaturePlacer {
     private static final long SALT = 0x47524E44L;
     private static final int CELL_SIZE = 80;
-    private static final float SPAWN_CHANCE = 0.05f;
-    private static final float MAX_SLOPE = 1.0f;
+    private static final float SPAWN_CHANCE = 0.3f;
+    private static final float MAX_SLOPE_BLOCKS = 0.2f;
     private static final float PLACEMENT_NOISE_WAVELENGTH = 300.0f;
     private static final float PLACEMENT_THRESHOLD = 0.6f;
     private static final int TRUNK_RADIUS = 2;
@@ -28,6 +29,8 @@ public final class GrandfatherTreeFeaturePlacer implements SurfaceFeaturePlacer 
     private static final int MIN_CANOPY_RADIUS = 4;
     private static final int MAX_CANOPY_RADIUS = 5;
     private static final int CANOPY_THICKNESS = 3;
+    /** Vanilla leaf decay removes anything further than this many steps from a log. */
+    private static final int MAX_LEAF_DISTANCE = 6;
 
     @Override
     public String id() {
@@ -61,7 +64,10 @@ public final class GrandfatherTreeFeaturePlacer implements SurfaceFeaturePlacer 
                 site.worldX() / PLACEMENT_NOISE_WAVELENGTH, site.worldZ() / PLACEMENT_NOISE_WAVELENGTH);
         if (placement <= PLACEMENT_THRESHOLD) return;
         float strength = SurfaceNoise.clamp01((placement - PLACEMENT_THRESHOLD) / (1.0f - PLACEMENT_THRESHOLD));
-        if (SurfaceNoise.unitHash(worldSeed ^ SALT, site.worldX(), site.worldZ()) >= SPAWN_CHANCE / strength) return;
+        // Scale the chance *with* the noise so trees thin out toward the edge of a patch. Dividing
+        // by strength inverted that -- and at the patch fringe, where strength rounds to zero, the
+        // threshold became +Infinity and every single site grew a tree.
+        if (SurfaceNoise.unitHash(worldSeed ^ SALT, site.worldX(), site.worldZ()) >= SPAWN_CHANCE * strength) return;
 
         int row = site.worldZ() - dataOriginZ;
         int col = site.worldX() - dataOriginX;
@@ -75,9 +81,9 @@ public final class GrandfatherTreeFeaturePlacer implements SurfaceFeaturePlacer 
                 || biomeKey.contains("taiga") || biomeKey.contains("grove") || biomeKey.contains("plains"))) {
             return;
         }
-        if (TerrainSampling.slopeAt(data, row, col, 2) > MAX_SLOPE) return;
+        if (TerrainSampling.slopeAt(data, row, col, 2) > SurfaceStamp.slopeFromBlocks(MAX_SLOPE_BLOCKS)) return;
 
-        int groundY = chunk.getHeight(Heightmap.Types.WORLD_SURFACE_WG, localX, localZ) - 1;
+        int groundY = SurfaceStamp.surfaceY(chunk, localX, localZ);
         if (groundY <= chunk.getMinY()) return;
         BlockPos.MutableBlockPos pos = new BlockPos.MutableBlockPos(site.worldX(), groundY, site.worldZ());
         if (!isSolidGround(chunk.getBlockState(pos))) return;
@@ -96,7 +102,7 @@ public final class GrandfatherTreeFeaturePlacer implements SurfaceFeaturePlacer 
         int canopyThickness = 2 + (int) (SurfaceNoise.unitHash(seed, 3, 0) * (CANOPY_THICKNESS - 2 + 1));
 
         int topY = groundY + 1 + height;
-        if (topY + canopyThickness >= chunk.getMaxBuildHeight()) return;
+        if (topY + canopyThickness > chunk.getMaxY()) return;
 
         Heightmap worldSurface = chunk.getOrCreateHeightmapUnprimed(Heightmap.Types.WORLD_SURFACE_WG);
         Heightmap motionBlocking = chunk.getOrCreateHeightmapUnprimed(Heightmap.Types.MOTION_BLOCKING);
@@ -131,23 +137,33 @@ public final class GrandfatherTreeFeaturePlacer implements SurfaceFeaturePlacer 
             int worldY = topY + cy;
             for (int dz = -canopyRadius; dz <= canopyRadius; dz++) {
                 int worldZ = site.worldZ() + dz;
-                int localZ = worldZ - minZ;
-                if (localZ < 0 || localZ > 15) continue;
                 for (int dx = -canopyRadius; dx <= canopyRadius; dx++) {
                     int worldX = site.worldX() + dx;
-                    int localX = worldX - minX;
-                    if (localX < 0 || localX > 15) continue;
                     float horizontal = (float) Math.sqrt(dx * dx + dz * dz);
                     if (horizontal > canopyRadius + 0.3f) continue;
                     if (SurfaceNoise.unitHash(seed, dx, dz) > 0.85f) continue;
-                    pos.set(worldX, worldY, worldZ);
-                    if (!chunk.getBlockState(pos).isAir()) continue;
-                    chunk.setBlockState(pos, leafBlock);
-                    worldSurface.update(localX, worldY, localZ, leafBlock);
-                    motionBlocking.update(localX, worldY, localZ, leafBlock);
+
+                    // Leaves track how far they are from the nearest log. Default leaf states carry
+                    // distance 7 / persistent false, which is exactly the "too far from wood"
+                    // condition, so the whole canopy decayed away the first time the chunk ticked.
+                    int logDistance = leafDistance(dx, dz, cy);
+                    if (logDistance > MAX_LEAF_DISTANCE) continue;
+
+                    SurfaceStamp.placeIfAir(chunk, worldSurface, motionBlocking, worldX, worldY, worldZ,
+                            leafBlock.setValue(LeavesBlock.DISTANCE, logDistance));
                 }
             }
         }
+    }
+
+    /**
+     * Taxicab steps from a canopy cell back to the trunk, matching how leaf decay measures it: out
+     * to the edge of the trunk column horizontally, then up to the canopy layer.
+     */
+    private static int leafDistance(int dx, int dz, int cy) {
+        int outX = Math.max(0, Math.abs(dx) - TRUNK_RADIUS);
+        int outZ = Math.max(0, Math.abs(dz) - TRUNK_RADIUS);
+        return Math.max(1, outX + outZ + cy);
     }
 
     private static boolean isSolidGround(BlockState state) {

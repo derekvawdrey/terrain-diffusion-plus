@@ -23,6 +23,8 @@ public final class NeedlePeakFeaturePlacer implements SurfaceFeaturePlacer {
     private static final int MIN_COLUMN_HEIGHT = 8;
     private static final int MAX_COLUMN_HEIGHT = 20;
     private static final int BASE_RADIUS = 1;
+    /** Spires belong on high ground; measured in blocks above sea level, not raw model metres. */
+    private static final float MIN_ELEVATION_BLOCKS = 90f;
     private static final float PLACEMENT_NOISE_WAVELENGTH = 250.0f;
     private static final float PLACEMENT_THRESHOLD = 0.5f;
 
@@ -58,7 +60,8 @@ public final class NeedlePeakFeaturePlacer implements SurfaceFeaturePlacer {
         int row = site.worldZ() - dataOriginZ;
         int col = site.worldX() - dataOriginX;
         if (!TerrainSampling.inBounds(data, row, col)) return;
-        if (TerrainSampling.elevationAt(data, row, col) <= 150f) return;
+        if (TerrainSampling.elevationAt(data, row, col)
+                <= SurfaceStamp.blocksToElevation(MIN_ELEVATION_BLOCKS)) return;
 
         TerrainBiomeRegistry registry = TerrainBiomeRegistry.instance();
         short biomeIndex = TerrainSampling.biomeIndexAt(data, row, col);
@@ -91,7 +94,7 @@ public final class NeedlePeakFeaturePlacer implements SurfaceFeaturePlacer {
             int localZ = columnWorldZ - minZ;
             if (localX < 0 || localX > 15 || localZ < 0 || localZ > 15) continue;
 
-            int groundY = chunk.getHeight(Heightmap.Types.WORLD_SURFACE_WG, localX, localZ) - 1;
+            int groundY = SurfaceStamp.surfaceY(chunk, localX, localZ);
             if (groundY <= chunk.getMinBuildHeight()) continue;
             BlockPos.MutableBlockPos probe = new BlockPos.MutableBlockPos(columnWorldX, groundY, columnWorldZ);
             if (chunk.getBlockState(probe).isAir()) continue;

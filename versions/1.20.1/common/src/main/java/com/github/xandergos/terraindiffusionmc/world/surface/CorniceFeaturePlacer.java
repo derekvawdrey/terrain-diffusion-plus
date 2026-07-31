@@ -19,8 +19,8 @@ import net.minecraft.world.level.levelgen.Heightmap;
 public final class CorniceFeaturePlacer implements SurfaceFeaturePlacer {
     private static final long SALT = 0x434F524EL;
     private static final float SPAWN_CHANCE = 0.2f;
-    private static final float MIN_SLOPE = 1.5f;
-    private static final int MIN_ELEVATION = 120;
+    private static final float MIN_SLOPE_BLOCKS = 0.5f;
+    private static final float MIN_ELEVATION_BLOCKS = 90f;
     private static final int CELL_SIZE = 36;
     private static final int SAMPLE_STEP = 4;
 
@@ -56,7 +56,7 @@ public final class CorniceFeaturePlacer implements SurfaceFeaturePlacer {
         int row = site.worldZ() - dataOriginZ;
         int col = site.worldX() - dataOriginX;
         if (!TerrainSampling.inBounds(data, row, col)) return;
-        if (TerrainSampling.elevationAt(data, row, col) <= MIN_ELEVATION) return;
+        if (TerrainSampling.elevationAt(data, row, col) <= SurfaceStamp.blocksToElevation(MIN_ELEVATION_BLOCKS)) return;
 
         TerrainBiomeRegistry registry = TerrainBiomeRegistry.instance();
         short biomeIndex = TerrainSampling.biomeIndexAt(data, row, col);
@@ -66,35 +66,33 @@ public final class CorniceFeaturePlacer implements SurfaceFeaturePlacer {
                 && !biomeKey.contains("grove"))) {
             return;
         }
-        if (TerrainSampling.slopeAt(data, row, col, 2) < MIN_SLOPE) return;
+        if (TerrainSampling.slopeAt(data, row, col, 2) < SurfaceStamp.slopeFromBlocks(MIN_SLOPE_BLOCKS)) return;
 
-        int groundY = chunk.getHeight(Heightmap.Types.WORLD_SURFACE_WG, localX, localZ) - 1;
+        int groundY = SurfaceStamp.surfaceY(chunk, localX, localZ);
         if (groundY <= chunk.getMinBuildHeight()) return;
 
         int dx = 0;
         int dz = 0;
-        if (TerrainSampling.inBounds(data, row, col)) {
-            float elevCenter = TerrainSampling.elevationAt(data, row, col);
-            float[] elevations = new float[4];
-            int[] dirsX = {1, -1, 0, 0};
-            int[] dirsZ = {0, 0, 1, -1};
-            for (int i = 0; i < 4; i++) {
-                int r = row + dirsZ[i] * SAMPLE_STEP;
-                int c = col + dirsX[i] * SAMPLE_STEP;
-                if (TerrainSampling.inBounds(data, r, c)) {
-                    elevations[i] = TerrainSampling.elevationAt(data, r, c);
-                } else {
-                    elevations[i] = elevCenter;
-                }
+        float elevCenter = TerrainSampling.elevationAt(data, row, col);
+        float[] elevations = new float[4];
+        int[] dirsX = {1, -1, 0, 0};
+        int[] dirsZ = {0, 0, 1, -1};
+        for (int i = 0; i < 4; i++) {
+            int r = row + dirsZ[i] * SAMPLE_STEP;
+            int c = col + dirsX[i] * SAMPLE_STEP;
+            if (TerrainSampling.inBounds(data, r, c)) {
+                elevations[i] = TerrainSampling.elevationAt(data, r, c);
+            } else {
+                elevations[i] = elevCenter;
             }
-            float steepestDrop = Float.NEGATIVE_INFINITY;
-            for (int i = 0; i < 4; i++) {
-                float drop = elevCenter - elevations[i];
-                if (drop > steepestDrop) {
-                    steepestDrop = drop;
-                    dx = dirsX[i];
-                    dz = dirsZ[i];
-                }
+        }
+        float steepestDrop = Float.NEGATIVE_INFINITY;
+        for (int i = 0; i < 4; i++) {
+            float drop = elevCenter - elevations[i];
+            if (drop > steepestDrop) {
+                steepestDrop = drop;
+                dx = dirsX[i];
+                dz = dirsZ[i];
             }
         }
 

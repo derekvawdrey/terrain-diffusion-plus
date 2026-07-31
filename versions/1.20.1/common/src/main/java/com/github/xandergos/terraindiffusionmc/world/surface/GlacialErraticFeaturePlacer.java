@@ -22,7 +22,7 @@ import net.minecraft.world.level.levelgen.Heightmap;
 public final class GlacialErraticFeaturePlacer implements SurfaceFeaturePlacer {
     private static final long SALT = 0x474C4345L;
     private static final float SPAWN_CHANCE = 0.12f;
-    private static final float MAX_SLOPE = 1.5f;
+    private static final float MAX_SLOPE_BLOCKS = 0.25f;
     private static final int MAX_RADIUS = 4;
     private static final int CELL_SIZE = 64;
 
@@ -63,7 +63,7 @@ public final class GlacialErraticFeaturePlacer implements SurfaceFeaturePlacer {
         if (!TerrainSampling.inBounds(data, row, col)) return;
 
         float elevation = TerrainSampling.elevationAt(data, row, col);
-        if (elevation <= 0f || elevation >= 100f) return;
+        if (elevation <= 0f || elevation >= SurfaceStamp.blocksToElevation(30f)) return;
 
         // Cold biomes only: tundra, ice spikes, frozen peaks, snowy slopes
         TerrainBiomeRegistry registry = TerrainBiomeRegistry.instance();
@@ -76,10 +76,10 @@ public final class GlacialErraticFeaturePlacer implements SurfaceFeaturePlacer {
                 && !biomeKey.contains("ice")) {
             return;
         }
-        if (TerrainSampling.slopeAt(data, row, col, 2) > MAX_SLOPE) return;
+        if (TerrainSampling.slopeAt(data, row, col, 2) > SurfaceStamp.slopeFromBlocks(MAX_SLOPE_BLOCKS)) return;
 
         // 4. Anchor to the real generated surface (not the raster) now that we're committing.
-        int groundY = chunk.getHeight(Heightmap.Types.WORLD_SURFACE_WG, localX, localZ) - 1;
+        int groundY = SurfaceStamp.surfaceY(chunk, localX, localZ);
         if (groundY <= chunk.getMinBuildHeight()) return;
         BlockPos.MutableBlockPos pos = new BlockPos.MutableBlockPos(site.worldX(), groundY, site.worldZ());
         if (!isSolidGround(chunk.getBlockState(pos))) return;

@@ -5,7 +5,6 @@ import com.github.xandergos.terraindiffusionmc.pipeline.LocalTerrainProvider.Hei
 import com.github.xandergos.terraindiffusionmc.worldgen.surface.SiteGrid;
 import com.github.xandergos.terraindiffusionmc.worldgen.surface.SurfaceNoise;
 import com.github.xandergos.terraindiffusionmc.worldgen.surface.TerrainSampling;
-import net.minecraft.core.BlockPos;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.chunk.ChunkAccess;
@@ -19,7 +18,10 @@ public final class FrozenWaterfallFeaturePlacer implements SurfaceFeaturePlacer 
     private static final long SALT = 0x46525A57L;
     private static final int CELL_SIZE = 48;
     private static final float SPAWN_CHANCE = 0.2f;
-    private static final float MIN_SLOPE = 2.0f;
+    private static final float MIN_SLOPE_BLOCKS = 0.5f;
+    /** A neighbour this many blocks lower counts as a cliff edge to hang ice from. */
+    private static final float MIN_DROP_BLOCKS = 3f;
+    private static final int DROP_SAMPLE_STEP = 2;
     private static final int MAX_LENGTH = 8;
     private static final int TOP_RADIUS = 2;
 
@@ -65,33 +67,40 @@ public final class FrozenWaterfallFeaturePlacer implements SurfaceFeaturePlacer 
                 || biomeKey.contains("ice_spikes"))) {
             return;
         }
-        if (TerrainSampling.slopeAt(data, row, col, 2) < MIN_SLOPE) return;
+        if (TerrainSampling.slopeAt(data, row, col, 2) < SurfaceStamp.slopeFromBlocks(MIN_SLOPE_BLOCKS)) return;
 
-        float anchorElevation = TerrainSampling.elevationAt(data, row, col);
-        int dx = Integer.signum(SurfaceNoise.signedHash(SALT ^ worldSeed, site.worldX(), 0) > 0 ? 1 : -1);
-        int dz = Integer.signum(SurfaceNoise.signedHash(SALT ^ worldSeed, site.worldZ(), 0) > 0 ? 1 : -1);
-        int nRow = row + dz;
-        int nCol = col + dx;
-        if (TerrainSampling.inBounds(data, nRow, nCol)) {
-            float neighborElevation = TerrainSampling.elevationAt(data, nRow, nCol);
-            if (neighborElevation >= anchorElevation) return;
-        }
+        // Confirm the ground actually falls away next to the anchor. The direction used to be a
+        // coin flip on each axis -- always one of the four diagonals, unrelated to which way the
+        // terrain drops -- so this rejected most genuine cliff edges and accepted flat ground that
+        // happened to dip diagonally.
+        if (!hasDropAdjacent(data, row, col)) return;
 
-        int groundY = chunk.getHeight(Heightmap.Types.WORLD_SURFACE_WG, localX, localZ) - 1;
+        int groundY = SurfaceStamp.surfaceY(chunk, localX, localZ);
         if (groundY <= chunk.getMinY()) return;
-        BlockPos.MutableBlockPos probe = new BlockPos.MutableBlockPos(site.worldX(), groundY, site.worldZ());
-        if (chunk.getBlockState(probe).isAir()) return;
+        if (!SurfaceStamp.isSolidGround(SurfaceStamp.stateAt(chunk, site.worldX(), groundY, site.worldZ()))) return;
 
-        stamp(chunk, site, groundY, localX, localZ);
+        stamp(chunk, site, groundY);
     }
 
-    private void stamp(ChunkAccess chunk, SiteGrid.Site site, int groundY, int localX, int localZ) {
+    /** True when any of the four cardinal neighbours sits at least a block lower than this cell. */
+    private static boolean hasDropAdjacent(HeightmapData data, int row, int col) {
+        float here = TerrainSampling.elevationAt(data, row, col);
+        float minDrop = SurfaceStamp.blocksToElevation(MIN_DROP_BLOCKS);
+        int[] dRow = {1, -1, 0, 0};
+        int[] dCol = {0, 0, 1, -1};
+        for (int i = 0; i < 4; i++) {
+            int r = row + dRow[i] * DROP_SAMPLE_STEP;
+            int c = col + dCol[i] * DROP_SAMPLE_STEP;
+            if (!TerrainSampling.inBounds(data, r, c)) continue;
+            if (here - TerrainSampling.elevationAt(data, r, c) >= minDrop) return true;
+        }
+        return false;
+    }
+
+    private void stamp(ChunkAccess chunk, SiteGrid.Site site, int groundY) {
         Heightmap worldSurface = chunk.getOrCreateHeightmapUnprimed(Heightmap.Types.WORLD_SURFACE_WG);
         Heightmap motionBlocking = chunk.getOrCreateHeightmapUnprimed(Heightmap.Types.MOTION_BLOCKING);
-        BlockPos.MutableBlockPos pos = new BlockPos.MutableBlockPos();
-        int minX = chunk.getPos().getMinBlockX();
-        int minZ = chunk.getPos().getMinBlockZ();
-        int topRadius = Math.min(TOP_RADIUS, 1 + (int) (SurfaceNoise.unitHash(site.seed(), 0, 0) * TOP_RADIUS));
+        int topRadius = SurfaceStamp.randRange(site.seed(), 0, 0, 1, TOP_RADIUS);
 
         for (int dy = 0; dy < MAX_LENGTH; dy++) {
             int worldY = groundY - dy;
@@ -100,28 +109,24 @@ public final class FrozenWaterfallFeaturePlacer implements SurfaceFeaturePlacer 
 
             if (radius < 0.1f) break;
 
+            // Fill the whole tapered disc at this level, not just the first air block found. The
+            // `&& !placed` loop guards stopped after one block per layer, which left a single-block
+            // thread hugging the cliff and made TOP_RADIUS and the taper dead constants.
             int r = Math.max(0, Math.round(radius));
             boolean placed = false;
-            for (int dz = -r; dz <= r && !placed; dz++) {
-                int lz = localZ + dz;
-                if (lz < 0 || lz > 15) continue;
-                for (int dx = -r; dx <= r && !placed; dx++) {
-                    int lx = localX + dx;
-                    if (lx < 0 || lx > 15) continue;
+            for (int dz = -r; dz <= r; dz++) {
+                for (int dx = -r; dx <= r; dx++) {
                     if (Math.sqrt(dx * dx + dz * dz) > radius + 0.3f) continue;
 
                     int wx = site.worldX() + dx;
                     int wz = site.worldZ() + dz;
-                    pos.set(wx, worldY, wz);
-                    if (!chunk.getBlockState(pos).isAir()) continue;
-
                     BlockState block = iceFor(site.seed(), wx, worldY, wz);
-                    chunk.setBlockState(pos, block);
-                    worldSurface.update(lx, worldY, lz, block);
-                    motionBlocking.update(lx, worldY, lz, block);
-                    placed = true;
+                    if (SurfaceStamp.placeIfAir(chunk, worldSurface, motionBlocking, wx, worldY, wz, block)) {
+                        placed = true;
+                    }
                 }
             }
+            // Nothing open at this level means the cliff face has closed up; stop descending.
             if (!placed) break;
         }
     }

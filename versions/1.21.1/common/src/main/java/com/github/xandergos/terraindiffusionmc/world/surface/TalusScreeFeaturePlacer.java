@@ -19,7 +19,7 @@ import net.minecraft.world.level.levelgen.Heightmap;
 public final class TalusScreeFeaturePlacer implements SurfaceFeaturePlacer {
     private static final long SALT = 0x54414C55L;
     private static final float SPAWN_CHANCE = 0.4f;
-    private static final float MIN_SLOPE = 2.5f;
+    private static final float MIN_SLOPE_BLOCKS = 0.6f;
     private static final int CELL_SIZE = 24;
     private static final int SCATTER_RADIUS = 3;
     private static final float PLACE_CHANCE = 0.3f;
@@ -47,10 +47,9 @@ public final class TalusScreeFeaturePlacer implements SurfaceFeaturePlacer {
     @Override
     public void place(ChunkAccess chunk, HeightmapData data, int dataOriginX, int dataOriginZ,
                        SiteGrid.Site site, long worldSeed) {
-        int localX = site.worldX() - chunk.getPos().getMinBlockX();
-        int localZ = site.worldZ() - chunk.getPos().getMinBlockZ();
-        if (localX < 0 || localX > 15 || localZ < 0 || localZ > 15) return;
-
+        // No site-in-chunk gate: every column below is anchored and clipped individually, so each
+        // chunk this site reaches draws its own slice instead of the footprint being cut off at the
+        // chunk border.
         if (SurfaceNoise.unitHash(worldSeed ^ SALT, site.worldX(), site.worldZ()) >= SPAWN_CHANCE) return;
 
         int row = site.worldZ() - dataOriginZ;
@@ -65,15 +64,12 @@ public final class TalusScreeFeaturePlacer implements SurfaceFeaturePlacer {
                 && !biomeKey.contains("stony") && !biomeKey.contains("hills"))) {
             return;
         }
-        if (TerrainSampling.slopeAt(data, row, col, 2) < MIN_SLOPE) return;
+        if (TerrainSampling.slopeAt(data, row, col, 2) < SurfaceStamp.slopeFromBlocks(MIN_SLOPE_BLOCKS)) return;
 
-        int groundY = chunk.getHeight(Heightmap.Types.WORLD_SURFACE_WG, localX, localZ) - 1;
-        if (groundY <= chunk.getMinBuildHeight()) return;
-
-        scatter(chunk, site, groundY);
+        scatter(chunk, site);
     }
 
-    private void scatter(ChunkAccess chunk, SiteGrid.Site site, int groundY) {
+    private void scatter(ChunkAccess chunk, SiteGrid.Site site) {
         Heightmap worldSurface = chunk.getOrCreateHeightmapUnprimed(Heightmap.Types.WORLD_SURFACE_WG);
         Heightmap motionBlocking = chunk.getOrCreateHeightmapUnprimed(Heightmap.Types.MOTION_BLOCKING);
         BlockPos.MutableBlockPos pos = new BlockPos.MutableBlockPos();
@@ -91,7 +87,7 @@ public final class TalusScreeFeaturePlacer implements SurfaceFeaturePlacer {
 
                 if (SurfaceNoise.unitHash(site.seed(), dx, dz) >= PLACE_CHANCE) continue;
 
-                int localGroundY = chunk.getHeight(Heightmap.Types.WORLD_SURFACE_WG, localX, localZ) - 1;
+                int localGroundY = SurfaceStamp.surfaceY(chunk, localX, localZ);
                 if (localGroundY <= chunk.getMinBuildHeight()) continue;
 
                 pos.set(worldX, localGroundY, worldZ);

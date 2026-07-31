@@ -5,7 +5,6 @@ import com.github.xandergos.terraindiffusionmc.pipeline.LocalTerrainProvider.Hei
 import com.github.xandergos.terraindiffusionmc.worldgen.surface.SiteGrid;
 import com.github.xandergos.terraindiffusionmc.worldgen.surface.SurfaceNoise;
 import com.github.xandergos.terraindiffusionmc.worldgen.surface.TerrainSampling;
-import net.minecraft.core.BlockPos;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.chunk.ChunkAccess;
@@ -24,9 +23,9 @@ public final class TidePoolFeaturePlacer implements SurfaceFeaturePlacer {
     private static final long SALT = 0x54494450L;
     private static final float SPAWN_CHANCE = 0.25f;
     private static final int CELL_SIZE = 40;
-    private static final float MAX_SLOPE = 1.0f;
-    private static final int MIN_ELEVATION = -2;
-    private static final int MAX_ELEVATION = 5;
+    private static final float MAX_SLOPE_BLOCKS = 0.15f;
+    private static final float MIN_ELEVATION_BLOCKS = -1f;
+    private static final float MAX_ELEVATION_BLOCKS = 3f;
     private static final int SCATTER_RADIUS = 6;
     private static final int MIN_POOLS = 2;
     private static final int MAX_POOLS = 4;
@@ -61,10 +60,9 @@ public final class TidePoolFeaturePlacer implements SurfaceFeaturePlacer {
     @Override
     public void place(ChunkAccess chunk, HeightmapData data, int dataOriginX, int dataOriginZ,
                        SiteGrid.Site site, long worldSeed) {
-        int localX = site.worldX() - chunk.getPos().getMinBlockX();
-        int localZ = site.worldZ() - chunk.getPos().getMinBlockZ();
-        if (localX < 0 || localX > 15 || localZ < 0 || localZ > 15) return;
-
+        // No site-in-chunk gate: every column below is anchored and clipped individually, so each
+        // chunk this site reaches draws its own slice instead of the footprint being cut off at the
+        // chunk border.
         if (SurfaceNoise.unitHash(worldSeed ^ SALT, site.worldX(), site.worldZ()) >= SPAWN_CHANCE) return;
 
         int row = site.worldZ() - dataOriginZ;
@@ -72,19 +70,16 @@ public final class TidePoolFeaturePlacer implements SurfaceFeaturePlacer {
         if (!TerrainSampling.inBounds(data, row, col)) return;
 
         float elevation = TerrainSampling.elevationAt(data, row, col);
-        if (elevation < MIN_ELEVATION || elevation > MAX_ELEVATION) return;
+        if (elevation < SurfaceStamp.blocksToElevation(MIN_ELEVATION_BLOCKS) || elevation > SurfaceStamp.blocksToElevation(MAX_ELEVATION_BLOCKS)) return;
 
         TerrainBiomeRegistry registry = TerrainBiomeRegistry.instance();
         short biomeIndex = TerrainSampling.biomeIndexAt(data, row, col);
         String biomeKey = registry.keyForIndex(biomeIndex);
         if (biomeKey == null || !isCoastalBiome(biomeKey)) return;
 
-        if (TerrainSampling.slopeAt(data, row, col, 2) > MAX_SLOPE) return;
+        if (TerrainSampling.slopeAt(data, row, col, 2) > SurfaceStamp.slopeFromBlocks(MAX_SLOPE_BLOCKS)) return;
 
-        int groundY = chunk.getHeight(Heightmap.Types.WORLD_SURFACE_WG, localX, localZ) - 1;
-        if (groundY <= chunk.getMinY()) return;
-
-        int poolCount = MIN_POOLS + (int) (SurfaceNoise.unitHash(site.seed(), 0, 0) * (MAX_POOLS - MIN_POOLS));
+        int poolCount = SurfaceStamp.randRange(site.seed(), 0, 0, MIN_POOLS, MAX_POOLS);
         Heightmap worldSurface = chunk.getOrCreateHeightmapUnprimed(Heightmap.Types.WORLD_SURFACE_WG);
         Heightmap motionBlocking = chunk.getOrCreateHeightmapUnprimed(Heightmap.Types.MOTION_BLOCKING);
         int minX = chunk.getPos().getMinBlockX();
@@ -101,12 +96,12 @@ public final class TidePoolFeaturePlacer implements SurfaceFeaturePlacer {
             int poolLocalZ = poolWorldZ - minZ;
             if (poolLocalX < 0 || poolLocalX > 15 || poolLocalZ < 0 || poolLocalZ > 15) continue;
 
-            int poolGroundY = chunk.getHeight(Heightmap.Types.WORLD_SURFACE_WG, poolLocalX, poolLocalZ) - 1;
+            int poolGroundY = SurfaceStamp.surfaceY(chunk, poolLocalX, poolLocalZ);
             if (poolGroundY <= chunk.getMinY()) continue;
 
-            int radius = 1 + (int) (SurfaceNoise.unitHash(poolSeed, 3, 0) * MAX_POOL_RADIUS);
+            int radius = SurfaceStamp.randRange(poolSeed, 3, 0, 1, MAX_POOL_RADIUS);
             placePool(chunk, worldSurface, motionBlocking, poolSeed, poolWorldX, poolWorldZ,
-                    poolLocalX, poolLocalZ, poolGroundY, radius);
+                    poolGroundY, radius);
         }
     }
 
@@ -114,18 +109,17 @@ public final class TidePoolFeaturePlacer implements SurfaceFeaturePlacer {
         return biomeKey.contains("beach") || biomeKey.contains("ocean") || biomeKey.contains("stony");
     }
 
+    /**
+     * Scoops a shallow basin and fills it with water.
+     *
+     * <p>The pool has to occupy the surface course itself: putting water one block <em>below</em>
+     * {@code groundY} left the original surface block sitting on top of it, so the pool was an
+     * invisible pocket underground and only the rim ever showed.</p>
+     */
     private void placePool(ChunkAccess chunk, Heightmap worldSurface, Heightmap motionBlocking, long poolSeed,
-                            int worldX, int worldZ, int localX, int localZ, int groundY, int radius) {
-        BlockPos.MutableBlockPos pos = new BlockPos.MutableBlockPos();
-        int waterY = groundY - 1;
-
+                            int worldX, int worldZ, int groundY, int radius) {
         for (int dz = -radius; dz <= radius; dz++) {
-            int lz = localZ + dz;
-            if (lz < 0 || lz > 15) continue;
             for (int dx = -radius; dx <= radius; dx++) {
-                int lx = localX + dx;
-                if (lx < 0 || lx > 15) continue;
-
                 float dist = (float) Math.sqrt(dx * dx + dz * dz);
                 if (dist > radius + 0.3f) continue;
 
@@ -134,26 +128,19 @@ public final class TidePoolFeaturePlacer implements SurfaceFeaturePlacer {
                 boolean isEdge = dist > radius - 1f;
 
                 if (isEdge) {
-                    pos.set(wx, groundY, wz);
-                    BlockState current = chunk.getBlockState(pos);
-                    if (!current.isAir()) {
+                    // Rim sits flush with the surrounding ground.
+                    if (!SurfaceStamp.stateAt(chunk, wx, groundY, wz).isAir()) {
                         BlockState edgeBlock = EDGE_BLOCKS[Math.floorMod(
                                 (int) (SurfaceNoise.unitHash(poolSeed, wx, wz) * EDGE_BLOCKS.length),
                                 EDGE_BLOCKS.length)];
-                        chunk.setBlockState(pos, edgeBlock);
-                        worldSurface.update(lx, groundY, lz, edgeBlock);
-                        motionBlocking.update(lx, groundY, lz, edgeBlock);
+                        SurfaceStamp.placeReplacing(chunk, worldSurface, motionBlocking, wx, groundY, wz, edgeBlock);
                     }
                 } else {
-                    pos.set(wx, waterY, wz);
-                    if (waterY > chunk.getMinY()) {
-                        BlockState current = chunk.getBlockState(pos);
-                        if (!current.isAir()) {
-                            BlockState water = Blocks.WATER.defaultBlockState();
-                            chunk.setBlockState(pos, water);
-                            worldSurface.update(lx, waterY, lz, water);
-                            motionBlocking.update(lx, waterY, lz, water);
-                        }
+                    // Interior: clear the lip so the pool is open to the sky, then water the basin.
+                    SurfaceStamp.carve(chunk, worldSurface, motionBlocking, wx, groundY + 1, wz);
+                    if (!SurfaceStamp.stateAt(chunk, wx, groundY, wz).isAir()) {
+                        SurfaceStamp.fill(chunk, worldSurface, motionBlocking, wx, groundY, wz,
+                                Blocks.WATER.defaultBlockState());
                     }
                 }
             }

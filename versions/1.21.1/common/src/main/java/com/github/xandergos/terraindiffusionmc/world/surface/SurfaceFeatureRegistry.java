@@ -14,6 +14,7 @@ public final class SurfaceFeatureRegistry {
             new BoulderFeaturePlacer(),
             new HoodooClusterFeaturePlacer(),
             new ArchFeaturePlacer(),
+            new GiantArchFeaturePlacer(),
             new NaturalBridgeFeaturePlacer(),
             new MushroomRockFeaturePlacer(),
             new BalancedRockFeaturePlacer(),

@@ -7,8 +7,10 @@
   "mixins": [
     "BiomeMixin",
     "ChunkGeneratorMixin",
+    "LevelStemMixin",
     "MinecraftServerMixin",
-    "NoiseGeneratorSettingsMixin"
+    "NoiseGeneratorSettingsMixin",
+    "WorldDimensionsMixin"
   ],
   "client": [],
   "server": [],

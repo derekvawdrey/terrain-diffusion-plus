@@ -4,6 +4,21 @@
 
 This is a Minecraft multiplatform mod integrating [Terrain Diffusion](https://github.com/xandergos/terrain-diffusion).
 
+## What this mod does
+
+It replaces Minecraft's overworld generator with a diffusion model trained on real-world terrain. Instead of composing noise functions, the model generates an elevation map plus four climate variables — temperature, temperature seasonality, precipitation, and precipitation variability — and the world is built from those.
+
+That single change pulls several systems with it:
+
+- **Real landforms.** Mountain ranges, river valleys, coastal shelves and plateaus come out with the large-scale structure real terrain has, because the model learned it from real terrain rather than from stacked octaves of noise.
+- **Climate-driven biomes.** Biomes are not painted on; they are derived from the elevation and climate the model produced, through a data-driven rule catalog (`biome_catalog.json`). Deserts sit in rain shadows, taiga follows latitude and altitude, and biome borders land where the climate actually changes.
+- **Hydrology.** Rivers are traced by a fluvial network over the generated elevation, so they run downhill, gather tributaries, and reach the sea.
+- **Tall worlds.** The terrain uses build heights well beyond vanilla's, scaled by the `World Scale` setting — up to 2032 blocks.
+- **Surface features.** Procedural boulders, hoodoos, arches, sea stacks and similar structures are placed against the real slope and material of the terrain under them.
+- **A terrain explorer.** `/td-explore` opens a browser map of the generated world for scouting and debugging.
+
+Generation runs a neural network, so it needs a GPU to be comfortable — see [Requirements](#requirements).
+
 ## Which version should I use?
 
 Three runtime builds are available on the [Releases](https://github.com/xandergos/terrain-diffusion-mc/releases) page.
@@ -56,6 +71,33 @@ The mod includes a built-in terrain explorer web UI. Run the `/td-explore` comma
 
 Click the map on the left to open a detailed view. Click the detailed view to get coordinates in the bottom left. You can also filter for certain climates.
 
+## Mod compatibility
+
+Other mods are detected at runtime and are always optional — nothing is bundled, and nothing needs to be installed. Install the mod you want and the biome catalog adapts on its own.
+
+### Biome mods
+
+The shipped catalog carries every supported integration in one file, and each entry declares which mod it needs. Entries whose mod is absent are dropped at load, so the same jar serves every setup:
+
+| Installed | Biomes in play |
+|---|---|
+| Nothing extra | 65 vanilla |
+| [Biomes O' Plenty](https://modrinth.com/mod/biomes-o-plenty) | 124 |
+| Biomes O' Plenty + [Sengoku Jidai](https://modrinth.com/mod/sengokujidaimod) | 138 |
+
+To add your own, drop a `biome_catalog.json` into `config/terrain-diffusion-mc/` — it replaces the bundled one. Entries may set `"requiredMods": ["some_mod"]` to gate themselves the same way.
+
+### Total-conversion mods
+
+Mods that retheme the whole game (Sengoku Jidai is the tested example) usually redefine the vanilla biomes in place. That works here with no configuration: their trees, colours, mobs and structures arrive through the biome registry, so the terrain is this mod's and the look is theirs.
+
+Two things are handled automatically:
+
+- **Overworld reclaim.** Such mods often ship their own `minecraft:dimension/overworld`, which normally outranks any world type the player picked — the overworld would silently revert to their generator. If a world was created with the Terrain Diffusion world type, its overworld is reasserted on load. Worlds created with any other world type are untouched.
+- **Surface rules.** Their ground blocks live in the vanilla overworld noise settings, which this mod replaces, so they would otherwise be ignored. When such a mod is present its surface rule is applied to the diffusion terrain. Disable with `biome.sengoku_surface_rules=false` if you prefer this mod's own.
+
+Nothing from another mod is copied or redistributed; both features read what is already loaded in the game.
+
 ## Configuration
 
 Edit `config/terrain-diffusion-mc.properties`, created automatically on first launch:
@@ -86,6 +128,20 @@ explorer.port=19801
 # Each coarse pixel covers a large area, so 16-128 is typically sufficient.
 spawn_search.initial_size=16
 spawn_search.max_size=128
+
+# Procedural surface structures (boulders, hoodoos, arches, ...) placed on top of the terrain.
+# Disable if you only want vanilla features.
+surface_features.enabled=true
+
+# Fraction of the world (0..1) forming the Japan region, where the Sengoku Jidai biomes
+# (hot springs, ginkgo groves, spider lily fields, ...) may generate. Ignored without that mod.
+# 1.0 puts them everywhere; 0.33 makes Japan a province you travel to. Like World Scale, this
+# moves biome borders, so pick it before creating a world.
+biome.japan_region_share=1.0
+
+# Apply a total-conversion mod's surface rule to the diffusion terrain (see Mod compatibility).
+# Ignored unless such a mod is installed.
+biome.sengoku_surface_rules=true
 ```
 
 ### Per-world settings
@@ -327,6 +383,12 @@ The built jar appears in `java/build/`. Rename it to `onnxruntime-dml.jar` and p
 
 ## Note For Mod Developers
 
-While modifying the AI terrain itself is quite complex, the integration with Minecraft biomes is extremely simple. The model outputs elevation + 4 climate variables, and this is converted to Minecraft biomes with hand-written rules. This is the most immediate way to improve the quality of the terrain and is relatively easy, but takes time to get realistic. The entire biome classifier is [only 250 lines](https://github.com/xandergos/terrain-diffusion-mc/blob/master/src/main/java/com/github/xandergos/terraindiffusionmc/pipeline/BiomeClassifier.java).
+While modifying the AI terrain itself is quite complex, the integration with Minecraft biomes is deliberately easy to work on. The model outputs elevation + 4 climate variables, and those are turned into Minecraft biomes by a **data file, not code**: [`biome_catalog.json`](versions/1.21.1/common/src/main/resources/biome_catalog.json) lists each biome with the climate windows it may appear in, and a weight saying how much of the overlapping area it should take. You can retune the entire biome layout of the world without recompiling — drop an edited copy into `config/terrain-diffusion-mc/`.
+
+The pieces worth knowing:
+
+- [`BiomeClassifier`](common/src/main/java/com/github/xandergos/terraindiffusionmc/pipeline/BiomeClassifier.java) derives climate variables per pixel and samples the noise fields.
+- [`BiomeRuleEngine`](common/src/main/java/com/github/xandergos/terraindiffusionmc/biome/BiomeRuleEngine.java) picks among every biome eligible at a pixel, weighted by `rarity`, using a spatially coherent noise field so the result is real patches rather than per-pixel confetti.
+- [`tools/biome-lab`](tools/biome-lab) is a standalone Python harness that Monte Carlo simulates a catalog against the real climate distributions. It exists because the failure mode here is silent: a rule can be subtly self-contradictory and make a biome unreachable with no error, crash, or warning. Run it after any catalog edit — it reports dead conditions, never-spawn biomes, and effective biome count.
 
 The terrain diversity far outpaces the biome diversity and there's a real opportunity to close that gap. I'm hoping someone goes crazy with it.

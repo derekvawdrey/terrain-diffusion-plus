@@ -31,6 +31,10 @@ FIELD_TO_FAMILY = {
     "clearingNoise": "oct3_gain054",
     "flowerNoise": "oct3_gain054",
     "regionNoise": "oct2_gain050",
+    # Same field construction as regionNoise, so same marginal distribution. What the catalog
+    # actually sees is that draw minus a threshold set by biome.japan_region_share -- see
+    # japan_threshold() in climate.py.
+    "japanRegion": "oct2_gain050",
     # Internal-only components (not exposed as JSON condition variables, but needed to
     # reconstruct temp/snow noise exactly as classifyPixel does):
     "tempNoiseCoarse": "oct3_gain050",

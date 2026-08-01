@@ -186,6 +186,7 @@ class ClimateSamples:
     clearingNoise: np.ndarray
     flowerNoise: np.ndarray
     regionNoise: np.ndarray
+    japanRegion: np.ndarray
     # extras useful for reporting/diagnostics/engine resolution, not condition variables themselves
     raw_elevation: np.ndarray  # signed real elevation (same as elevationM had it not been clamped)
     beach_candidate_prefilter: np.ndarray  # non-spatial prefilter before the calibrated probability
@@ -197,7 +198,25 @@ class ClimateSamples:
         return getattr(self, name)
 
 
-def simulate(pipeline: PipelineData, families: dict, n: int, seed: int = 0) -> ClimateSamples:
+def japan_threshold(share: float, families: dict) -> float:
+    """Noise cutoff that puts exactly `share` of the world inside the Japan region.
+
+    Mirrors BiomeClassifier.japanThreshold: invert the field's measured CDF at 1 - share. The
+    Java side interpolates a 21-point copy of the same table, so the two agree to within the
+    table's resolution.
+    """
+    family = noise_data.family_for_variable("japanRegion", families)
+    if family is None:
+        raise KeyError("No noise family mapped for 'japanRegion'")
+    if share >= 1.0:
+        return float(family.min)
+    if share <= 0.0:
+        return float(family.max)
+    return float(family.inverse_cdf(np.array([1.0 - share]))[0])
+
+
+def simulate(pipeline: PipelineData, families: dict, n: int, seed: int = 0,
+             japan_share: float = 1.0) -> ClimateSamples:
     rng = np.random.default_rng(seed)
 
     def fam(name):
@@ -253,6 +272,13 @@ def simulate(pipeline: PipelineData, families: dict, n: int, seed: int = 0) -> C
     pale_noise = fam("paleNoise").sample(rng, n)
     clearing_noise = fam("clearingNoise").sample(rng, n)
     flower_noise = fam("flowerNoise").sample(rng, n)
+
+    # japanRegion is a *margin*, not a raw field: BiomeClassifier.sampleJapanRegion returns
+    # noise - threshold, so a rule can just ask for "japanRegion gte 0" and the region resizes
+    # with the biome.japan_region_share config instead of every rule needing a new threshold.
+    # Drawn independently of regionNoise because the Japan region is an overlay on the A/B/C
+    # provinces rather than a fourth one.
+    japan_region = fam("japanRegion").sample(rng, n) - japan_threshold(japan_share, families)
 
     # ---- 6. classifyPixel's exact derivation chain ----
     temp = temp_lapse + temp_noise
@@ -369,6 +395,7 @@ def simulate(pipeline: PipelineData, families: dict, n: int, seed: int = 0) -> C
         clearingNoise=clearing_noise,
         flowerNoise=flower_noise,
         regionNoise=region_noise,
+        japanRegion=japan_region,
         raw_elevation=elev_raw,
         beach_candidate_prefilter=beach_prefilter,
         beachBand=beachBand,

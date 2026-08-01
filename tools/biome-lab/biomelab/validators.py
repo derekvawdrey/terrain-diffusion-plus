@@ -24,7 +24,7 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass, field
 
-from . import noise_data
+from . import climate, noise_data
 from .catalog import Catalog, Condition, HARD_BOUNDS, VALID_SPARSITY, VALID_TREE_COVERAGE
 
 EPS = 1e-6
@@ -108,7 +108,7 @@ def check_discreteness(catalog: Catalog) -> list[Finding]:
     return findings
 
 
-def check_noise_ceiling(catalog: Catalog, families: dict) -> list[Finding]:
+def check_noise_ceiling(catalog: Catalog, families: dict, japan_share: float = 1.0) -> list[Finding]:
     findings = []
     for settlement, rule in catalog.all_rules():
         for cond in rule.noise_conditions:
@@ -116,6 +116,12 @@ def check_noise_ceiling(catalog: Catalog, families: dict) -> list[Finding]:
             if fam is None:
                 continue
             lo, hi = fam.min, fam.max
+            if cond.variable == "japanRegion":
+                # japanRegion is the raw field minus the region threshold, so its reachable
+                # range slides with biome.japan_region_share -- comparing against the unshifted
+                # family bounds would judge the wrong interval.
+                offset = climate.japan_threshold(japan_share, families)
+                lo, hi = lo - offset, hi - offset
             unreachable = False
             if cond.op == "eq" and not (lo - EPS <= cond.value <= hi + EPS):
                 unreachable = True
@@ -312,10 +318,10 @@ class ValidatorReport:
         return len(self.dead_findings) == 0
 
 
-def run(catalog: Catalog, families: dict) -> ValidatorReport:
+def run(catalog: Catalog, families: dict, japan_share: float = 1.0) -> ValidatorReport:
     return ValidatorReport(
         discreteness=check_discreteness(catalog),
-        noise_ceiling=check_noise_ceiling(catalog, families),
+        noise_ceiling=check_noise_ceiling(catalog, families, japan_share),
         hard_bounds=check_hard_bounds(catalog),
         aliasing=check_moisture_treemoisture_aliasing(catalog),
     )

@@ -47,7 +47,8 @@ NUMERIC_VARIABLES = (
     "slope", "growingSeasonDays",
 )
 BOOL_VARIABLES = ("ocean", "snowy", "bareSlope", "mountain", "lowland")
-NOISE_VARIABLES = ("variantNoise", "cherryNoise", "paleNoise", "clearingNoise", "flowerNoise", "regionNoise")
+NOISE_VARIABLES = ("variantNoise", "cherryNoise", "paleNoise", "clearingNoise", "flowerNoise", "regionNoise",
+                   "japanRegion")
 
 ZONES = ("ocean", "beach", "mountain", "lowland", "bareSlope")
 
@@ -116,10 +117,12 @@ class Settlement:
     is_frozen_river: bool
     can_generate_overworld: bool
     rules: list[Rule] = field(default_factory=list)
+    required_mods: list[str] = field(default_factory=list)
 
     @staticmethod
     def from_json(d: dict) -> "Settlement":
         return Settlement(
+            required_mods=list(d.get("requiredMods", [])),
             index=d["index"],
             key=d["key"],
             fallback_key=d.get("fallbackKey", d["key"]),
@@ -160,8 +163,21 @@ class Catalog:
                 yield s, r
 
 
-def load(path: str | Path) -> Catalog:
+def load(path: str | Path, mods: set[str] | None = None) -> Catalog:
+    """Loads a catalog, optionally as the mod would see it with only `mods` installed.
+
+    `mods=None` keeps every entry (the whole authored file). Passing a set filters out
+    settlements and rules whose `requiredMods` aren't all present, exactly as
+    TerrainBiomeRegistry.build() and BiomeRuleEngine.init() do -- which is how the same file gets
+    validated once per supported mod configuration (vanilla / +BoP / +BoP+Sengoku).
+    """
     path = Path(path)
     data = json.loads(path.read_text())
+    if mods is not None:
+        data = [d for d in data if set(d.get("requiredMods", [])) <= mods]
+        data = [
+            {**d, "rules": [r for r in d.get("rules", []) if set(r.get("requiredMods", [])) <= mods]}
+            for d in data
+        ]
     settlements = [Settlement.from_json(d) for d in data]
     return Catalog(path=path, settlements=settlements, raw=data)

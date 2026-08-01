@@ -4,6 +4,7 @@ import com.github.xandergos.terraindiffusionmc.biome.BiomeRuleEngine;
 import com.github.xandergos.terraindiffusionmc.biome.TerrainBiomeNoiseSample;
 import com.github.xandergos.terraindiffusionmc.biome.TerrainBiomeRegistry;
 import com.github.xandergos.terraindiffusionmc.biome.TerrainClimateSample;
+import com.github.xandergos.terraindiffusionmc.config.TerrainDiffusionConfig;
 import com.github.xandergos.terraindiffusionmc.hydrology.HydrologyParallel;
 
 /**

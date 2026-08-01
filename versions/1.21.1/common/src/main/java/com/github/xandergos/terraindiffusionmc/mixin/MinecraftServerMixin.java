@@ -1,6 +1,7 @@
 package com.github.xandergos.terraindiffusionmc.mixin;
 
 import com.github.xandergos.terraindiffusionmc.pipeline.SpawnSelector;
+import com.github.xandergos.terraindiffusionmc.world.SengokuSurfaceRules;
 import net.minecraft.core.BlockPos;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
@@ -13,6 +14,16 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
 @Mixin(MinecraftServer.class)
 public class MinecraftServerMixin {
+
+    /**
+     * Swaps in Sengoku Jidai's surface rule before any level is created, so the very first chunk
+     * generated already uses it. loadLevel() runs after the datapack-backed registries are built
+     * and before createLevels(), which is the only window where both are true.
+     */
+    @Inject(method = "loadLevel", at = @At("HEAD"))
+    private void applySengokuSurfaceRules(CallbackInfo ci) {
+        SengokuSurfaceRules.applyIfPresent(((MinecraftServer) (Object) this).registryAccess());
+    }
 
     @Inject(method = "setInitialSpawn", at = @At("HEAD"), cancellable = true)
     private static void overrideWorldSpawn(ServerLevel world, ServerLevelData worldProperties,

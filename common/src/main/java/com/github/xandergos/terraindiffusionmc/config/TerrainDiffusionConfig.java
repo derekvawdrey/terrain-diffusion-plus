@@ -39,6 +39,7 @@ public final class TerrainDiffusionConfig {
      * everywhere, hot springs only in one corner) rather than as a region.
      */
     private static final float DEFAULT_JAPAN_REGION_SHARE = 1.0f;
+    private static final boolean DEFAULT_SENGOKU_SURFACE_RULES = true;
 
     static {
         loadDefaults();
@@ -213,6 +214,15 @@ public final class TerrainDiffusionConfig {
     }
 
     /**
+     * Whether to give diffusion terrain Sengoku Jidai's ground blocks by copying its loaded
+     * surface rule onto our noise settings at server load. Ignored unless that mod is installed.
+     * Turn off to keep the mod's own surface rule.
+     */
+    public static boolean sengokuSurfaceRules() {
+        return readBoolean("biome.sengoku_surface_rules", DEFAULT_SENGOKU_SURFACE_RULES);
+    }
+
+    /**
      * Fraction of the world (0..1) belonging to the Japan region, which is where catalog entries
      * gated on {@code japanRegion} -- the Sengoku Jidai biomes -- are allowed to generate. 1.0
      * puts them everywhere, 0.0 disables them entirely. Has no effect unless that mod is
@@ -250,6 +260,7 @@ public final class TerrainDiffusionConfig {
             PROPERTIES.setProperty("hydrology.disk_cache.namespace", "default");
             PROPERTIES.setProperty("surface_features.enabled", String.valueOf(DEFAULT_SURFACE_FEATURES_ENABLED));
             PROPERTIES.setProperty("biome.japan_region_share", String.valueOf(DEFAULT_JAPAN_REGION_SHARE));
+            PROPERTIES.setProperty("biome.sengoku_surface_rules", String.valueOf(DEFAULT_SENGOKU_SURFACE_RULES));
         }
     }
 

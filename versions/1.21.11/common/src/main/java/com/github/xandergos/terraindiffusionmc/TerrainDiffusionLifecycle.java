@@ -5,6 +5,7 @@ import com.github.xandergos.terraindiffusionmc.pipeline.LocalTerrainProvider;
 import com.github.xandergos.terraindiffusionmc.platform.PlatformPaths;
 import com.github.xandergos.terraindiffusionmc.pipeline.ModelAssetManager;
 import com.github.xandergos.terraindiffusionmc.pipeline.PipelineModels;
+import com.github.xandergos.terraindiffusionmc.world.TerraBlenderSurfaceCompat;
 import com.github.xandergos.terraindiffusionmc.world.TerrainDiffusionBiomeSource;
 import com.github.xandergos.terraindiffusionmc.world.TerrainDiffusionDensityFunction;
 import com.github.xandergos.terraindiffusionmc.world.WorldScaleManager;
@@ -103,6 +104,7 @@ public final class TerrainDiffusionLifecycle {
             WorldScaleManager.initializeForWorld(world, terrainDiffusionWorld);
             if (terrainDiffusionWorld) {
                 LocalTerrainProvider.init(world.getSeed());
+                TerraBlenderSurfaceCompat.apply(world.getChunkSource().getGenerator());
             }
         }
     }

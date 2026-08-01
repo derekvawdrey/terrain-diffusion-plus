@@ -27,6 +27,8 @@ public final class TerrainDiffusionConfig {
     private static final int MAX_HYDROLOGY_WORKER_THREADS = 64;
     private static final int DEFAULT_INFERENCE_WORKER_THREADS = 0;
     private static final int MAX_INFERENCE_WORKER_THREADS = 16;
+    private static final int DEFAULT_DECODER_BATCH_SIZE = 2;
+    private static final int MAX_DECODER_BATCH_SIZE = 16;
     private static final int DEFAULT_HYDROLOGY_CACHE_MAX_MIB = 160;
     private static final int DEFAULT_HYDROLOGY_CACHE_MAX_ENTRIES = 5;
     private static final boolean DEFAULT_HYDROLOGY_DISK_CACHE_ENABLED = true;
@@ -75,6 +77,24 @@ public final class TerrainDiffusionConfig {
         if (configured < 1 || configured > MAX_INFERENCE_WORKER_THREADS) {
             System.err.println("Invalid inference.worker_threads: " + configured + ", using 1");
             return 1;
+        }
+        return configured;
+    }
+
+    /**
+     * Decoder tiles per model call. Larger batches run faster per tile but grow peak decoder
+     * VRAM by roughly 650 MiB per extra tile (256x256 inputs). 1 disables batching.
+     *
+     * <p>Execution providers produce slightly different floats per batch size, so this value
+     * affects generated terrain bits: installs sharing a world or hydrology disk cache must
+     * use the same value, and changing it can create subtle seams next to older tiles.
+     */
+    public static int decoderBatchSize() {
+        int configured = readInt("inference.decoder_batch_size", DEFAULT_DECODER_BATCH_SIZE);
+        if (configured < 1 || configured > MAX_DECODER_BATCH_SIZE) {
+            System.err.println("Invalid inference.decoder_batch_size: " + configured
+                    + ", using default " + DEFAULT_DECODER_BATCH_SIZE);
+            return DEFAULT_DECODER_BATCH_SIZE;
         }
         return configured;
     }

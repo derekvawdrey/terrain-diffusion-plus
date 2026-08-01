@@ -37,6 +37,9 @@ public class HydrologyFloodValidation {
 
         FluvialRiverNetwork.PriorityFlood sequential =
                 FluvialRiverNetwork.runPriorityFloodSequential(elevation, height, width);
+        if (!validateFastFlood(sequential, elevation, height, width, seed)) {
+            return false;
+        }
         FluvialRiverNetwork.PriorityFlood parallel =
                 FluvialRiverNetwork.runPriorityFloodParallel(elevation, height, width);
 
@@ -97,6 +100,36 @@ public class HydrologyFloodValidation {
                         + "orderComplete=%b, selfLoops=%d, badTopoOrder=%d, nonMonotonic=%d)%n",
                 height, width, seed, pass ? "PASS" : "FAIL",
                 mismatches, unsafeCount, maxDiff, worstIdx, orderComplete, badDownstreamCount, badOrderCount, badMonotonicCount);
+        return pass;
+    }
+
+    /**
+     * {@link FluvialRiverNetwork#runPriorityFloodFast} is a pure data-structure swap, so unlike
+     * the parallel flood it must match the reference bit-for-bit: identical filled bits,
+     * identical downstream cells, identical processing order.
+     */
+    private static boolean validateFastFlood(FluvialRiverNetwork.PriorityFlood sequential,
+                                             float[] elevation, int height, int width, long seed) {
+        FluvialRiverNetwork.PriorityFlood fast =
+                FluvialRiverNetwork.runPriorityFloodFast(elevation, height, width);
+        int n = height * width;
+        int filledMismatches = 0;
+        int downstreamMismatches = 0;
+        int orderMismatches = 0;
+        for (int idx = 0; idx < n; idx++) {
+            if (Float.floatToIntBits(sequential.filledSurface()[idx])
+                    != Float.floatToIntBits(fast.filledSurface()[idx])) filledMismatches++;
+            if (sequential.downstream()[idx] != fast.downstream()[idx]) downstreamMismatches++;
+            if (sequential.order()[idx] != fast.order()[idx]) orderMismatches++;
+        }
+        boolean pass = filledMismatches == 0 && downstreamMismatches == 0 && orderMismatches == 0
+                && sequential.orderSize() == fast.orderSize();
+        System.out.printf(
+                "size=%dx%d seed=%d: fast-vs-sequential %s (filled=%d downstream=%d order=%d mismatches, "
+                        + "orderSize %d vs %d)%n",
+                height, width, seed, pass ? "EXACT" : "FAIL",
+                filledMismatches, downstreamMismatches, orderMismatches,
+                sequential.orderSize(), fast.orderSize());
         return pass;
     }
 

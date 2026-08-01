@@ -56,18 +56,12 @@ public final class FluvialRiverNetwork {
         }
 
         long t0 = System.nanoTime();
-        // TODO (parked, unfinished): runPriorityFloodParallel is NOT production-ready. Its
-        // per-strip baseline (true seeds only) and cross-cut boundary graph are validated correct
-        // by HydrologyFloodValidation with the same-strip pass-through disabled
-        // (-Dtdmc.disablePassThrough). The pass-through piece (phase 2/3's mstFilled + virtual
-        // nodes) is NOT correct: it assumed max(mstFilled(x), mstFilled(y)) from a single-source
-        // flood tree equals the true bottleneck distance between x and y. That's false -- a
-        // single-source *shortest-bottleneck-path* tree is not the same structure as a *minimum
-        // bottleneck spanning tree* (only the latter has the all-pairs property), confirmed
-        // empirically by MstTheoremCheck. A correct fix needs real all-pairs reasoning per strip
-        // (or Barnes' actual published spillover-graph technique) for the pass-through case, not
-        // this shortcut. See HydrologyFloodValidation for the test harness before attempting again.
-        PriorityFlood flood = runPriorityFloodSequential(elevation, height, width);
+        // Strip-parallel flood with exact per-strip dendrogram pass-through (see the
+        // runPriorityFloodParallel javadoc). Filled values match the sequential reference
+        // exactly; drainage tie-breaking in flat lake surfaces may differ (valid either way),
+        // and is machine-independent because the strip count is fixed, not CPU-derived.
+        // Validated against runPriorityFloodSequential by HydrologyFloodValidation.
+        PriorityFlood flood = runPriorityFloodParallel(elevation, height, width);
         long t1 = System.nanoTime();
         float[] accumulation = accumulateRunoff(elevation, climate, flood.downstream, flood.order,
                 flood.orderSize, height, width, pixelSizeM);
@@ -554,6 +548,12 @@ public final class FluvialRiverNetwork {
                 if (x <= 0.0f) continue;
                 float section = smoothstep(x);
                 int target = r * width + c;
+                // profile/load only ever increase during stamping, so when this sample can
+                // neither raise either nor tie the section (exact ties still update via a
+                // lower surface), the update is a guaranteed no-op. The unlocked reads are
+                // safe for the same monotonicity reason: a stale (smaller) value can only
+                // cause a redundant locked call, never a wrong skip.
+                if (section < profile[target] && normalizedLoad <= load[target]) continue;
                 if (locks == null) {
                     updateChannelCell(target, section, normalizedLoad, surface,
                             profile, load, waterSurface);
@@ -634,8 +634,71 @@ public final class FluvialRiverNetwork {
     }
 
     /**
+     * Production flood: identical algorithm and pop order to {@link #runPriorityFloodSequential},
+     * but the frontier heap stores {@code (sortableFloatBits(filled) << 32) | cellIndex} packed
+     * keys in a 4-ary {@link LongMinHeap}, so each heap comparison is one long compare with no
+     * dependent loads into the 5M-element {@code filled[]} array (which is what dominated the
+     * reference heap's cost). The packed key order equals {@code IntMinHeap}'s comparator
+     * (priority, then index) exactly, so filled/downstream/order are bit-identical; verified by
+     * {@link HydrologyFloodValidation}.
+     */
+    static PriorityFlood runPriorityFloodFast(float[] elevation, int height, int width) {
+        int n = height * width;
+        boolean[] visited = new boolean[n];
+        float[] filled = new float[n];
+        int[] downstream = new int[n];
+        int[] order = new int[n];
+        Arrays.fill(downstream, -1);
+        LongMinHeap queue = new LongMinHeap(Math.max(1024, 4 * (height + width)), n);
+        for (int r = 0; r < height; r++) {
+            for (int c = 0; c < width; c++) {
+                int idx = r * width + c;
+                boolean edge = r == 0 || c == 0 || r == height - 1 || c == width - 1;
+                boolean ocean = elevation[idx] <= SEA_LEVEL_METERS;
+                if ((!edge && !ocean) || visited[idx]) continue;
+                visited[idx] = true;
+                filled[idx] = elevation[idx];
+                queue.add(packFloodKey(elevation[idx], idx));
+            }
+        }
+        int orderSize = 0;
+        while (!queue.isEmpty()) {
+            int idx = (int) queue.poll();
+            order[orderSize++] = idx;
+            int r = idx / width;
+            int c = idx - r * width;
+            for (int k = 0; k < 8; k++) {
+                int nr = r + DR[k];
+                int nc = c + DC[k];
+                if (nr < 0 || nr >= height || nc < 0 || nc >= width) continue;
+                int ni = nr * width + nc;
+                if (visited[ni]) continue;
+                visited[ni] = true;
+                downstream[ni] = idx;
+                float fill = Math.max(elevation[ni], filled[idx]);
+                filled[ni] = fill;
+                queue.add(packFloodKey(fill, ni));
+            }
+        }
+        return new PriorityFlood(filled, downstream, order, orderSize);
+    }
+
+    /**
+     * Packs a priority and cell index into one long whose signed ordering equals
+     * {@code (Float.compare(priority), then Integer.compare(index))}: the float bits are made
+     * order-preserving under integer comparison (sign-magnitude to two's complement), and the
+     * non-negative index occupies the low 32 bits.
+     */
+    private static long packFloodKey(float priority, int index) {
+        int bits = Float.floatToIntBits(priority);
+        bits ^= (bits >> 31) & 0x7FFFFFFF;
+        return ((long) bits << 32) | (index & 0xFFFFFFFFL);
+    }
+
+    /**
      * Reference, single-threaded implementation. Kept for validation of
-     * {@link #runPriorityFloodParallel}; {@link #build} no longer calls this directly.
+     * {@link #runPriorityFloodParallel} and {@link #runPriorityFloodFast};
+     * {@link #build} no longer calls this directly.
      */
     static PriorityFlood runPriorityFloodSequential(float[] elevation, int height, int width) {
         int n = height * width;
@@ -677,8 +740,16 @@ public final class FluvialRiverNetwork {
         return new PriorityFlood(filled, downstream, order, orderSize);
     }
 
-    private static final float RELAX_EPS = 1e-4f;
     private static final int MIN_STRIP_ROWS = 64;
+
+    /**
+     * Fixed cap on row strips for the parallel flood. Deliberately not derived from the worker
+     * count: the strip decomposition affects drainage tie-breaking in flat regions, so deriving
+     * it from available CPUs would make world generation machine-dependent. With a fixed cap the
+     * same grid always decomposes identically; machines with fewer cores simply process the
+     * strips with less parallelism.
+     */
+    private static final int MAX_FLOOD_STRIPS = 16;
 
     private static boolean isTrueSeed(int r, int c, int height, int width, float elevationValue) {
         return r == 0 || c == 0 || r == height - 1 || c == width - 1 || elevationValue <= SEA_LEVEL_METERS;
@@ -692,45 +763,48 @@ public final class FluvialRiverNetwork {
      * this alone is already exact for any cell whose true optimum doesn't need to leave its
      * strip). This gives a safe, non-circular baseline for every cell, including border cells.
      *
-     * <p><b>2.</b> For "middle" strips (bounded by a cut on both sides), one more per-strip flood
-     * runs in parallel, from a single arbitrary real seed cell (not a multi-source flood -- using
-     * a multi-source, true-seeds-style flood here would make the exact-pairwise-cost trick below
-     * unsound, since two different real seeds could then falsely "shortcut" through each other).
-     * With a single real source, the standard bottleneck-spanning-tree property holds exactly:
-     * for any two cells x, y in the strip, the true cost of the best path between them (ignoring
-     * this strip's own true seeds entirely) equals {@code max(mstFilled(x), mstFilled(y))}.
+     * <p><b>2.</b> Each strip builds a <em>boundary dendrogram</em> in parallel: a union-find
+     * sweep over the strip's cells in increasing (elevation, index) order, recording a merge
+     * node whenever two components that each contain a cut-row cell unite. By the minimum
+     * spanning tree minimax-path property (an MST path is a bottleneck-optimal path for
+     * <em>every</em> pair -- the single-linkage dendrogram is exactly the MST's merge tree),
+     * the elevation of the lowest common ancestor of two cut-row cells in this tree equals the
+     * true bottleneck cost of the best path between them through the strip's interior. This
+     * replaces an earlier virtual "pass-through node" shortcut based on a single-source flood
+     * tree, which lacked the all-pairs property (disproved empirically by MstTheoremCheck) and
+     * also ignored re-entrant paths through the outermost strips. It is the same mathematical
+     * object as the watershed spillover graph in Barnes (2016), "Parallel Priority-Flood
+     * depression filling for trillion cell digital elevation models", specialized to give
+     * pairwise boundary transitions directly.
      *
-     * <p><b>3.</b> The boundary cells of every cut form a graph solved with an ordinary priority-
-     * flood -- reusing {@link IntMinHeap} with lazy deletion (a node can be pushed more than once;
-     * only its first pop, which is necessarily its true minimum, is acted on) -- seeded from
-     * phase 1's baseline. Edges are the real grid edges crossing each cut, plus, for middle
-     * strips, two virtual "pass-through" nodes: one collects the best {@code max(mstFilled(b),
-     * trueCost(b))} over every bottom-row cell b as they finalize and, once finalized itself,
-     * relays that single number to every top-row cell via {@code max(mstFilled(t), thatNumber)}
-     * -- exact, per phase 2's property, and O(width) total rather than the O(width^2) an explicit
-     * all-pairs edge set would need. The symmetric node handles top-to-bottom. Because every node
-     * is finalized exactly once, in strictly increasing cost order, no cyclic reinforcement
-     * between adjacent strips is possible (unlike an iterative relaxation, which this replaced
-     * after it was found to allow exactly that).
+     * <p><b>3.</b> The boundary cells of every cut, together with all dendrogram merge nodes,
+     * form a graph solved with an ordinary priority-flood -- reusing {@link IntMinHeap} with
+     * lazy deletion (a node can be pushed more than once; only its first pop, which is
+     * necessarily its true minimum, is acted on) -- seeded from phase 1's baseline. Edges are
+     * the real grid edges crossing each cut, plus the dendrogram tree edges: entering a node
+     * costs {@code max(currentValue, nodeElevation)}, where a merge node's elevation is its
+     * merge height and a leaf's is its cell elevation. A path leaf-up-to-LCA-down-to-leaf
+     * therefore accumulates exactly the pairwise bottleneck. Because every node is finalized
+     * exactly once, in increasing cost order, no cyclic reinforcement between adjacent strips
+     * is possible.
      *
      * <p><b>4.</b> Every strip re-floods in parallel, seeding true seeds plus phase 3's resolved
-     * boundary values -- except a boundary cell whose value came from a pass-through node, which
-     * is deliberately left unseeded and instead discovered by ordinary propagation from an extra
-     * seed placed at whichever specific cell the pass-through node's value actually came from.
-     * This sidesteps needing to reconstruct the geometric path by hand (which would need a
-     * lowest-common-ancestor query against phase 2's tree): the flood's own propagation finds it,
-     * correctly and for every affected cell in one pass, since it's an ordinary priority-flood.
+     * boundary values -- except a boundary cell whose best value arrived through the dendrogram
+     * (through-strip), which is left unseeded and instead rediscovered by ordinary propagation
+     * from its same-strip source seeds. This sidesteps reconstructing the geometric path by
+     * hand: the flood's own propagation finds it, and assigns those cells an interior-consistent
+     * downstream link in the process.
      *
      * <p>The one behavioral difference from {@link #runPriorityFloodSequential} is in perfectly
      * flat filled regions (lake surfaces): when several neighbors tie for the minimum crossing
      * cost, this may pick a different (still valid) one than the single global heap's tie-breaking
-     * would have, so the specific drainage path through a flat surface can differ. Values never
-     * differ. See {@code HydrologyProvider.ALGORITHM_VERSION}, bumped alongside this change.
+     * would have, so the specific drainage path through a flat surface can differ. Filled values
+     * never differ (all operations are max/min compositions of elevations -- no arithmetic).
+     * See {@code HydrologyProvider.ALGORITHM_VERSION}, bumped alongside this change.
      */
     static PriorityFlood runPriorityFloodParallel(float[] elevation, int height, int width) {
         int n = height * width;
-        int workers = Math.max(1, HydrologyParallel.workerThreads());
-        int stripCount = Math.max(1, Math.min(workers, height / MIN_STRIP_ROWS));
+        int stripCount = Math.max(1, Math.min(MAX_FLOOD_STRIPS, height / MIN_STRIP_ROWS));
 
         int[] stripStart = new int[stripCount + 1];
         for (int i = 0; i <= stripCount; i++) {
@@ -753,53 +827,9 @@ public final class FluvialRiverNetwork {
         }
 
         int cuts = stripCount - 1;
-        int middleStripCount = Math.max(0, stripCount - 2);
-        if (System.getProperty("tdmc.debugFlood") != null) {
-            System.out.printf("DEBUG stripCount=%d middleStripCount=%d workers=%d height=%d%n",
-                    stripCount, middleStripCount, workers, height);
-        }
 
-        // Phase 2: single-source (uncontaminated) interior spanning-tree distance, only needed
-        // for middle strips. A single shared array is safe: middle strips' row ranges are disjoint.
-        float[] mstFilled = null;
-        if (middleStripCount > 0) {
-            mstFilled = new float[n];
-            boolean[] mstVisited = new boolean[n];
-            int[] mstDownstream = new int[n];
-            float[] fMstFilled = mstFilled;
-            int[] fStripStartMst = stripStart;
-            HydrologyParallel.forEachTask(middleStripCount, idx -> {
-                int strip = 1 + idx;
-                int rowStart = fStripStartMst[strip];
-                int rowEnd = fStripStartMst[strip + 1];
-                float[] singleSeedRow = new float[width];
-                Arrays.fill(singleSeedRow, Float.POSITIVE_INFINITY);
-                singleSeedRow[0] = elevation[rowStart * width];
-                floodStrip(elevation, height, width, rowStart, rowEnd, false, singleSeedRow, null,
-                        mstVisited, fMstFilled, mstDownstream, null);
-            });
-            if (System.getProperty("tdmc.debugFlood") != null) {
-                for (int idx = 0; idx < middleStripCount; idx++) {
-                    int strip = 1 + idx;
-                    int rowStart = stripStart[strip];
-                    int rowEnd = stripStart[strip + 1];
-                    int finite = 0;
-                    int total = (rowEnd - rowStart) * width;
-                    for (int r = rowStart; r < rowEnd; r++) {
-                        for (int c = 0; c < width; c++) {
-                            if (Float.isFinite(mstFilled[r * width + c])) finite++;
-                        }
-                    }
-                    System.out.printf("DEBUG mstFilled strip=%d finite=%d/%d%n", strip, finite, total);
-                }
-            }
-        }
-
-        // Phase 3: solve the boundary graph exactly via an ordinary (cycle-free) priority-flood.
-        // Node layout: totalBoundaryNodes real boundary-cell nodes (per cut, width "above" nodes
-        // then width "below" nodes), followed by 2 virtual pass-through nodes per middle strip.
+        // Boundary node layout: per cut, width "above" nodes then width "below" nodes.
         int totalBoundaryNodes = cuts * 2 * width;
-        int totalNodes = totalBoundaryNodes + 2 * middleStripCount;
         int[] boundaryCellOf = new int[totalBoundaryNodes];
         int[] cellToBoundaryNode = new int[n];
         Arrays.fill(cellToBoundaryNode, -1);
@@ -821,13 +851,48 @@ public final class FluvialRiverNetwork {
             }
         }
 
+        // Phase 2: per-strip boundary dendrograms (exact through-strip bottlenecks).
+        // The shared union-find arrays are safe: strips' row ranges are disjoint.
+        StripDendrogram[] dendrograms = new StripDendrogram[stripCount];
+        int[] unionParent = new int[n];
+        int[] unionTreeNode = new int[n];
+        int[] fStripStartDen = stripStart;
+        HydrologyParallel.forEachTask(stripCount, s -> dendrograms[s] = buildStripDendrogram(
+                elevation, width, fStripStartDen[s], fStripStartDen[s + 1],
+                s > 0 ? width : 0, s < stripCount - 1 ? width : 0,
+                cellToBoundaryNode, unionParent, unionTreeNode));
+
+        // Assign merge nodes global ids after the boundary nodes and flatten the trees.
+        int totalMergeNodes = 0;
+        for (StripDendrogram dendrogram : dendrograms) totalMergeNodes += dendrogram.mergeCount;
+        int totalNodes = totalBoundaryNodes + totalMergeNodes;
+        int[] treeParent = new int[totalNodes];
+        Arrays.fill(treeParent, -1);
+        float[] mergeElevation = new float[totalMergeNodes];
+        int[] mergeChildA = new int[totalMergeNodes];
+        int[] mergeChildB = new int[totalMergeNodes];
+        int mergeOffset = 0;
+        for (StripDendrogram dendrogram : dendrograms) {
+            int stripBase = totalBoundaryNodes + mergeOffset;
+            for (int m = 0; m < dendrogram.mergeCount; m++) {
+                mergeElevation[mergeOffset + m] = dendrogram.mergeElev[m];
+                int childA = StripDendrogram.toGlobal(dendrogram.childA[m], stripBase);
+                int childB = StripDendrogram.toGlobal(dendrogram.childB[m], stripBase);
+                mergeChildA[mergeOffset + m] = childA;
+                mergeChildB[mergeOffset + m] = childB;
+                treeParent[childA] = stripBase + m;
+                treeParent[childB] = stripBase + m;
+            }
+            mergeOffset += dendrogram.mergeCount;
+        }
+
+        // Phase 3: solve the boundary+dendrogram graph exactly via an ordinary priority-flood.
         float[] boundaryFilled = new float[totalNodes];
-        // -1 = own baseline (phase 1) is already optimal; -2 = via a pass-through node (resolved
-        // by an extra seed in phase 4, not by direct assignment here); >=0 = the specific
-        // cross-cut neighbor cell that provided this value.
+        // -1 = own baseline (phase 1) is already optimal; -2 = through-strip via the dendrogram
+        // (left unseeded in phase 4 and rediscovered by propagation); >=0 = the specific
+        // cross-cut neighbor cell that provided this value. Merge-node entries are unused.
         int[] boundaryFromCell = new int[totalNodes];
         Arrays.fill(boundaryFromCell, -1);
-        int[] virtualSourceCell = new int[2 * middleStripCount];
         boolean[] boundaryFinal = new boolean[totalNodes];
         for (int node = 0; node < totalBoundaryNodes; node++) {
             boundaryFilled[node] = baseFilled[boundaryCellOf[node]];
@@ -835,86 +900,67 @@ public final class FluvialRiverNetwork {
         for (int node = totalBoundaryNodes; node < totalNodes; node++) {
             boundaryFilled[node] = Float.POSITIVE_INFINITY;
         }
-        // Lazy-deletion Dijkstra: a node can be pushed again each time it improves, so the heap
-        // sees more pushes than nodes over its lifetime.
-        IntMinHeap boundaryQueue = new IntMinHeap(boundaryFilled, (long) totalNodes * 6 > Integer.MAX_VALUE
-                ? Integer.MAX_VALUE : totalNodes * 6, 1, totalNodes);
+        // Lazy-deletion Dijkstra over immutable (value, node) packed keys: a node is pushed
+        // again each time it improves and only its first (minimal) pop is acted on. The keys
+        // MUST be snapshots -- a heap that reads priorities live from boundaryFilled (as
+        // IntMinHeap does) silently corrupts its invariant when a value decreases after
+        // insertion, which was observed to finalize nodes out of order.
+        LongMinHeap boundaryQueue = new LongMinHeap(Math.max(1024, totalNodes), Integer.MAX_VALUE);
         for (int node = 0; node < totalBoundaryNodes; node++) {
-            boundaryQueue.add(node);
+            boundaryQueue.add(packFloodKey(boundaryFilled[node], node));
         }
 
         while (!boundaryQueue.isEmpty()) {
-            int node = boundaryQueue.poll();
+            int node = (int) boundaryQueue.poll();
             if (boundaryFinal[node]) continue;
             boundaryFinal[node] = true;
+            float value = boundaryFilled[node];
 
             if (node >= totalBoundaryNodes) {
-                int virtualIdx = node - totalBoundaryNodes;
-                int midIdx = virtualIdx / 2;
-                boolean toT = (virtualIdx % 2 == 0);
-                int strip = 1 + midIdx;
-                int targetRow = toT ? stripStart[strip] : stripStart[strip + 1] - 1;
-                for (int c = 0; c < width; c++) {
-                    int targetCell = targetRow * width + c;
-                    int targetNode = cellToBoundaryNode[targetCell];
-                    if (boundaryFinal[targetNode]) continue;
-                    float candidate = Math.max(mstFilled[targetCell], boundaryFilled[node]);
-                    if (candidate < boundaryFilled[targetNode] - RELAX_EPS) {
-                        boundaryFilled[targetNode] = candidate;
-                        boundaryFromCell[targetNode] = -2;
-                        boundaryQueue.add(targetNode);
-                    }
-                }
-                continue;
-            }
+                // Merge node: relax both children (descending the tree toward other leaves).
+                int mergeIdx = node - totalBoundaryNodes;
+                relaxTreeNode(mergeChildA[mergeIdx], value, totalBoundaryNodes, boundaryCellOf,
+                        elevation, mergeElevation, boundaryFilled, boundaryFromCell, boundaryFinal, boundaryQueue);
+                relaxTreeNode(mergeChildB[mergeIdx], value, totalBoundaryNodes, boundaryCellOf,
+                        elevation, mergeElevation, boundaryFilled, boundaryFromCell, boundaryFinal, boundaryQueue);
+            } else {
+                // Real boundary cell: relax direct cross-cut grid neighbors.
+                int cell = boundaryCellOf[node];
+                int c = cell - (cell / width) * width;
+                int cut = nodeCutIndex(node, width);
+                boolean above = isAboveNode(node, width);
+                int otherRow = above ? stripStart[cut + 1] : stripStart[cut + 1] - 1;
 
-            int cell = boundaryCellOf[node];
-            int r = cell / width;
-            int c = cell - r * width;
-            int cut = nodeCutIndex(node, width);
-            boolean above = isAboveNode(node, width);
-            int otherRow = above ? stripStart[cut + 1] : stripStart[cut + 1] - 1;
-
-            for (int dc = -1; dc <= 1; dc++) {
-                int nc = c + dc;
-                if (nc < 0 || nc >= width) continue;
-                int neighborCell = otherRow * width + nc;
-                int neighborNode = cellToBoundaryNode[neighborCell];
-                if (neighborNode < 0 || boundaryFinal[neighborNode]) continue;
-                float candidate = Math.max(elevation[neighborCell], boundaryFilled[node]);
-                if (candidate < boundaryFilled[neighborNode] - RELAX_EPS) {
-                    boundaryFilled[neighborNode] = candidate;
-                    boundaryFromCell[neighborNode] = cell;
-                    boundaryQueue.add(neighborNode);
-                }
-            }
-
-            int stripOfCell = above ? cut : cut + 1;
-            if (System.getProperty("tdmc.disablePassThrough") == null
-                    && stripOfCell >= 1 && stripOfCell <= stripCount - 2) {
-                int midIdx = stripOfCell - 1;
-                int virtualNode = totalBoundaryNodes + 2 * midIdx + (above ? 0 : 1);
-                if (!boundaryFinal[virtualNode]) {
-                    float candidate = Math.max(mstFilled[cell], boundaryFilled[node]);
-                    if (candidate < boundaryFilled[virtualNode] - RELAX_EPS) {
-                        boundaryFilled[virtualNode] = candidate;
-                        virtualSourceCell[virtualNode - totalBoundaryNodes] = cell;
-                        boundaryQueue.add(virtualNode);
+                for (int dc = -1; dc <= 1; dc++) {
+                    int nc = c + dc;
+                    if (nc < 0 || nc >= width) continue;
+                    int neighborCell = otherRow * width + nc;
+                    int neighborNode = cellToBoundaryNode[neighborCell];
+                    if (neighborNode < 0 || boundaryFinal[neighborNode]) continue;
+                    float candidate = Math.max(elevation[neighborCell], value);
+                    if (candidate < boundaryFilled[neighborNode]) {
+                        boundaryFilled[neighborNode] = candidate;
+                        boundaryFromCell[neighborNode] = cell;
+                        boundaryQueue.add(packFloodKey(candidate, neighborNode));
                     }
                 }
             }
-        }
 
-        if (System.getProperty("tdmc.debugFlood") != null) {
-            for (int i = totalBoundaryNodes; i < totalNodes; i++) {
-                System.out.printf("DEBUG virtualNode=%d finalized=%b value=%.5f source=%d%n",
-                        i, boundaryFinal[i], boundaryFilled[i], virtualSourceCell[i - totalBoundaryNodes]);
+            // Ascend the dendrogram (both leaves and merge nodes have a parent merge node).
+            int parent = treeParent[node];
+            if (parent >= 0 && !boundaryFinal[parent]) {
+                float candidate = Math.max(value, mergeElevation[parent - totalBoundaryNodes]);
+                if (candidate < boundaryFilled[parent]) {
+                    boundaryFilled[parent] = candidate;
+                    boundaryQueue.add(packFloodKey(candidate, parent));
+                }
             }
         }
 
         // Phase 4: final re-flood per strip using phase 3's resolved boundary values, parallel.
-        // Pass-through-sourced columns are left unseeded; an extra seed at the pass-through
-        // node's actual source cell lets ordinary propagation discover them correctly instead.
+        // Dendrogram-sourced (-2) columns are left unseeded: their optimal path runs through
+        // their own strip's interior from other (seeded) boundary cells, so ordinary
+        // propagation rediscovers both their value and an interior-consistent downstream link.
         float[][] finalTopSeed = new float[stripCount][];
         float[][] finalBottomSeed = new float[stripCount][];
         for (int s = 0; s < stripCount; s++) {
@@ -935,25 +981,6 @@ public final class FluvialRiverNetwork {
                 }
             }
         }
-        int[] extraSeedCellA = new int[stripCount];
-        float[] extraSeedValueA = new float[stripCount];
-        int[] extraSeedCellB = new int[stripCount];
-        float[] extraSeedValueB = new float[stripCount];
-        Arrays.fill(extraSeedCellA, -1);
-        Arrays.fill(extraSeedCellB, -1);
-        for (int midIdx = 0; midIdx < middleStripCount; midIdx++) {
-            int strip = 1 + midIdx;
-            int toTNode = totalBoundaryNodes + 2 * midIdx;
-            int toBNode = toTNode + 1;
-            if (boundaryFinal[toTNode]) {
-                extraSeedCellA[strip] = virtualSourceCell[toTNode - totalBoundaryNodes];
-                extraSeedValueA[strip] = boundaryFilled[toTNode];
-            }
-            if (boundaryFinal[toBNode]) {
-                extraSeedCellB[strip] = virtualSourceCell[toBNode - totalBoundaryNodes];
-                extraSeedValueB[strip] = boundaryFilled[toBNode];
-            }
-        }
 
         boolean[] visited = new boolean[n];
         float[] filled = new float[n];
@@ -964,34 +991,7 @@ public final class FluvialRiverNetwork {
         float[][] fFinalBottomSeed = finalBottomSeed;
         HydrologyParallel.forEachTask(stripCount, s -> floodStrip(
                 elevation, height, width, fStripStart2[s], fStripStart2[s + 1], true,
-                fFinalTopSeed[s], fFinalBottomSeed[s], visited, filled, downstream, null,
-                extraSeedCellA[s], extraSeedValueA[s], extraSeedCellB[s], extraSeedValueB[s]));
-
-        if (System.getProperty("tdmc.debugFlood") != null) {
-            int mismatchVsBoundary = 0;
-            int passThroughCount = 0;
-            float maxDiff = 0f;
-            int worstCell = -1;
-            for (int node = 0; node < totalBoundaryNodes; node++) {
-                int cell = boundaryCellOf[node];
-                if (boundaryFromCell[node] == -2) passThroughCount++;
-                float diff = Math.abs(filled[cell] - boundaryFilled[node]);
-                if (diff > 1e-2f) {
-                    mismatchVsBoundary++;
-                    if (diff > maxDiff) { maxDiff = diff; worstCell = cell; }
-                }
-            }
-            System.out.printf("DEBUG phase4-vs-boundary: mismatches=%d passThroughCount=%d maxDiff=%.5f@cell=%d%n",
-                    mismatchVsBoundary, passThroughCount, maxDiff, worstCell);
-            if (worstCell >= 0) {
-                int node = cellToBoundaryNode[worstCell];
-                int r = worstCell / width;
-                System.out.printf("DEBUG worst cell=%d row=%d filled(phase4)=%.5f boundaryFilled=%.5f "
-                                + "boundaryFromCell=%d mstFilled=%.5f%n",
-                        worstCell, r, filled[worstCell], boundaryFilled[node], boundaryFromCell[node],
-                        mstFilled != null ? mstFilled[worstCell] : -1f);
-            }
-        }
+                fFinalTopSeed[s], fFinalBottomSeed[s], visited, filled, downstream, null));
 
         for (int cut = 0; cut < cuts; cut++) {
             int aboveRow = stripStart[cut + 1] - 1;
@@ -1024,35 +1024,21 @@ public final class FluvialRiverNetwork {
         return (node % (2 * width)) < width;
     }
 
-    private static void floodStrip(float[] elevation, int height, int width, int rowStart, int rowEnd,
-                                    boolean includeTrueSeeds, float[] topSeedValues, float[] bottomSeedValues,
-                                    boolean[] visited, float[] filled, int[] downstream, int[] originTag) {
-        floodStrip(elevation, height, width, rowStart, rowEnd, includeTrueSeeds, topSeedValues, bottomSeedValues,
-                visited, filled, downstream, originTag, -1, 0f, -1, 0f);
-    }
-
     /**
      * Floods rows [rowStart, rowEnd) only; never crosses into a neighboring strip.
      *
      * @param includeTrueSeeds whether ordinary border/ocean cells (see {@link #isTrueSeed}) seed
-     *                         the flood; {@code false} is used for the single-source phase-2
-     *                         spanning-tree flood, which must only see the one provided seed.
+     *                         the flood; {@code false} restricts seeding to the provided
+     *                         top/bottom seed rows only.
      * @param originTag        if non-null, receives -- for every visited cell -- the column of the
      *                         top/bottom-row seed its flood chain originated from. Unused by the
      *                         current phases; kept for diagnostic reuse.
-     * @param extraSeedCellA   an additional single-cell seed beyond the normal seeding rules (or
-     *                         -1 for none), used by phase 4 to let a pass-through-sourced boundary
-     *                         cell be discovered by ordinary propagation instead of being seeded
-     *                         directly. extraSeedCellB is a second, independent one (top and
-     *                         bottom cuts can each contribute one for the same strip).
      */
     private static void floodStrip(float[] elevation, int height, int width, int rowStart, int rowEnd,
                                     boolean includeTrueSeeds, float[] topSeedValues, float[] bottomSeedValues,
-                                    boolean[] visited, float[] filled, int[] downstream, int[] originTag,
-                                    int extraSeedCellA, float extraSeedValueA,
-                                    int extraSeedCellB, float extraSeedValueB) {
-        int stripRows = rowEnd - rowStart;
-        IntMinHeap queue = new IntMinHeap(filled, stripRows * width, stripRows, width);
+                                    boolean[] visited, float[] filled, int[] downstream, int[] originTag) {
+        LongMinHeap queue = new LongMinHeap(Math.max(1024, 4 * ((rowEnd - rowStart) + width)),
+                (rowEnd - rowStart) * width);
         for (int r = rowStart; r < rowEnd; r++) {
             for (int c = 0; c < width; c++) {
                 int idx = r * width + c;
@@ -1070,21 +1056,11 @@ public final class FluvialRiverNetwork {
                 visited[idx] = true;
                 filled[idx] = seedValue;
                 if (originTag != null) originTag[idx] = c;
-                queue.add(idx);
+                queue.add(packFloodKey(seedValue, idx));
             }
         }
-        if (extraSeedCellA >= 0 && !visited[extraSeedCellA]) {
-            visited[extraSeedCellA] = true;
-            filled[extraSeedCellA] = extraSeedValueA;
-            queue.add(extraSeedCellA);
-        }
-        if (extraSeedCellB >= 0 && !visited[extraSeedCellB]) {
-            visited[extraSeedCellB] = true;
-            filled[extraSeedCellB] = extraSeedValueB;
-            queue.add(extraSeedCellB);
-        }
         while (!queue.isEmpty()) {
-            int idx = queue.poll();
+            int idx = (int) queue.poll();
             int r = idx / width;
             int c = idx - r * width;
             for (int k = 0; k < 8; k++) {
@@ -1095,10 +1071,146 @@ public final class FluvialRiverNetwork {
                 if (visited[ni]) continue;
                 visited[ni] = true;
                 downstream[ni] = idx;
-                filled[ni] = Math.max(elevation[ni], filled[idx]);
+                float fill = Math.max(elevation[ni], filled[idx]);
+                filled[ni] = fill;
                 if (originTag != null) originTag[ni] = originTag[idx];
-                queue.add(ni);
+                queue.add(packFloodKey(fill, ni));
             }
+        }
+    }
+
+    /**
+     * Per-strip single-linkage merge tree over the strip's cut-row cells. Children encode:
+     * {@code >= 0} a global boundary node id (leaf), {@code <= -2} a local merge node
+     * {@code -(m + 2)}; -1 means none.
+     */
+    private static final class StripDendrogram {
+        static final StripDendrogram EMPTY = new StripDendrogram(new float[0], new int[0], new int[0], 0);
+
+        final float[] mergeElev;
+        final int[] childA;
+        final int[] childB;
+        final int mergeCount;
+
+        StripDendrogram(float[] mergeElev, int[] childA, int[] childB, int mergeCount) {
+            this.mergeElev = mergeElev;
+            this.childA = childA;
+            this.childB = childB;
+            this.mergeCount = mergeCount;
+        }
+
+        static int toGlobal(int encodedChild, int stripBase) {
+            return encodedChild >= 0 ? encodedChild : stripBase + (-encodedChild - 2);
+        }
+    }
+
+    /**
+     * Union-find sweep over one strip's cells in increasing (elevation, index) order. A merge
+     * node is recorded at the activating cell's elevation whenever two components that each
+     * already contain a cut-row cell unite; by the MST minimax-path property that elevation is
+     * the exact bottleneck cost between any leaf of one component and any leaf of the other.
+     * The sweep stops as soon as every cut-row cell is activated and connected.
+     *
+     * @param unionParent  shared scratch (strip row ranges are disjoint): union-find parent
+     *                     per cell, -1 = not yet activated
+     * @param unionTreeNode shared scratch: for a union-find root, its component's current tree
+     *                      node in {@link StripDendrogram} child encoding (-1 = no leaf yet)
+     */
+    private static StripDendrogram buildStripDendrogram(float[] elevation, int width,
+                                                        int rowStart, int rowEnd,
+                                                        int topLeafCount, int bottomLeafCount,
+                                                        int[] cellToBoundaryNode,
+                                                        int[] unionParent, int[] unionTreeNode) {
+        int leafCount = topLeafCount + bottomLeafCount;
+        if (leafCount == 0) {
+            return StripDendrogram.EMPTY;
+        }
+        int base = rowStart * width;
+        int stripCells = (rowEnd - rowStart) * width;
+
+        long[] sweepOrder = new long[stripCells];
+        for (int i = 0; i < stripCells; i++) {
+            int idx = base + i;
+            sweepOrder[i] = packFloodKey(elevation[idx], idx);
+        }
+        Arrays.sort(sweepOrder);
+
+        Arrays.fill(unionParent, base, base + stripCells, -1);
+        Arrays.fill(unionTreeNode, base, base + stripCells, -1);
+
+        float[] mergeElev = new float[Math.max(1, leafCount - 1)];
+        int[] childA = new int[mergeElev.length];
+        int[] childB = new int[mergeElev.length];
+        int mergeCount = 0;
+        int bearingComponents = 0;
+        int activatedLeaves = 0;
+
+        for (int i = 0; i < stripCells; i++) {
+            int idx = (int) sweepOrder[i];
+            unionParent[idx] = idx;
+            int leafNode = cellToBoundaryNode[idx];
+            if (leafNode >= 0) {
+                unionTreeNode[idx] = leafNode;
+                bearingComponents++;
+                activatedLeaves++;
+            }
+            int r = idx / width;
+            int c = idx - r * width;
+            for (int k = 0; k < 8; k++) {
+                int nr = r + DR[k];
+                int nc = c + DC[k];
+                if (nr < rowStart || nr >= rowEnd || nc < 0 || nc >= width) continue;
+                int ni = nr * width + nc;
+                if (unionParent[ni] < 0) continue;
+                int rootA = findUnionRoot(unionParent, idx);
+                int rootB = findUnionRoot(unionParent, ni);
+                if (rootA == rootB) continue;
+                int treeA = unionTreeNode[rootA];
+                int treeB = unionTreeNode[rootB];
+                unionParent[rootB] = rootA;
+                if (treeA != -1 && treeB != -1) {
+                    mergeElev[mergeCount] = elevation[idx];
+                    childA[mergeCount] = treeA;
+                    childB[mergeCount] = treeB;
+                    unionTreeNode[rootA] = -(mergeCount + 2);
+                    mergeCount++;
+                    bearingComponents--;
+                } else if (treeB != -1) {
+                    unionTreeNode[rootA] = treeB;
+                }
+            }
+            if (activatedLeaves == leafCount && bearingComponents <= 1) {
+                break;
+            }
+        }
+        return new StripDendrogram(mergeElev, childA, childB, mergeCount);
+    }
+
+    private static int findUnionRoot(int[] unionParent, int cell) {
+        int root = cell;
+        while (unionParent[root] != root) {
+            unionParent[root] = unionParent[unionParent[root]];
+            root = unionParent[root];
+        }
+        return root;
+    }
+
+    /** Relax one dendrogram child during the phase-3 solve (descending toward other leaves). */
+    private static void relaxTreeNode(int target, float sourceValue, int totalBoundaryNodes,
+                                      int[] boundaryCellOf, float[] elevation, float[] mergeElevation,
+                                      float[] boundaryFilled, int[] boundaryFromCell,
+                                      boolean[] boundaryFinal, LongMinHeap boundaryQueue) {
+        if (boundaryFinal[target]) return;
+        float enterCost = target < totalBoundaryNodes
+                ? elevation[boundaryCellOf[target]]
+                : mergeElevation[target - totalBoundaryNodes];
+        float candidate = Math.max(sourceValue, enterCost);
+        if (candidate < boundaryFilled[target]) {
+            boundaryFilled[target] = candidate;
+            if (target < totalBoundaryNodes) {
+                boundaryFromCell[target] = -2;
+            }
+            boundaryQueue.add(packFloodKey(candidate, target));
         }
     }
 
@@ -1298,6 +1410,68 @@ public final class FluvialRiverNetwork {
         private int compare(int first, int second) {
             int byPriority = Float.compare(priorities[first], priorities[second]);
             return byPriority != 0 ? byPriority : Integer.compare(first, second);
+        }
+        private void ensureCapacity(int required) {
+            if (required <= heap.length) return;
+            if (required > maximumSize) throw new IllegalStateException("Hydrology heap exceeded grid size");
+            heap = Arrays.copyOf(heap, Math.min(maximumSize,
+                    Math.max(required, heap.length + Math.max(1024, heap.length >>> 1))));
+        }
+    }
+
+    /**
+     * 4-ary min-heap over packed {@code (priority, index)} long keys (see
+     * {@link #packFloodKey}). Keys are self-contained, so sift operations never touch the
+     * grid arrays; the 4-ary layout roughly halves tree depth versus binary. Since keys are
+     * unique, the poll order is the total key order regardless of heap arity.
+     */
+    private static final class LongMinHeap {
+        private final int maximumSize;
+        private long[] heap;
+        private int size;
+
+        LongMinHeap(int initialCapacity, int maximumSize) {
+            this.maximumSize = maximumSize;
+            this.heap = new long[Math.min(maximumSize, Math.max(16, initialCapacity))];
+        }
+        boolean isEmpty() { return size == 0; }
+        void add(long key) {
+            ensureCapacity(size + 1);
+            int position = size++;
+            while (position > 0) {
+                int parent = (position - 1) >>> 2;
+                long parentKey = heap[parent];
+                if (parentKey <= key) break;
+                heap[position] = parentKey;
+                position = parent;
+            }
+            heap[position] = key;
+        }
+        long poll() {
+            if (size == 0) throw new IllegalStateException("Cannot poll an empty heap");
+            long result = heap[0];
+            long replacement = heap[--size];
+            if (size == 0) return result;
+            int position = 0;
+            while (true) {
+                int firstChild = (position << 2) + 1;
+                if (firstChild >= size) break;
+                int lastChild = Math.min(firstChild + 3, size - 1);
+                int minChild = firstChild;
+                long minKey = heap[firstChild];
+                for (int child = firstChild + 1; child <= lastChild; child++) {
+                    long childKey = heap[child];
+                    if (childKey < minKey) {
+                        minKey = childKey;
+                        minChild = child;
+                    }
+                }
+                if (replacement <= minKey) break;
+                heap[position] = minKey;
+                position = minChild;
+            }
+            heap[position] = replacement;
+            return result;
         }
         private void ensureCapacity(int required) {
             if (required <= heap.length) return;

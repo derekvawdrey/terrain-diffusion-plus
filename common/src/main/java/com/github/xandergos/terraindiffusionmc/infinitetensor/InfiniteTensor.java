@@ -225,7 +225,15 @@ public final class InfiniteTensor {
         int from = 0;
         while (from < windowIndices.size()) {
             int to = Math.min(from + batchSize, windowIndices.size());
-            List<int[]> batch = windowIndices.subList(from, to);
+            List<int[]> batch = new ArrayList<>(windowIndices.subList(from, to));
+            int realCount = batch.size();
+            // Pad a partial batch up to the fixed batch size by repeating the last window,
+            // then discard the padded outputs. Execution providers (e.g. CUDA) produce
+            // slightly different floats per batch size, so a variable-size final batch
+            // would make window outputs depend on request order and break determinism.
+            while (batch.size() < batchSize) {
+                batch.add(batch.get(realCount - 1));
+            }
 
             // arguments.get(depIdx) -> one tensor per window in the batch.
             List<List<FloatTensor>> arguments = new ArrayList<>(deps.length);
@@ -246,7 +254,7 @@ public final class InfiniteTensor {
                                 + ", expected " + batch.size());
             }
 
-            for (int batchIndex = 0; batchIndex < batch.size(); batchIndex++) {
+            for (int batchIndex = 0; batchIndex < realCount; batchIndex++) {
                 FloatTensor result = outputs.get(batchIndex);
                 int[] windowIndex = batch.get(batchIndex);
                 validateOutputShape(result);

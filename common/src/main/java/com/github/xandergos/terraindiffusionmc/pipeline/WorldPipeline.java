@@ -382,51 +382,75 @@ public final class WorldPipeline implements AutoCloseable {
         float[] ww = linearWeightWindow(S);
         float t = (float) Math.atan(EDMScheduler.SIGMA_MAX / SIGMA_DATA);
 
-        return tileStore.getOrCreate("init_residual_map", new Integer[]{2, null, null},
-                (wi, args) -> decoderTile(wi, args.get(0), t, ww),
-                outWin, new InfiniteTensor[]{latents}, new TensorWindow[]{inpWin}, cacheLimitBytes);
+        return tileStore.getOrCreateBatched("init_residual_map", new Integer[]{2, null, null},
+                (wis, args) -> decoderBatch(wis, args.get(0), t, ww),
+                outWin, new InfiniteTensor[]{latents}, new TensorWindow[]{inpWin},
+                cacheLimitBytes, TerrainDiffusionConfig.decoderBatchSize());
     }
 
-    private FloatTensor decoderTile(int[] wi, FloatTensor latentSlice, float t, float[] ww) {
+    private List<FloatTensor> decoderBatch(List<int[]> wis, List<FloatTensor> latentSlices,
+                                            float t, float[] ww) {
         int S = DECODER_TILE_SIZE, ST = DECODER_TILE_STRIDE, lc = LATENT_COMPRESSION;
         int Slc = S / lc;
-        int i1 = wi[1] * ST, j1 = wi[2] * ST;
+        int batch = wis.size();
         float cosT = (float) Math.cos(t), sinT = (float) Math.sin(t);
 
-        // Unnormalize latents channels 0..3 (4 channels)
-        float[] latFlat = new float[4 * Slc * Slc];
-        for (int ch = 0; ch < 4; ch++)
-            for (int px = 0; px < Slc * Slc; px++) {
-                float w = latentSlice.data[5 * Slc * Slc + px];
-                latFlat[ch * Slc * Slc + px] = (w > 1e-6f) ? latentSlice.data[ch * Slc * Slc + px] / w : 0f;
-            }
+        // Intermediate storage: xT per batch element (needed for output step)
+        float[][] xTArr = new float[batch][];
 
-        // Nearest-neighbor upsample (4, Slc, Slc) → (4, S, S)
-        float[] upsampled = nearestUpsample(latFlat, 4, Slc, Slc, S, S);
+        float[] modelInBatch = new float[batch * 5 * S * S];
+        for (int b = 0; b < batch; b++) {
+            int[] wi = wis.get(b);
+            int i1 = wi[1] * ST, j1 = wi[2] * ST;
+            FloatTensor latentSlice = latentSlices.get(b);
 
-        // One flow-matching step (sample starts at zero)
-        float[] noise = flatten3D(GaussianNoisePatch.generate(seed + 5819, i1, j1, S, S, 1, S, S));
-        float[] xT = new float[S * S];
-        for (int k = 0; k < S * S; k++) xT[k] = sinT * noise[k] * SIGMA_DATA;  // sample=0
+            // Unnormalize latents channels 0..3 (4 channels)
+            float[] latFlat = new float[4 * Slc * Slc];
+            for (int ch = 0; ch < 4; ch++)
+                for (int px = 0; px < Slc * Slc; px++) {
+                    float w = latentSlice.data[5 * Slc * Slc + px];
+                    latFlat[ch * Slc * Slc + px] = (w > 1e-6f) ? latentSlice.data[ch * Slc * Slc + px] / w : 0f;
+                }
 
-        // model_in = concat([xT/sigma_data (1,S,S), upsampled (4,S,S)]) → (5,S,S)
-        float[] modelIn = new float[5 * S * S];
-        for (int k = 0; k < S * S; k++) modelIn[k] = xT[k] / SIGMA_DATA;
-        System.arraycopy(upsampled, 0, modelIn, S * S, 4 * S * S);
+            // Nearest-neighbor upsample (4, Slc, Slc) → (4, S, S)
+            float[] upsampled = nearestUpsample(latFlat, 4, Slc, Slc, S, S);
 
-        LOG.debug("Decoder model called for chunk ({}, {}) tile pixels [{}, {}]-[{}, {}]", wi[1], wi[2], i1, j1, i1 + S, j1 + S);
-        float[] rawPred = decoderModel.runModel(modelIn, new long[]{1, 5, S, S}, new float[]{t}, null, null);
+            // One flow-matching step (sample starts at zero)
+            float[] noise = flatten3D(GaussianNoisePatch.generate(seed + 5819, i1, j1, S, S, 1, S, S));
+            float[] xT = new float[S * S];
+            for (int k = 0; k < S * S; k++) xT[k] = sinT * noise[k] * SIGMA_DATA;  // sample=0
+            xTArr[b] = xT;
+
+            // model_in = concat([xT/sigma_data (1,S,S), upsampled (4,S,S)]) → (5,S,S)
+            int base = b * 5 * S * S;
+            for (int k = 0; k < S * S; k++) modelInBatch[base + k] = xT[k] / SIGMA_DATA;
+            System.arraycopy(upsampled, 0, modelInBatch, base + S * S, 4 * S * S);
+        }
+
+        String chunkList = wis.stream().map(w -> "(" + w[1] + "," + w[2] + ")").collect(Collectors.joining(", "));
+        LOG.debug("Decoder model called for {} chunks: {}", batch, chunkList);
+
+        float[] noiseLabels = new float[batch];
+        for (int b = 0; b < batch; b++) noiseLabels[b] = t;
+
+        float[] rawPredBatch = decoderModel.runModel(
+                modelInBatch, new long[]{batch, 5, S, S}, noiseLabels, null, null);
 
         // sample = cos(t)*xT - sin(t)*sigma_data*(-rawPred); then / sigma_data
-        float[] newSample = new float[S * S];
-        for (int k = 0; k < S * S; k++) {
-            float pred = -rawPred[k];  // decoder model output is negated
-            newSample[k] = (cosT * xT[k] - sinT * SIGMA_DATA * pred) / SIGMA_DATA;
+        List<FloatTensor> results = new ArrayList<>(batch);
+        for (int b = 0; b < batch; b++) {
+            float[] xT = xTArr[b];
+            int predBase = b * S * S;
+            FloatTensor result = new FloatTensor(new int[]{2, S, S});
+            for (int px = 0; px < S * S; px++) {
+                float pred = -rawPredBatch[predBase + px];  // decoder model output is negated
+                float newSample = (cosT * xT[px] - sinT * SIGMA_DATA * pred) / SIGMA_DATA;
+                result.data[px] = newSample * ww[px];
+            }
+            System.arraycopy(ww, 0, result.data, S * S, S * S);
+            results.add(result);
         }
-        FloatTensor result = new FloatTensor(new int[]{2, S, S});
-        for (int px = 0; px < S * S; px++) result.data[px] = newSample[px] * ww[px];
-        System.arraycopy(ww, 0, result.data, S * S, S * S);
-        return result;
+        return results;
     }
 
     // =========================================================================

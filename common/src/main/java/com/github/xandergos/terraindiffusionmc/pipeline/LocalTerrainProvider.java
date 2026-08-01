@@ -7,6 +7,7 @@ import com.github.xandergos.terraindiffusionmc.hydrology.HydrologyParallel;
 import com.github.xandergos.terraindiffusionmc.hydrology.HydrologyProvider;
 import com.github.xandergos.terraindiffusionmc.infinitetensor.FloatTensor;
 import com.github.xandergos.terraindiffusionmc.world.WorldScaleManager;
+import com.github.xandergos.terraindiffusionmc.worldgen.surface.SurfaceNoise;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -40,14 +41,63 @@ public final class LocalTerrainProvider {
     private static final FastNoiseLite ELEV_NOISE_FINE   = makeFnl(88888, 1f/6f,  2, 2f, 0.6f);
 
     private static FastNoiseLite makeFnl(int seed, float freq, int oct, float lac, float gain) {
+        return makeFnl(seed, freq, oct, lac, gain, FastNoiseLite.FractalType.FBm);
+    }
+
+    private static FastNoiseLite makeFnl(int seed, float freq, int oct, float lac, float gain,
+                                          FastNoiseLite.FractalType fractalType) {
         FastNoiseLite fnl = new FastNoiseLite(seed);
         fnl.SetNoiseType(FastNoiseLite.NoiseType.Perlin);
         fnl.SetFrequency(freq);
-        fnl.SetFractalType(FastNoiseLite.FractalType.FBm);
+        fnl.SetFractalType(fractalType);
         fnl.SetFractalOctaves(oct);
         fnl.SetFractalLacunarity(lac);
         fnl.SetFractalGain(gain);
         return fnl;
+    }
+
+    /**
+     * Per-seed noise fields that vary the detail noise regionally so distant areas stop feeling
+     * identical. All frequencies are in output-pixel (block) space, like the ELEV_NOISE fields.
+     */
+    private static final class DetailNoise {
+        final long seed;
+        /** Regional roughness multiplier for the slope-gated detail noise (wavelength ~2.4k blocks). */
+        final FastNoiseLite character;
+        /** Regional style axis: -1 = billow (rounded hummocks), 0 = FBm, +1 = ridged crags. */
+        final FastNoiseLite style;
+        /** Patch gate deciding which flatland regions roll instead of staying pancake-flat. */
+        final FastNoiseLite plains;
+        /** The rolling-plains undulation itself (not slope-gated). */
+        final FastNoiseLite swell;
+        /** Ridged counterparts of ELEV_NOISE_COARSE/FINE; negated they act as billow noise. */
+        final FastNoiseLite ridgedCoarse;
+        final FastNoiseLite ridgedFine;
+
+        DetailNoise(long seed) {
+            this.seed = seed;
+            this.character    = makeFnl(fieldSeed(seed, 1), 1f/2400f, 2, 2f, 0.5f);
+            this.style        = makeFnl(fieldSeed(seed, 2), 1f/3200f, 2, 2f, 0.5f);
+            this.plains       = makeFnl(fieldSeed(seed, 3), 1f/1400f, 2, 2f, 0.5f);
+            this.swell        = makeFnl(fieldSeed(seed, 4), 1f/170f,  2, 2f, 0.5f);
+            this.ridgedCoarse = makeFnl(fieldSeed(seed, 5), 1f/24f, 3, 2f, 0.5f, FastNoiseLite.FractalType.Ridged);
+            this.ridgedFine   = makeFnl(fieldSeed(seed, 6), 1f/6f,  2, 2f, 0.6f, FastNoiseLite.FractalType.Ridged);
+        }
+
+        private static int fieldSeed(long worldSeed, int field) {
+            return (int) SurfaceNoise.hash(worldSeed, 0x7E22A1, field);
+        }
+    }
+
+    private volatile DetailNoise detailNoise;
+
+    private DetailNoise detailNoiseFor(long seed) {
+        DetailNoise dn = detailNoise;
+        if (dn == null || dn.seed != seed) {
+            dn = new DetailNoise(seed);
+            detailNoise = dn;
+        }
+        return dn;
     }
 
     public static final class HeightmapData {
@@ -643,6 +693,8 @@ public final class LocalTerrainProvider {
         float normFactor = 40f * pixelSizeM / NATIVE_RESOLUTION;
         float ampC = 100f * pixelSizeM / NATIVE_RESOLUTION;
         float ampF = 70f  * pixelSizeM / NATIVE_RESOLUTION;
+        float ampSwell = 75f * pixelSizeM / NATIVE_RESOLUTION;
+        DetailNoise noise = detailNoiseFor(pipeline.getSeed());
 
         HydrologyParallel.forEachRow(0, H, W, r -> {
             for (int c = 0; c < W; c++) {
@@ -651,13 +703,45 @@ public final class LocalTerrainProvider {
                 if (e < 0f) continue;
 
                 float grad = slopeGradient[idx];
-                float sf = Math.min(1f, grad / normFactor);
-                sf = sf * sf * (float) Math.sqrt(sf);
+                float s0 = Math.min(1f, grad / normFactor);
+                float sf = s0 * s0 * (float) Math.sqrt(s0);
 
                 float nx = j1 + c, ny = i1 + r;
-                elevOut[idx] = e
-                        + ELEV_NOISE_COARSE.GetNoise(nx, ny) * ampC * sf
-                        + ELEV_NOISE_FINE.GetNoise(nx, ny)   * ampF * sf;
+
+                float detail = 0f;
+                if (sf > 1e-4f) {
+                    float fbm = ELEV_NOISE_COARSE.GetNoise(nx, ny) * ampC
+                              + ELEV_NOISE_FINE.GetNoise(nx, ny)   * ampF;
+                    // Style axis: deadband around 0 keeps plenty of unchanged FBm terrain;
+                    // past it, blend toward ridged crags (+) or billow hummocks (-).
+                    float style = noise.style.GetNoise(nx, ny);
+                    float tStyle = SurfaceNoise.smoothstep(
+                            SurfaceNoise.clamp01((Math.abs(style) - 0.15f) / 0.55f));
+                    float mixed = fbm;
+                    if (tStyle > 0f) {
+                        float ridged = noise.ridgedCoarse.GetNoise(nx, ny) * ampC
+                                     + noise.ridgedFine.GetNoise(nx, ny)   * ampF;
+                        if (style < 0f) ridged = -ridged;  // billow
+                        mixed = SurfaceNoise.lerp(fbm, ridged, tStyle);
+                    }
+                    float rough = 1f + 0.65f * noise.character.GetNoise(nx, ny);
+                    detail = mixed * sf * rough;
+                }
+
+                // Rolling plains: low-frequency swell on flat ground, only inside patches
+                // selected by the plains field, fading out as slope picks up.
+                float swell = 0f;
+                float plainsGate = SurfaceNoise.smoothstep(
+                        SurfaceNoise.clamp01((noise.plains.GetNoise(nx, ny) - 0.05f) / 0.5f));
+                if (plainsGate > 0f) {
+                    float flat = (1f - s0) * (1f - s0);
+                    swell = noise.swell.GetNoise(nx, ny) * ampSwell * plainsGate * flat;
+                }
+
+                // Fade all added noise near sea level so coasts and beaches can't be pushed
+                // below water; at e >= 25 m this is a no-op.
+                float seaFade = SurfaceNoise.clamp01(e / 25f);
+                elevOut[idx] = e + (detail + swell) * seaFade;
             }
         });
         return elevOut;

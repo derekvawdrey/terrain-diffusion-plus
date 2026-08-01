@@ -26,8 +26,10 @@ import net.minecraft.world.level.biome.BiomeSource;
 import net.minecraft.world.level.biome.Biomes;
 import net.minecraft.world.level.biome.Climate;
 
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.function.Predicate;
@@ -41,6 +43,8 @@ public class TerrainDiffusionBiomeSource extends BiomeSource {
 
     private final HolderGetter<Biome> biomeLookup;
     private volatile Map<Short, Holder<Biome>> biomeIndexMap = null;
+    /** The subset of {@link #biomeIndexMap} this source will actually ever return. */
+    private volatile List<Holder<Biome>> possibleBiomes = null;
 
     public TerrainDiffusionBiomeSource(HolderGetter<Biome> biomeLookup) {
         this.biomeLookup = biomeLookup;
@@ -61,9 +65,23 @@ public class TerrainDiffusionBiomeSource extends BiomeSource {
             if (biomeIndexMap != null) return;
 
             Map<Short, Holder<Biome>> resolved = new LinkedHashMap<>();
+            List<Holder<Biome>> possible = new ArrayList<>();
             for (TerrainBiomeSettlement settlement : TerrainBiomeRegistry.instance().all()) {
-                resolved.put(settlement.index(), resolveBiome(settlement));
+                Holder<Biome> biome = resolveBiome(settlement);
+                resolved.put(settlement.index(), biome);
+                // Only overworld-capable entries may be advertised as possible. The catalog also
+                // carries the Nether/End/Void biomes so their indices resolve, but this source
+                // never returns them, and claiming them here makes vanilla's FeatureSorter build
+                // one global feature order spanning all three dimensions at once. Vanilla's own
+                // biomes happen to be mutually consistent, so that went unnoticed; a mod that
+                // redefines biomes on both sides makes the orders contradict and worldgen dies
+                // with "Feature order cycle found". Rivers and cave biomes stay -- getNoiseBiome
+                // and selectUndergroundBiome really do return those.
+                if (settlement.canGenerateOverworld() && !possible.contains(biome)) {
+                    possible.add(biome);
+                }
             }
+            possibleBiomes = Collections.unmodifiableList(possible);
             biomeIndexMap = Collections.unmodifiableMap(resolved);
         }
     }
@@ -97,7 +115,7 @@ public class TerrainDiffusionBiomeSource extends BiomeSource {
     @Override
     protected Stream<Holder<Biome>> collectPossibleBiomes() {
         requireBiomeIndexMap();
-        return biomeIndexMap.values().stream().distinct();
+        return possibleBiomes.stream();
     }
 
     @Override

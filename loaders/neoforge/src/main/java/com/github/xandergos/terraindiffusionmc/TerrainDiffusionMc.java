@@ -1,5 +1,6 @@
 package com.github.xandergos.terraindiffusionmc;
 
+import com.github.xandergos.terraindiffusionmc.platform.PlatformMods;
 import net.minecraft.core.registries.Registries;
 import net.minecraft.server.level.ServerLevel;
 import net.neoforged.bus.api.IEventBus;
@@ -23,6 +24,9 @@ public class TerrainDiffusionMc {
     public TerrainDiffusionMc(IEventBus modEventBus) {
         LOG.info("Initializing terrain-diffusion-mc for NeoForge");
         modEventBus.addListener(this::onRegister);
+        PlatformMods.configure(() -> net.neoforged.fml.ModList.get().getMods().stream()
+                .map(net.neoforged.neoforgespi.language.IModInfo::getModId)
+                .toList());
         TerrainDiffusionLifecycle.bootstrap(FMLPaths.CONFIGDIR.get(), FMLPaths.GAMEDIR.get());
 
         NeoForge.EVENT_BUS.addListener(this::onServerStarting);

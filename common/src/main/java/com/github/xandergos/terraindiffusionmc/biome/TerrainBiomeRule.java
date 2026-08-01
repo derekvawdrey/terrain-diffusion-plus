@@ -57,6 +57,15 @@ public final class TerrainBiomeRule {
     @SerializedName("noiseConditions")
     private List<TerrainBiomeCondition> noiseConditions;
 
+    /**
+     * Loader mod ids that must all be installed for this rule to be eligible. Lets a biome that
+     * exists unconditionally carry an extra, differently-weighted rule that only applies when an
+     * optional mod is present, without duplicating the whole settlement. Absent means
+     * unconditional; see {@link TerrainBiomeSettlement#requiredMods()}.
+     */
+    @SerializedName("requiredMods")
+    private List<String> requiredMods;
+
     /** No-arg constructor kept for Gson (which uses Unsafe and never actually calls it). */
     public TerrainBiomeRule() {
     }
@@ -100,6 +109,15 @@ public final class TerrainBiomeRule {
 
     public List<TerrainBiomeCondition> noiseConditions() {
         return noiseConditions != null ? noiseConditions : List.of();
+    }
+
+    public List<String> requiredMods() {
+        return requiredMods != null ? requiredMods : List.of();
+    }
+
+    /** Whether every mod this rule requires is installed. */
+    public boolean isAvailable() {
+        return com.github.xandergos.terraindiffusionmc.platform.PlatformMods.allLoaded(requiredMods());
     }
 
     /**

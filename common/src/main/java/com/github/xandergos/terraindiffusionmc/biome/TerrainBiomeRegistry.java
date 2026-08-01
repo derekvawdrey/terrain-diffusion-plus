@@ -38,7 +38,10 @@ public final class TerrainBiomeRegistry {
 
     private static final TerrainBiomeRegistry INSTANCE = new TerrainBiomeRegistry();
 
+    /** Everything the catalog file declared, including entries gated off by a missing mod. */
     private final List<TerrainBiomeSettlement> settlements = new ArrayList<>();
+    /** The subset of {@link #settlements} whose {@code requiredMods} are all installed. */
+    private List<TerrainBiomeSettlement> activeSettlements = List.of();
     private Map<Short, TerrainBiomeSettlement> byIndex;
     private Map<String, TerrainBiomeSettlement> byKey;
     private List<TerrainBiomeSettlement> overworldCandidates;
@@ -81,13 +84,15 @@ public final class TerrainBiomeRegistry {
     }
 
     private void loadFromResource() {
+        // Read straight from the stream: the catalog normally lives inside the mod jar, whose
+        // "jar:file:...!/biome_catalog.json" URI Path.of(URI) rejects outright. Going through a
+        // Path only ever worked in dev runs, where resources sit unpacked on disk.
         try (java.io.InputStream is = TerrainBiomeRegistry.class.getResourceAsStream(RESOURCE_PATH)) {
             if (is == null) {
                 System.err.println("biome_catalog.json not found on classpath - biome classification will be empty");
                 return;
             }
-            try (Reader reader = Files.newBufferedReader(
-                    Path.of(TerrainBiomeRegistry.class.getResource(RESOURCE_PATH).toURI()))) {
+            try (Reader reader = new java.io.InputStreamReader(is, StandardCharsets.UTF_8)) {
                 List<TerrainBiomeSettlement> loaded = GSON.fromJson(reader, LIST_TYPE);
                 if (loaded != null) {
                     settlements.addAll(loaded);
@@ -157,17 +162,40 @@ public final class TerrainBiomeRegistry {
 
         Map<Short, TerrainBiomeSettlement> indexMap = new LinkedHashMap<>();
         Map<String, TerrainBiomeSettlement> keyMap = new LinkedHashMap<>();
+        List<TerrainBiomeSettlement> active = new ArrayList<>();
         List<TerrainBiomeSettlement> overworld = new ArrayList<>();
         short maxIndex = 0;
+        int gatedOut = 0;
 
         for (TerrainBiomeSettlement s : settlements) {
+            // Biomes belonging to an absent optional mod are dropped here rather than filtered at
+            // every call site, so the rule engine, the biome source and the explorer all agree on
+            // one active set.
+            if (!s.isAvailable()) {
+                gatedOut++;
+                continue;
+            }
+            active.add(s);
             indexMap.put(s.index(), s);
             keyMap.put(s.key(), s);
             if (s.canGenerateOverworld()) overworld.add(s);
-            if (s.index() > maxIndex) maxIndex = s.index();
             resolveRuleConditions(s);
         }
 
+        // Sized off every declared index, not just the active ones: a world generated with an
+        // optional mod installed has its indices baked into cached terrain data, and that cache
+        // outlives the mod being uninstalled. Sizing to the active max would turn a later launch
+        // without the mod into an out-of-bounds on an index-keyed scratch array.
+        for (TerrainBiomeSettlement s : settlements) {
+            if (s.index() > maxIndex) maxIndex = s.index();
+        }
+
+        if (gatedOut > 0) {
+            System.out.println("terrain-diffusion-mc: " + gatedOut + " of " + settlements.size()
+                    + " catalog biomes disabled (required mods not installed)");
+        }
+
+        activeSettlements = Collections.unmodifiableList(active);
         byIndex = Collections.unmodifiableMap(indexMap);
         byKey = Collections.unmodifiableMap(keyMap);
         overworldCandidates = Collections.unmodifiableList(overworld);
@@ -194,7 +222,20 @@ public final class TerrainBiomeRegistry {
 
     // ---- Legacy TerrainBiomeCatalog-compatible API ----
 
+    /**
+     * The biomes actually taking part in generation: catalog entries minus those gated off by a
+     * missing optional mod. This is what the rule engine and biome sources build from.
+     */
     public List<TerrainBiomeSettlement> all() {
+        return activeSettlements;
+    }
+
+    /**
+     * Every entry the catalog declared, gated-off ones included. Only for code that must round
+     * trip the file itself -- {@link #saveToConfigDir()} writes this so an apply performed
+     * without Biomes O' Plenty installed doesn't silently delete its biomes from the catalog.
+     */
+    public List<TerrainBiomeSettlement> allDeclared() {
         return Collections.unmodifiableList(settlements);
     }
 
@@ -222,7 +263,7 @@ public final class TerrainBiomeRegistry {
 
     public Map<Short, String> indexToKeyMap() {
         Map<Short, String> result = new LinkedHashMap<>();
-        for (TerrainBiomeSettlement s : settlements) {
+        for (TerrainBiomeSettlement s : activeSettlements) {
             result.put(s.index(), s.key());
         }
         return result;
@@ -230,7 +271,7 @@ public final class TerrainBiomeRegistry {
 
     public Map<Short, Integer> indexToColorMap() {
         Map<Short, Integer> result = new LinkedHashMap<>();
-        for (TerrainBiomeSettlement s : settlements) {
+        for (TerrainBiomeSettlement s : activeSettlements) {
             result.put(s.index(), s.color());
         }
         return result;
@@ -275,7 +316,7 @@ public final class TerrainBiomeRegistry {
 
     /** Returns the index of the river biome. */
     public short riverBiomeIndex() {
-        for (TerrainBiomeSettlement s : settlements) {
+        for (TerrainBiomeSettlement s : activeSettlements) {
             if (s.isRiver()) return s.index();
         }
         return (short) 38;
@@ -283,7 +324,7 @@ public final class TerrainBiomeRegistry {
 
     /** Returns the index of the frozen river biome. */
     public short frozenRiverBiomeIndex() {
-        for (TerrainBiomeSettlement s : settlements) {
+        for (TerrainBiomeSettlement s : activeSettlements) {
             if (s.isFrozenRiver()) return s.index();
         }
         return (short) 39;

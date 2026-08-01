@@ -81,6 +81,7 @@ public final class BiomeRuleEngine {
         for (TerrainBiomeSettlement settlement : registry.all()) {
             for (TerrainBiomeRule rule : settlement.rules()) {
                 if (rule.rarity() <= 0f) continue;  // weightless rules can never be selected
+                if (!rule.isAvailable()) continue;  // rule belongs to an optional mod that isn't installed
                 byZone.computeIfAbsent(rule.zone(), z -> new ArrayList<>())
                         .add(new RuleEntry(settlement.index(), rule));
             }

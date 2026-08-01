@@ -4,6 +4,7 @@ import net.fabricmc.api.ModInitializer;
 import net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerWorldEvents;
+import com.github.xandergos.terraindiffusionmc.platform.PlatformMods;
 import net.fabricmc.loader.api.FabricLoader;
 import net.minecraft.core.Registry;
 import net.minecraft.core.registries.BuiltInRegistries;
@@ -19,6 +20,9 @@ public class TerrainDiffusionMc implements ModInitializer {
         LOG.info("Initializing terrain-diffusion-mc");
         TerrainDiffusionLifecycle.registerBiomeSourceCodecs((id, codec) -> Registry.register(BuiltInRegistries.BIOME_SOURCE, id, codec));
         TerrainDiffusionLifecycle.registerDensityFunctionCodecs((id, codec) -> Registry.register(BuiltInRegistries.DENSITY_FUNCTION_TYPE, id, codec));
+        PlatformMods.configure(() -> FabricLoader.getInstance().getAllMods().stream()
+                .map(mod -> mod.getMetadata().getId())
+                .toList());
         TerrainDiffusionLifecycle.bootstrap(FabricLoader.getInstance().getConfigDir(), FabricLoader.getInstance().getGameDir());
 
         ServerLifecycleEvents.SERVER_STARTING.register(server -> TerrainDiffusionLifecycle.onServerStarting());

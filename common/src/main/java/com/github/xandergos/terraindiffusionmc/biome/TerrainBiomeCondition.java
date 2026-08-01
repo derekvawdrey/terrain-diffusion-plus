@@ -32,6 +32,7 @@ public final class TerrainBiomeCondition {
         MOISTURE, ARIDITY, TREE_MOISTURE, TREE_COVERAGE, SPARSITY, SLOPE, GROWING_SEASON_DAYS,
         OCEAN, SNOWY, BARE_SLOPE, MOUNTAIN, LOWLAND,
         VARIANT_NOISE, CHERRY_NOISE, PALE_NOISE, CLEARING_NOISE, FLOWER_NOISE, REGION_NOISE,
+        JAPAN_REGION,
         UNKNOWN
     }
 
@@ -131,6 +132,7 @@ public final class TerrainBiomeCondition {
             case "clearingNoise" -> Variable.CLEARING_NOISE;
             case "flowerNoise" -> Variable.FLOWER_NOISE;
             case "regionNoise" -> Variable.REGION_NOISE;
+            case "japanRegion" -> Variable.JAPAN_REGION;
             default -> Variable.UNKNOWN;
         };
     }

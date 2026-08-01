@@ -43,6 +43,16 @@ public final class TerrainBiomeSettlement {
     @SerializedName("canGenerateOverworld")
     private boolean canGenerateOverworld;
 
+    /**
+     * Loader mod ids that must all be installed for this biome to take part in generation, e.g.
+     * {@code ["biomesoplenty"]}. Absent or empty means unconditional. Entries whose requirement
+     * is unmet are dropped at registry build time, so one catalog can carry every optional
+     * integration and degrade to the vanilla subset on its own -- see
+     * {@link com.github.xandergos.terraindiffusionmc.platform.PlatformMods}.
+     */
+    @SerializedName("requiredMods")
+    private List<String> requiredMods;
+
     @SerializedName("rules")
     private List<TerrainBiomeRule> rules;
 
@@ -97,5 +107,11 @@ public final class TerrainBiomeSettlement {
     public boolean isRiver() { return isRiver; }
     public boolean isFrozenRiver() { return isFrozenRiver; }
     public boolean canGenerateOverworld() { return canGenerateOverworld; }
+    public List<String> requiredMods() { return requiredMods != null ? requiredMods : List.of(); }
     public List<TerrainBiomeRule> rules() { return rules != null ? rules : List.of(); }
+
+    /** Whether every mod this biome requires is installed. */
+    public boolean isAvailable() {
+        return com.github.xandergos.terraindiffusionmc.platform.PlatformMods.allLoaded(requiredMods());
+    }
 }

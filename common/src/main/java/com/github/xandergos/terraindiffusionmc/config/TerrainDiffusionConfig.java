@@ -33,6 +33,12 @@ public final class TerrainDiffusionConfig {
     private static final int DEFAULT_HYDROLOGY_CACHE_MAX_ENTRIES = 5;
     private static final boolean DEFAULT_HYDROLOGY_DISK_CACHE_ENABLED = true;
     private static final boolean DEFAULT_SURFACE_FEATURES_ENABLED = true;
+    /**
+     * Whole world by default: Sengoku Jidai rethemes the 64 vanilla biomes globally, so confining
+     * its own 15 biomes to a sub-region would read as an inconsistency (Japanese-looking forests
+     * everywhere, hot springs only in one corner) rather than as a region.
+     */
+    private static final float DEFAULT_JAPAN_REGION_SHARE = 1.0f;
 
     static {
         loadDefaults();
@@ -206,6 +212,17 @@ public final class TerrainDiffusionConfig {
         return readBoolean("surface_features.enabled", DEFAULT_SURFACE_FEATURES_ENABLED);
     }
 
+    /**
+     * Fraction of the world (0..1) belonging to the Japan region, which is where catalog entries
+     * gated on {@code japanRegion} -- the Sengoku Jidai biomes -- are allowed to generate. 1.0
+     * puts them everywhere, 0.0 disables them entirely. Has no effect unless that mod is
+     * installed. Changing it moves biome borders, so treat it like {@code tile_size}: pick a
+     * value before creating a world and keep it for that world's lifetime.
+     */
+    public static float japanRegionShare() {
+        return readUnitFloat("biome.japan_region_share", DEFAULT_JAPAN_REGION_SHARE);
+    }
+
     private static void loadDefaults() {
         boolean loadedFromResource = false;
         try (InputStream in = TerrainDiffusionConfig.class.getResourceAsStream(RESOURCE_PATH)) {
@@ -232,6 +249,7 @@ public final class TerrainDiffusionConfig {
             PROPERTIES.setProperty("hydrology.disk_cache.enabled", String.valueOf(DEFAULT_HYDROLOGY_DISK_CACHE_ENABLED));
             PROPERTIES.setProperty("hydrology.disk_cache.namespace", "default");
             PROPERTIES.setProperty("surface_features.enabled", String.valueOf(DEFAULT_SURFACE_FEATURES_ENABLED));
+            PROPERTIES.setProperty("biome.japan_region_share", String.valueOf(DEFAULT_JAPAN_REGION_SHARE));
         }
     }
 
@@ -290,6 +308,23 @@ public final class TerrainDiffusionConfig {
             return Integer.parseInt(value);
         } catch (NumberFormatException e) {
             System.err.println("Invalid int for " + key + ": " + value + ", using default " + defaultValue);
+            return defaultValue;
+        }
+    }
+
+    private static float readUnitFloat(String key, float defaultValue) {
+        String value = PROPERTIES.getProperty(key);
+        if (value == null) return defaultValue;
+        try {
+            float parsed = Float.parseFloat(value.trim());
+            if (parsed < 0f || parsed > 1f || Float.isNaN(parsed)) {
+                System.err.println("Out-of-range value for " + key + ": " + value
+                        + " (expected 0..1), using default " + defaultValue);
+                return defaultValue;
+            }
+            return parsed;
+        } catch (NumberFormatException e) {
+            System.err.println("Invalid float for " + key + ": " + value + ", using default " + defaultValue);
             return defaultValue;
         }
     }

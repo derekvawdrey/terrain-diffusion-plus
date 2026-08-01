@@ -873,6 +873,9 @@
     detailPanI: 0,
     detailPanJ: 0,
     detailMode: 'relief',
+    // Biome key whose exact-spawn overlay (server-computed wins/eligible tint) is baked into
+    // the coarse map, or null for the plain map.
+    overlayBiomeKey: null,
   };
 
   // ── DOM refs ──
@@ -1216,6 +1219,7 @@
     const ci0 = coarseOffsetI - coarseWindow, ci1 = coarseOffsetI + coarseWindow;
     const cj0 = coarseOffsetJ - coarseWindow, cj1 = coarseOffsetJ + coarseWindow;
     let url = `/api/coarse.png?channel=${channel}&ci0=${ci0}&ci1=${ci1}&cj0=${cj0}&cj1=${cj1}&_s=${seed}`;
+    if (state.overlayBiomeKey) url += `&biomeOverlay=${encodeURIComponent(state.overlayBiomeKey)}`;
     if (filterEnable.checked) {
       CHANNEL_META.forEach(({ ch }) => {
         const minEl = document.getElementById(`fch-${ch}-min`);
@@ -1251,9 +1255,17 @@
     const controller = new AbortController();
     activeCoarseImageController = controller;
 
+    let overlayStats = null;
     fetch(src, { signal: controller.signal, cache: 'no-store' })
       .then(res => {
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        if (state.overlayBiomeKey && res.headers.get('X-Overlay-Wins') !== null) {
+          overlayStats = {
+            wins: res.headers.get('X-Overlay-Wins'),
+            eligible: res.headers.get('X-Overlay-Eligible'),
+            note: res.headers.get('X-Overlay-Note'),
+          };
+        }
         return res.blob();
       })
       .then(blob => {
@@ -1269,6 +1281,14 @@
           coarseInfo.textContent = `ci=[${oi-w}…${oi+w}], cj=[${oj-w}…${oj+w}]`;
           updateMapMarkers();
           loadCoarseData(req);
+          if (overlayStats) {
+            let msg = `Spawn overlay for ${state.overlayBiomeKey}: `
+                + `${overlayStats.wins} green cells (biome wins there), `
+                + `${overlayStats.eligible} amber cells (eligible, usually outcompeted).`;
+            if (overlayStats.wins === '0') msg += ' None in view — pan the map to find green cells.';
+            if (overlayStats.note) msg += ` Note: ${overlayStats.note}.`;
+            statusBar.textContent = msg;
+          }
         };
         coarseImg.onerror = () => {
           if (req !== coarseRequestSeq || activeCoarseImageController !== controller) return;
@@ -1723,6 +1743,11 @@
 
   function selectBiome(b) {
     bcSelectedBiome = b;
+    // A lingering overlay for a different biome would silently mislabel the map.
+    if (state.overlayBiomeKey && state.overlayBiomeKey !== b.key) {
+      state.overlayBiomeKey = null;
+      loadCoarse();
+    }
     bcSelectedKeyEl.textContent = b.configured
         ? `${b.key}  (configured — zones: ${b.zones.join(', ') || '—'}, ${b.ruleCount} rule${b.ruleCount === 1 ? '' : 's'})`
         : `${b.key}  (not configured yet)`;
@@ -1771,6 +1796,29 @@
     title.className = 'section-title';
     title.textContent = 'Candidate Regions';
     bcCandidates.appendChild(title);
+
+    // Exact spawn overlay — unlike the slider filters below (necessary-but-not-sufficient
+    // climate envelopes), this asks the server to run the real classifier + rule engine per
+    // coarse cell, noise gates and biome competition included, and tint the map with the truth:
+    // green = this biome wins there, amber = eligible but usually outcompeted, dark = never.
+    const overlayCard = document.createElement('div');
+    overlayCard.className = 'cf-card';
+    const overlayActive = state.overlayBiomeKey === data.biomeKey;
+    overlayCard.innerHTML = `
+      <div class="cf-card-header">
+        <span class="cf-zone-name">Exact spawn overlay</span>
+        <button class="cf-apply" id="cf-overlay-btn">${overlayActive ? 'Hide overlay' : 'Show overlay'}</button>
+      </div>
+      <div class="bc-hint">Runs the real biome rules per map cell (region/noise gates and
+      competition included). Green = spawns there, amber = eligible but usually loses, dark =
+      never. Far more reliable than the climate filters below.</div>
+    `;
+    overlayCard.querySelector('#cf-overlay-btn').addEventListener('click', () => {
+      state.overlayBiomeKey = state.overlayBiomeKey === data.biomeKey ? null : data.biomeKey;
+      loadCoarse();
+      renderCandidateFilters(data);
+    });
+    bcCandidates.appendChild(overlayCard);
 
     data.zones.forEach(z => {
       const card = document.createElement('div');

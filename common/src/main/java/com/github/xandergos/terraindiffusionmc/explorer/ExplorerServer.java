@@ -291,12 +291,53 @@ public final class ExplorerServer {
                 }
             }
 
+            // Exact-spawn overlay: tint each cell by whether the requested biome actually wins /
+            // is merely eligible / can never appear there, per BiomeSpawnOverlay. Computed
+            // server-side onto the same PNG so the client needs no compositing.
+            String overlayParam = q.get("biomeOverlay");
+            if (overlayParam != null && !overlayParam.isBlank()) {
+                String overlayKey = URLDecoder.decode(overlayParam, StandardCharsets.UTF_8);
+                TerrainBiomeSettlement settlement = TerrainBiomeRegistry.instance().byKey(overlayKey);
+                if (settlement != null && !settlement.rules().isEmpty()) {
+                    byte[] status = BiomeSpawnOverlay.compute(settlement,
+                            coarseChannel(ci0, ci1, cj0, cj1, 0),
+                            coarseChannel(ci0, ci1, cj0, cj1, 1),
+                            coarseChannel(ci0, ci1, cj0, cj1, 2),
+                            coarseChannel(ci0, ci1, cj0, cj1, 3),
+                            coarseChannel(ci0, ci1, cj0, cj1, 4),
+                            coarseChannel(ci0, ci1, cj0, cj1, 5),
+                            ci0, cj0, H, W,
+                            Math.max(1, WorldScaleManager.getCurrentScale()));
+                    int winCells = 0, eligibleCells = 0;
+                    for (int i = 0; i < H * W; i++) {
+                        if (status[i] == BiomeSpawnOverlay.WINS) {
+                            winCells++;
+                            blend(rgba, i, 0.10f, 0.95f, 0.35f, 0.55f);
+                        } else if (status[i] == BiomeSpawnOverlay.ELIGIBLE) {
+                            eligibleCells++;
+                            blend(rgba, i, 1.00f, 0.72f, 0.10f, 0.45f);
+                        } else {
+                            rgba[0][i] *= 0.22f; rgba[1][i] *= 0.22f; rgba[2][i] *= 0.22f;
+                        }
+                    }
+                    ex.getResponseHeaders().set("X-Overlay-Wins", String.valueOf(winCells));
+                    ex.getResponseHeaders().set("X-Overlay-Eligible", String.valueOf(eligibleCells));
+                    boolean hasBeachRules = settlement.rules().stream()
+                            .anyMatch(rule -> "beach".equals(rule.zone()));
+                    if (hasBeachRules) {
+                        ex.getResponseHeaders().set("X-Overlay-Note",
+                                "beach-zone rules are not represented (coastline is unresolvable at coarse scale)");
+                    }
+                }
+            }
+
             byte[] png = toPng(rgba, H, W);
             setNoStoreHeaders(ex);
             ex.getResponseHeaders().set("Content-Type", "image/png");
             ex.getResponseHeaders().set("X-Vmin", String.format("%.3f", vmin));
             ex.getResponseHeaders().set("X-Vmax", String.format("%.3f", vmax));
-            ex.getResponseHeaders().set("Access-Control-Expose-Headers", "X-Vmin, X-Vmax");
+            ex.getResponseHeaders().set("Access-Control-Expose-Headers",
+                    "X-Vmin, X-Vmax, X-Overlay-Wins, X-Overlay-Eligible, X-Overlay-Note");
             headersSent = true;
             ex.sendResponseHeaders(200, png.length);
             ex.getResponseBody().write(png);
@@ -795,6 +836,13 @@ public final class ExplorerServer {
         ByteArrayOutputStream baos = new ByteArrayOutputStream();
         ImageIO.write(img, "png", baos);
         return baos.toByteArray();
+    }
+
+    /** Alpha-blends one pixel of an RGBA float buffer toward the given color. */
+    private static void blend(float[][] rgba, int i, float r, float g, float b, float alpha) {
+        rgba[0][i] = rgba[0][i] * (1f - alpha) + r * alpha;
+        rgba[1][i] = rgba[1][i] * (1f - alpha) + g * alpha;
+        rgba[2][i] = rgba[2][i] * (1f - alpha) + b * alpha;
     }
 
     private static float[][] applyColormap1D(float[] data, int H, int W, float vmin, float vmax, String cmap) {

@@ -31,6 +31,14 @@ public final class BiomeClassifier {
     private static final FastNoiseLite BIOME_VARIANT_NOISE, CHERRY_GROVE_NOISE, PALE_GARDEN_NOISE;
     private static final FastNoiseLite FOREST_CLEARING_NOISE, FLOWER_PATCH_NOISE;
     private static final FastNoiseLite REGION_NOISE;
+    private static final FastNoiseLite REGION_WARP_X, REGION_WARP_Z;
+
+    /**
+     * Domain-warp displacement amplitude for {@link #sampleRegionNoise}, in blocks. Sized against
+     * the 5000-block region wavelength: enough to crinkle province borders into coastline-like
+     * shapes, small enough that provinces keep their overall position and ~1/3 area shares.
+     */
+    private static final float REGION_WARP_AMPLITUDE = 650f;
 
     static {
         TEMP_NOISE = makeFnl(12345, 1f/500f, 3, 2f, 0.5f);
@@ -50,15 +58,26 @@ public final class BiomeClassifier {
         // and river density. Low octave count keeps it cheap and smooth across tile
         // boundaries so region membership doesn't jitter at generation-tile seams.
         REGION_NOISE = makeFnl(778899, 1f/5000f, 2, 2f, 0.5f);
+
+        // Domain-warp fields for the region noise. A 2-octave field's tercile contours are so
+        // smooth they render as concentric circular arcs around its extrema at map scale; warping
+        // the sampling coordinate wrinkles those borders organically at 1500/750/375-block scales
+        // WITHOUT changing the field's value distribution -- so the province tercile thresholds
+        // fitted by the biome lab (and the lab's distributional regionNoise model) stay valid.
+        REGION_WARP_X = makeFnl(881122, 1f/1500f, 3, 2f, 0.5f);
+        REGION_WARP_Z = makeFnl(993344, 1f/1500f, 3, 2f, 0.5f);
     }
 
     /**
-     * Large-wavelength region noise sampled directly by world coordinate, for callers
-     * outside the per-pixel classify loop (e.g. hydrology's river-density gating) that
-     * need the same region field without running full biome classification.
+     * Large-wavelength region noise sampled by world coordinate -- the single implementation of
+     * the region field, domain warp included. Every consumer (the classify loop, hydrology's
+     * river-density gating, the warm-region lapse clamp, the explorer's spawn overlay) must go
+     * through here or province membership would disagree between systems.
      */
     public static float sampleRegionNoise(float worldX, float worldZ) {
-        return REGION_NOISE.GetNoise(worldX, worldZ);
+        float wx = worldX + REGION_WARP_AMPLITUDE * REGION_WARP_X.GetNoise(worldX, worldZ);
+        float wz = worldZ + REGION_WARP_AMPLITUDE * REGION_WARP_Z.GetNoise(worldX, worldZ);
+        return REGION_NOISE.GetNoise(wx, wz);
     }
 
     /** Extra elevation/climate pixels used by Explorer detail biome rendering. */
@@ -130,7 +149,7 @@ public final class BiomeClassifier {
                 paleNoise[idx] = PALE_GARDEN_NOISE.GetNoise(nx, ny);
                 clearingNoise[idx] = FOREST_CLEARING_NOISE.GetNoise(nx, ny);
                 flowerNoise[idx] = FLOWER_PATCH_NOISE.GetNoise(nx, ny);
-                regionNoise[idx] = REGION_NOISE.GetNoise(nx, ny);
+                regionNoise[idx] = sampleRegionNoise(nx, ny);
             }
         });
 
@@ -273,12 +292,28 @@ public final class BiomeClassifier {
                                         float tempNoise, float precipNoiseFactor, float snowNoise,
                                         float variantNoise, float cherryNoise, float paleNoise, float clearingNoise, float flowerNoise, float regionNoise, float slope, boolean coastline,
                                         float worldX, float worldZ) {
-        float altM = Math.max(0f, elevation);
-
         float temp = climate[idx] + tempNoise;
         float tSeason = climate[H * W + idx];
         float precip = Math.max(0f, climate[2 * H * W + idx]) * precipNoiseFactor;
         float pCV = climate[3 * H * W + idx];
+
+        TerrainClimateSample sample = deriveSample(elevation, temp, tSeason, precip, pCV,
+                snowNoise, variantNoise, slope);
+        TerrainBiomeNoiseSample noiseValues = new TerrainBiomeNoiseSample(
+                variantNoise, cherryNoise, paleNoise, clearingNoise, flowerNoise, regionNoise);
+        return selectBiome(sample, noiseValues, coastline, worldX, worldZ);
+    }
+
+    /**
+     * The pure derivation {@code classifyPixel} performs between raw climate values and the
+     * {@link TerrainClimateSample} the rule engine sees: PET/moisture chain, tree buckets,
+     * slope adjustments, snow test, zone flags. Extracted so {@link #probeCoarsePixel} can run
+     * the identical logic on hypothetical (coarse-map) pixels.
+     */
+    private static TerrainClimateSample deriveSample(float elevation, float temp, float tSeason,
+                                                      float precip, float pCV, float snowNoise,
+                                                      float variantNoise, float slope) {
+        float altM = Math.max(0f, elevation);
 
         float tStd = tSeason / 100f;
         float tEff = Math.max(0f, temp + 0.5f * tStd);
@@ -363,7 +398,6 @@ public final class BiomeClassifier {
                 && precip > 150f && !shedsSnow;
 
         boolean isOcean = elevation < 0f;
-        boolean beachBand = coastline;
         boolean mountains = altM > 2500f;
         boolean lowland = altM < 200f;
 
@@ -371,31 +405,76 @@ public final class BiomeClassifier {
         // seafloor depth (the deep_* ocean biomes gate on `elevationM < -250`). altM stays clamped
         // for the derived flags below, which are all land concepts. Land pixels are unaffected:
         // every non-ocean zone is only reached when elevation >= 0, where the two are identical.
-        TerrainClimateSample sample = new TerrainClimateSample(elevation, temp, tSeason, precip, pCV,
+        return new TerrainClimateSample(elevation, temp, tSeason, precip, pCV,
                 treeMoisture, aridity, treeMoisture, treeCoverage, sparsity, slope, growingSeason,
                 isOcean, hasSnow, slopeBare, mountains, lowland);
+    }
 
-        TerrainBiomeNoiseSample noiseValues = new TerrainBiomeNoiseSample(
-                variantNoise, cherryNoise, paleNoise, clearingNoise, flowerNoise, regionNoise);
+    /** The zone {@code classifyPixel} dispatches this sample to (before the bareSlope pass). */
+    public static String zoneFor(TerrainClimateSample sample, boolean coastline) {
+        if (sample.ocean()) return "ocean";
+        if (coastline && !sample.mountain()) return "beach";
+        if (sample.mountain()) return "mountain";
+        return "lowland";
+    }
 
+    private static short selectBiome(TerrainClimateSample sample, TerrainBiomeNoiseSample noiseValues,
+                                      boolean coastline, float worldX, float worldZ) {
         short defaultIndex = REGISTRY.defaultBiomeIndex();
-        short biome;
+        short biome = ENGINE.select(zoneFor(sample, coastline), sample, noiseValues,
+                defaultIndex, worldX, worldZ);
 
-        if (isOcean) {
-            biome = ENGINE.select("ocean", sample, noiseValues, defaultIndex, worldX, worldZ);
-        } else if (beachBand && !mountains) {
-            biome = ENGINE.select("beach", sample, noiseValues, defaultIndex, worldX, worldZ);
-        } else if (mountains) {
-            biome = ENGINE.select("mountain", sample, noiseValues, defaultIndex, worldX, worldZ);
-        } else {
-            biome = ENGINE.select("lowland", sample, noiseValues, defaultIndex, worldX, worldZ);
-        }
-
-        if (slopeBare && !isOcean && !mountains) {
+        if (sample.bareSlope() && !sample.ocean() && !sample.mountain()) {
             biome = ENGINE.select("bareSlope", sample, noiseValues, biome, worldX, worldZ);
         }
 
         return biome;
+    }
+
+    /** Result of {@link #probeCoarsePixel}: the winning biome plus everything the rule engine
+     *  saw, so callers can also test individual biomes' rules against the same pixel. */
+    public record CoarseProbe(short winner, TerrainClimateSample sample,
+                               TerrainBiomeNoiseSample noise) {}
+
+    /**
+     * Classifies a hypothetical pixel described by coarse-map climate values, for the explorer's
+     * exact-spawn overlay. Runs the identical derivation and rule-engine selection as
+     * {@code classifyPixel}, sampling every fixed-seed noise field (temperature/precipitation
+     * jitter, snow, the variant/cherry/pale/clearing/flower gates and the large-wavelength region
+     * field) at the given world-block coordinate -- these fields are deterministic in world space,
+     * so noise-gated rules (e.g. the region provinces) resolve to their true spatial answer
+     * instead of being unknowable the way they are for interval-based candidate filters.
+     *
+     * <p>What it cannot reproduce from coarse data: the sub-cell elevation/temperature detail,
+     * real slopes, and the coastline test ({@code coastline} is always false, so beach-zone rules
+     * never match). Pass a representative {@code slope} for the microsite being asked about.</p>
+     */
+    public static CoarseProbe probeCoarsePixel(float elevation, float baseTemp, float tSeason,
+                                                float basePrecip, float pCV, float slope,
+                                                float blockX, float blockZ) {
+        float tnc = TEMP_NOISE.GetNoise(blockX, blockZ);
+        float tnf = TEMP_NOISE_FINE.GetNoise(blockX, blockZ);
+        float temp = baseTemp + 0.4f * tnc + 0.2f * tnf;
+
+        float precip = Math.max(0f, basePrecip) * (1.0f + 0.2f * PRECIP_NOISE.GetNoise(blockX, blockZ));
+
+        float snc = SNOW_NOISE.GetNoise(blockX, blockZ);
+        float snf = SNOW_NOISE_FINE.GetNoise(blockX, blockZ);
+        float snowNoise = 3.0f * snc + 2.0f * snf;
+
+        float variantNoise = BIOME_VARIANT_NOISE.GetNoise(blockX, blockZ);
+        TerrainClimateSample sample = deriveSample(elevation, temp, tSeason, precip, pCV,
+                snowNoise, variantNoise, slope);
+        TerrainBiomeNoiseSample noise = new TerrainBiomeNoiseSample(
+                variantNoise,
+                CHERRY_GROVE_NOISE.GetNoise(blockX, blockZ),
+                PALE_GARDEN_NOISE.GetNoise(blockX, blockZ),
+                FOREST_CLEARING_NOISE.GetNoise(blockX, blockZ),
+                FLOWER_PATCH_NOISE.GetNoise(blockX, blockZ),
+                sampleRegionNoise(blockX, blockZ));
+
+        short winner = selectBiome(sample, noise, false, blockX, blockZ);
+        return new CoarseProbe(winner, sample, noise);
     }
 
     private static boolean isCoastlineCandidate(float[] elev, int H, int W, int r, int c,

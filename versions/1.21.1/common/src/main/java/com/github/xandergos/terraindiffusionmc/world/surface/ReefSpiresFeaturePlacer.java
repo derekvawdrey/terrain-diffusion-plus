@@ -136,8 +136,11 @@ public final class ReefSpiresFeaturePlacer implements SurfaceFeaturePlacer {
         }
     }
 
+    /** Horizontal 2-block prismarine strata keyed to absolute Y with one per-spire offset --
+     *  hashing the block per (x, z) column made the spires look like corrupted masonry. */
     private static BlockState reefBlockFor(long seed, int x, int y, int z) {
-        int band = Math.floorMod(y + (int) (SurfaceNoise.unitHash(seed, x, z) * 2), REEF_BLOCKS.length);
-        return REEF_BLOCKS[band];
+        int offset = (int) (SurfaceNoise.unitHash(seed, 5, 9) * REEF_BLOCKS.length * 2);
+        int band = Math.floorDiv(y + offset, 2);
+        return REEF_BLOCKS[Math.floorMod(band, REEF_BLOCKS.length)];
     }
 }

@@ -2,42 +2,45 @@ package com.github.xandergos.terraindiffusionmc.world.surface;
 
 import com.github.xandergos.terraindiffusionmc.biome.TerrainBiomeRegistry;
 import com.github.xandergos.terraindiffusionmc.pipeline.LocalTerrainProvider.HeightmapData;
+import com.github.xandergos.terraindiffusionmc.world.HeightConverter;
 import com.github.xandergos.terraindiffusionmc.worldgen.surface.SiteGrid;
 import com.github.xandergos.terraindiffusionmc.worldgen.surface.SurfaceNoise;
 import com.github.xandergos.terraindiffusionmc.worldgen.surface.TerrainSampling;
-import net.minecraft.core.BlockPos;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.chunk.ChunkAccess;
 import net.minecraft.world.level.levelgen.Heightmap;
 
 /**
- * Cluster of hexagonal-ish basalt columns. Follows the HoodooClusterFeaturePlacer pattern
- * (multi-anchor cluster with coherent noise gating) but stamps uniform-width columns instead
- * of tapered hoodoos. Each column is a straight vertical pillar of tuff/deepslate with a flat
- * top, mimicking columnar basalt formations.
+ * Columnar-basalt outcrop: a tightly packed patch of flat-topped basalt columns whose tops step
+ * up and down like Giant's Causeway terraces, instead of the earlier scattered 1-block-radius
+ * tuff/deepslate pillars (which read as random sticks, alternated materials per pillar, and left
+ * floating rings on slopes).
+ *
+ * <p>Geometry is derived per <em>block column</em> from world-coordinate noise plus the site's
+ * raster elevation, so every chunk the patch overlaps computes the same terrace surface and
+ * contributes exactly its own 16x16 share -- no half-columns at chunk borders. Each block column
+ * anchors to its own local ground (roots run down until they hit something solid), so nothing
+ * floats on slopes; columns whose shaft would have to drop more than {@link #MAX_SHAFT} blocks to
+ * reach ground (cliff edges) are skipped instead of towering.</p>
  */
 public final class BasaltColumnFeaturePlacer implements SurfaceFeaturePlacer {
     private static final long SALT = 0x42415341L;
     private static final int CELL_SIZE = 44;
-    private static final int CLUSTER_RADIUS = 6;
-    private static final int MAX_COLUMNS = 6;
-    private static final int MIN_COLUMN_HEIGHT = 4;
-    private static final int MAX_COLUMN_HEIGHT = 10;
-    private static final int BASE_RADIUS = 1;
+    private static final int MAX_PATCH_RADIUS = 8;
+    /** Longest allowed column shaft from terrace top down to the ground it stands on. */
+    private static final int MAX_SHAFT = 12;
+    /** How far below its base a column may extend roots to find solid ground. */
+    private static final int ROOT_DEPTH = 6;
 
     private static final float PLACEMENT_NOISE_WAVELENGTH = 200.0f;
     private static final float PLACEMENT_THRESHOLD = 0.3f;
+    /** Wavelength (blocks) of the terrace-height field: neighbouring columns share a step. */
+    private static final float TERRACE_WAVELENGTH = 7.0f;
 
-    /**
-     * Kept to blocks that exist on every supported Minecraft version -- {@code POLISHED_TUFF}
-     * arrived in 1.21 and broke the 1.20.1 build. Deepslate also reads better here than a polished
-     * block: columnar basalt is raw stone, not something quarried.
-     */
-    private static final BlockState[] BASALT_BLOCKS = {
-            Blocks.TUFF.defaultBlockState(),
-            Blocks.DEEPSLATE.defaultBlockState(),
-    };
+    private static final BlockState BASALT = Blocks.BASALT.defaultBlockState();
+    private static final BlockState SMOOTH_BASALT = Blocks.SMOOTH_BASALT.defaultBlockState();
+    private static final BlockState DEEPSLATE = Blocks.DEEPSLATE.defaultBlockState();
 
     @Override
     public String id() {
@@ -51,7 +54,7 @@ public final class BasaltColumnFeaturePlacer implements SurfaceFeaturePlacer {
 
     @Override
     public int maxReachBlocks() {
-        return CLUSTER_RADIUS + BASE_RADIUS + 2;
+        return MAX_PATCH_RADIUS + 2;
     }
 
     @Override
@@ -65,7 +68,8 @@ public final class BasaltColumnFeaturePlacer implements SurfaceFeaturePlacer {
         int row = site.worldZ() - dataOriginZ;
         int col = site.worldX() - dataOriginX;
         if (!TerrainSampling.inBounds(data, row, col)) return;
-        if (TerrainSampling.elevationAt(data, row, col) <= 0f) return;
+        float siteElevation = TerrainSampling.elevationAt(data, row, col);
+        if (siteElevation <= 0f) return;
 
         TerrainBiomeRegistry registry = TerrainBiomeRegistry.instance();
         short biomeIndex = TerrainSampling.biomeIndexAt(data, row, col);
@@ -78,60 +82,75 @@ public final class BasaltColumnFeaturePlacer implements SurfaceFeaturePlacer {
         if (placement <= PLACEMENT_THRESHOLD) return;
         float strength = SurfaceNoise.clamp01((placement - PLACEMENT_THRESHOLD) / (1.0f - PLACEMENT_THRESHOLD));
 
-        int minX = chunk.getPos().getMinBlockX();
-        int minZ = chunk.getPos().getMinBlockZ();
-        int columnCount = 2 + (int) (strength * (MAX_COLUMNS - 2));
+        // Patch shape: an ellipse of noise-jittered radius, rotated per site so outcrops don't
+        // all share an axis-aligned footprint.
+        float radiusA = 4.5f + strength * 3.0f + SurfaceNoise.unitHash(site.seed(), 21, 0) * 0.5f;
+        float radiusB = radiusA * (0.6f + SurfaceNoise.unitHash(site.seed(), 22, 0) * 0.4f);
+        float rotation = SurfaceNoise.unitHash(site.seed(), 23, 0) * (float) Math.PI;
+        float cos = (float) Math.cos(rotation);
+        float sin = (float) Math.sin(rotation);
+        int maxSteps = 3 + Math.round(strength * 4f); // terrace top varies 0..maxSteps above base
+
+        // Terrace base plane comes from the raster at the site, not any one chunk's heightmap,
+        // so all overlapping chunks agree on it.
+        int baseY = HeightConverter.convertToMinecraftHeight((short) siteElevation) - 1;
+
         Heightmap worldSurface = chunk.getOrCreateHeightmapUnprimed(Heightmap.Types.WORLD_SURFACE_WG);
         Heightmap motionBlocking = chunk.getOrCreateHeightmapUnprimed(Heightmap.Types.MOTION_BLOCKING);
 
-        for (int i = 0; i < columnCount; i++) {
-            long columnSeed = SurfaceNoise.hash(site.seed(), i, 1000 + i);
-            float angle = SurfaceNoise.unitHash(columnSeed, 1, 0) * (float) (Math.PI * 2);
-            float distance = SurfaceNoise.unitHash(columnSeed, 2, 0) * CLUSTER_RADIUS;
-            int columnWorldX = site.worldX() + Math.round((float) Math.cos(angle) * distance);
-            int columnWorldZ = site.worldZ() + Math.round((float) Math.sin(angle) * distance);
+        int reach = (int) Math.ceil(radiusA);
+        int minWX = Math.max(site.worldX() - reach, chunk.getPos().getMinBlockX());
+        int maxWX = Math.min(site.worldX() + reach, chunk.getPos().getMinBlockX() + 15);
+        int minWZ = Math.max(site.worldZ() - reach, chunk.getPos().getMinBlockZ());
+        int maxWZ = Math.min(site.worldZ() + reach, chunk.getPos().getMinBlockZ() + 15);
 
-            int localX = columnWorldX - minX;
-            int localZ = columnWorldZ - minZ;
-            if (localX < 0 || localX > 15 || localZ < 0 || localZ > 15) continue;
+        for (int wz = minWZ; wz <= maxWZ; wz++) {
+            for (int wx = minWX; wx <= maxWX; wx++) {
+                float dx = wx - site.worldX();
+                float dz = wz - site.worldZ();
+                float u = (dx * cos + dz * sin) / radiusA;
+                float v = (-dx * sin + dz * cos) / radiusB;
+                float d2 = u * u + v * v;
+                if (d2 > 1f) continue;
 
-            int groundY = SurfaceStamp.surfaceY(chunk, localX, localZ);
-            if (groundY <= chunk.getMinBuildHeight()) continue;
-            BlockPos.MutableBlockPos probe = new BlockPos.MutableBlockPos(columnWorldX, groundY, columnWorldZ);
-            if (chunk.getBlockState(probe).isAir()) continue;
+                // Stepped terrace height: coherent noise quantized to whole steps, fading toward
+                // the patch edge so the outcrop rises out of the ground instead of ending in a wall.
+                float n = SurfaceNoise.valueNoise(site.seed(),
+                        wx / TERRACE_WAVELENGTH, wz / TERRACE_WAVELENGTH) * 0.5f + 0.5f;
+                float edgeFade = 1f - d2;
+                int steps = Math.round(n * maxSteps * edgeFade + 1.2f * edgeFade);
+                if (steps <= 0) continue;
+                int topY = baseY + steps;
 
-            int height = MIN_COLUMN_HEIGHT
-                    + (int) (SurfaceNoise.unitHash(columnSeed, 3, 0) * (MAX_COLUMN_HEIGHT - MIN_COLUMN_HEIGHT));
-            placeColumn(chunk, worldSurface, motionBlocking, columnSeed, columnWorldX, columnWorldZ,
-                    localX, localZ, groundY, height, i);
+                placeColumn(chunk, worldSurface, motionBlocking, site.seed(), wx, wz, topY);
+            }
         }
     }
 
-    private void placeColumn(ChunkAccess chunk, Heightmap worldSurface, Heightmap motionBlocking, long columnSeed,
-                              int worldX, int worldZ, int localX, int localZ, int groundY, int height, int columnIndex) {
-        BlockPos.MutableBlockPos pos = new BlockPos.MutableBlockPos();
-        BlockState columnBlock = BASALT_BLOCKS[columnIndex % BASALT_BLOCKS.length];
+    /**
+     * One flat-topped column: smooth-basalt cap on a basalt shaft, dropped from {@code topY} down
+     * to whatever solid ground this block column has, giving up if the shaft would exceed
+     * {@link #MAX_SHAFT} blocks without touching down.
+     */
+    private static void placeColumn(ChunkAccess chunk, Heightmap worldSurface, Heightmap motionBlocking,
+                                     long siteSeed, int wx, int wz, int topY) {
+        // Find the ground this column stands on: first non-air below the terrace top.
+        int groundY = topY - 1;
+        int floor = Math.max(chunk.getMinBuildHeight() + 1, topY - MAX_SHAFT - ROOT_DEPTH);
+        while (groundY > floor && SurfaceStamp.stateAt(chunk, wx, groundY, wz).isAir()) {
+            groundY--;
+        }
+        if (topY - groundY > MAX_SHAFT) return;                       // cliff edge: don't tower
+        if (!SurfaceStamp.isSolidGround(SurfaceStamp.stateAt(chunk, wx, groundY, wz))) return; // water/void
 
-        for (int dy = 0; dy <= height; dy++) {
-            int worldY = groundY + 1 + dy;
-            int r = BASE_RADIUS;
-            for (int dz = -r; dz <= r; dz++) {
-                int lz = localZ + dz;
-                if (lz < 0 || lz > 15) continue;
-                for (int dx = -r; dx <= r; dx++) {
-                    int lx = localX + dx;
-                    if (lx < 0 || lx > 15) continue;
-                    if (Math.sqrt(dx * dx + dz * dz) > BASE_RADIUS + 0.3f) continue;
+        // Rare whole-column deepslate seam for tonal variation -- per column, never per block.
+        boolean seam = SurfaceNoise.unitHash(siteSeed ^ 0x5EA3L, wx, wz) < 0.10f;
+        BlockState shaft = seam ? DEEPSLATE : BASALT;
+        BlockState cap = seam ? DEEPSLATE : SMOOTH_BASALT;
 
-                    int wx = worldX + dx;
-                    int wz = worldZ + dz;
-                    pos.set(wx, worldY, wz);
-                    if (!chunk.getBlockState(pos).isAir()) continue;
-                    chunk.setBlockState(pos, columnBlock, false);
-                    worldSurface.update(lx, worldY, lz, columnBlock);
-                    motionBlocking.update(lx, worldY, lz, columnBlock);
-                }
-            }
+        for (int y = groundY + 1; y <= topY; y++) {
+            SurfaceStamp.placeIfAir(chunk, worldSurface, motionBlocking, wx, y, wz,
+                    y == topY ? cap : shaft);
         }
     }
 }

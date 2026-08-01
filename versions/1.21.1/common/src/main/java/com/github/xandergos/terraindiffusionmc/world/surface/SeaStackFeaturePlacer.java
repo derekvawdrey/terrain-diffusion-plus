@@ -169,8 +169,11 @@ public final class SeaStackFeaturePlacer implements SurfaceFeaturePlacer {
         }
     }
 
+    /** Horizontal 2-block strata keyed to absolute Y with one per-column offset -- hashing the
+     *  band per (x, z) block column speckled the stack instead of layering it. */
     private static BlockState bandFor(long columnSeed, int x, int y, int z) {
-        int band = Math.floorMod(y + (int) (SurfaceNoise.unitHash(columnSeed, x, z) * 2), COASTAL_BANDS.length);
-        return COASTAL_BANDS[band];
+        int offset = (int) (SurfaceNoise.unitHash(columnSeed, 5, 9) * COASTAL_BANDS.length * 2);
+        int band = Math.floorDiv(y + offset, 2);
+        return COASTAL_BANDS[Math.floorMod(band, COASTAL_BANDS.length)];
     }
 }

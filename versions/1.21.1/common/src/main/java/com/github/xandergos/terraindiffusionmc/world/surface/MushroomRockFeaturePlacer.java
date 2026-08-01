@@ -147,9 +147,11 @@ public final class MushroomRockFeaturePlacer implements SurfaceFeaturePlacer {
         }
     }
 
+    /** Horizontal 1-block badlands strata keyed to absolute Y with one per-rock offset --
+     *  hashing the band per (x, z) block column speckled the strata instead of layering them. */
     private static BlockState bandFor(long columnSeed, int x, int y, int z) {
-        int band = Math.floorMod(y + (int) (SurfaceNoise.unitHash(columnSeed, x, z) * 2), BADLANDS_BANDS.length);
-        return BADLANDS_BANDS[band];
+        int offset = (int) (SurfaceNoise.unitHash(columnSeed, 5, 9) * BADLANDS_BANDS.length);
+        return BADLANDS_BANDS[Math.floorMod(y + offset, BADLANDS_BANDS.length)];
     }
 
     private static boolean isSolidGround(BlockState state) {

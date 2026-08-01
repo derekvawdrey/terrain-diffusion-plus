@@ -32,13 +32,11 @@ public final class GiantArchFeaturePlacer implements SurfaceFeaturePlacer {
     private static final float SPAWN_CHANCE = 0.4f;
 
     private static final int MIN_SPAN = 14;
-    private static final int MAX_SPAN = 30;
+    private static final int MAX_SPAN = 48;
     private static final int RING_SAMPLES = 8;
-    private static final float ELEVATION_TOLERANCE_BLOCKS = 4f;
 
-    private static final int LEG_RADIUS = 2;
-    private static final int ARCH_HALF_WIDTH = 2;
-    private static final int ARCH_THICKNESS = 3;
+    /** Worst-case leg radius, for {@link #maxReachBlocks()}; the real radius scales with span. */
+    private static final int MAX_LEG_RADIUS = 4;
 
     @Override
     public String id() {
@@ -52,7 +50,7 @@ public final class GiantArchFeaturePlacer implements SurfaceFeaturePlacer {
 
     @Override
     public int maxReachBlocks() {
-        return MAX_SPAN + LEG_RADIUS + 4;
+        return MAX_SPAN + MAX_LEG_RADIUS + 4;
     }
 
     @Override
@@ -95,13 +93,19 @@ public final class GiantArchFeaturePlacer implements SurfaceFeaturePlacer {
      * Unlike the gap-spanning template there is no "must find a saddle" rejection -- we only
      * need a second on-land anchor at similar elevation whose midpoint isn't a hill that would
      * bury the arc. Most directions on rolling badlands qualify; the seed picks one.
+     *
+     * <p>The span roll is squared, so most arches stay modest while the occasional site lands a
+     * true monument near {@link #MAX_SPAN} -- a wide size variety rather than a uniform blur.
+     * Longer spans also get a proportionally looser anchor-elevation tolerance, since demanding
+     * near-equal ground 48 blocks apart would filter the big ones out of existence.</p>
      */
     private Candidate findOpposingAnchor(HeightmapData data, int dataOriginX, int dataOriginZ,
                                           SiteGrid.Site site, float elevA) {
         double ringOffset = SurfaceNoise.unitHash(site.seed(), 0, 0) * Math.PI * 2;
         for (int i = 0; i < RING_SAMPLES; i++) {
             double angle = ringOffset + (Math.PI * 2 * i) / RING_SAMPLES;
-            int span = MIN_SPAN + (int) (SurfaceNoise.unitHash(site.seed(), i, 7) * (MAX_SPAN - MIN_SPAN));
+            float roll = SurfaceNoise.unitHash(site.seed(), i, 7);
+            int span = MIN_SPAN + (int) (roll * roll * (MAX_SPAN - MIN_SPAN));
             int bx = site.worldX() + Math.round((float) Math.cos(angle) * span);
             int bz = site.worldZ() + Math.round((float) Math.sin(angle) * span);
             int rowB = bz - dataOriginZ;
@@ -109,7 +113,8 @@ public final class GiantArchFeaturePlacer implements SurfaceFeaturePlacer {
             if (!TerrainSampling.inBounds(data, rowB, colB)) continue;
             float elevB = TerrainSampling.elevationAt(data, rowB, colB);
             if (elevB <= 0f) continue;
-            if (Math.abs(elevB - elevA) > SurfaceStamp.blocksToElevation(ELEVATION_TOLERANCE_BLOCKS)) continue;
+            float toleranceBlocks = 4f + span / 12f;
+            if (Math.abs(elevB - elevA) > SurfaceStamp.blocksToElevation(toleranceBlocks)) continue;
 
             int mx = (site.worldX() + bx) / 2;
             int mz = (site.worldZ() + bz) / 2;
@@ -128,8 +133,13 @@ public final class GiantArchFeaturePlacer implements SurfaceFeaturePlacer {
     private void buildArch(ChunkAccess chunk, long siteSeed, int ax, int az, float elevA,
                             int bx, int bz, float elevB) {
         int span = (int) Math.round(Math.hypot(bx - ax, bz - az));
-        int legHeight = Math.max(8, Math.min(16, Math.round(span * 0.45f)));
-        int apexRise = Math.max(3, Math.min(8, Math.round(span * 0.25f)));
+        // Everything scales with the span, so a 48-block monument is proportionally as massive
+        // as a 14-block arch is delicate -- not the same slender rib stretched four times wider.
+        int legHeight = Math.max(8, Math.min(26, Math.round(span * 0.5f)));
+        int apexRise = Math.max(3, Math.min(13, Math.round(span * 0.27f)));
+        int legRadius = Math.min(MAX_LEG_RADIUS, 2 + span / 22);
+        int archHalfWidth = Math.min(3, 1 + span / 18);
+        int archThickness = Math.min(5, 2 + span / 14);
 
         int groundYA = HeightConverter.convertToMinecraftHeight((short) elevA) - 1;
         int groundYB = HeightConverter.convertToMinecraftHeight((short) elevB) - 1;
@@ -143,8 +153,8 @@ public final class GiantArchFeaturePlacer implements SurfaceFeaturePlacer {
         Heightmap worldSurface = chunk.getOrCreateHeightmapUnprimed(Heightmap.Types.WORLD_SURFACE_WG);
         Heightmap motionBlocking = chunk.getOrCreateHeightmapUnprimed(Heightmap.Types.MOTION_BLOCKING);
 
-        placeLeg(chunk, worldSurface, motionBlocking, siteSeed, ax, az, groundYA, springYA);
-        placeLeg(chunk, worldSurface, motionBlocking, siteSeed, bx, bz, groundYB, springYB);
+        placeLeg(chunk, worldSurface, motionBlocking, siteSeed, ax, az, groundYA, springYA, legRadius);
+        placeLeg(chunk, worldSurface, motionBlocking, siteSeed, bx, bz, groundYB, springYB, legRadius);
 
         int steps = Math.max(24, span * 3);
         for (int t = 0; t <= steps; t++) {
@@ -155,11 +165,11 @@ public final class GiantArchFeaturePlacer implements SurfaceFeaturePlacer {
             float arcY = baseline + apexRise * 4f * frac * (1f - frac);
 
             // Taper: full width near the springs, slimmer at the apex, like a real arch rib.
-            int halfWidth = frac > 0.25f && frac < 0.75f ? ARCH_HALF_WIDTH - 1 : ARCH_HALF_WIDTH;
+            int halfWidth = frac > 0.25f && frac < 0.75f ? archHalfWidth - 1 : archHalfWidth;
             for (int w = -halfWidth; w <= halfWidth; w++) {
                 int wx = (int) Math.round(centerX + perpX * w);
                 int wz = (int) Math.round(centerZ + perpZ * w);
-                for (int thick = 0; thick < ARCH_THICKNESS; thick++) {
+                for (int thick = 0; thick < archThickness; thick++) {
                     int wy = Math.round(arcY) - thick;
                     placeIfAir(chunk, worldSurface, motionBlocking, siteSeed, wx, wy, wz);
                 }
@@ -168,7 +178,7 @@ public final class GiantArchFeaturePlacer implements SurfaceFeaturePlacer {
     }
 
     private void placeLeg(ChunkAccess chunk, Heightmap worldSurface, Heightmap motionBlocking, long siteSeed,
-                           int worldX, int worldZ, int groundY, int springY) {
+                           int worldX, int worldZ, int groundY, int springY, int legRadius) {
         int minX = chunk.getPos().getMinBlockX();
         int minZ = chunk.getPos().getMinBlockZ();
         // Root the legs a few blocks below the raster ground so they meet real terrain even
@@ -176,18 +186,18 @@ public final class GiantArchFeaturePlacer implements SurfaceFeaturePlacer {
         int loY = Math.max(groundY - 3, chunk.getMinBuildHeight());
         int hiY = Math.min(springY, chunk.getMaxBuildHeight() - 1);
         BlockPos.MutableBlockPos pos = new BlockPos.MutableBlockPos();
-        for (int dz = -LEG_RADIUS; dz <= LEG_RADIUS; dz++) {
+        for (int dz = -legRadius; dz <= legRadius; dz++) {
             int wz = worldZ + dz;
             int lz = wz - minZ;
             if (lz < 0 || lz > 15) continue;
-            for (int dx = -LEG_RADIUS; dx <= LEG_RADIUS; dx++) {
+            for (int dx = -legRadius; dx <= legRadius; dx++) {
                 int wx = worldX + dx;
                 int lx = wx - minX;
                 if (lx < 0 || lx > 15) continue;
                 for (int wy = loY; wy <= hiY; wy++) {
                     // Taper the leg: full radius at ground, radius-1 above two-thirds height.
                     float rise = (wy - loY) / (float) Math.max(1, hiY - loY);
-                    int radius = rise > 0.66f ? LEG_RADIUS - 1 : LEG_RADIUS;
+                    int radius = rise > 0.66f ? legRadius - 1 : legRadius;
                     if (dx * dx + dz * dz > radius * radius + 1) continue;
                     pos.set(wx, wy, wz);
                     BlockState block = blockFor(siteSeed, wx, wy, wz);

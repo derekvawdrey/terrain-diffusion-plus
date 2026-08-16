@@ -222,6 +222,8 @@ public final class InfiniteTensor {
     }
 
     private void computeBatched(List<int[]> windowIndices) {
+        List<List<int[]>> batches = new ArrayList<>();
+        List<Integer> realCounts = new ArrayList<>();
         int from = 0;
         while (from < windowIndices.size()) {
             int to = Math.min(from + batchSize, windowIndices.size());
@@ -234,34 +236,45 @@ public final class InfiniteTensor {
             while (batch.size() < batchSize) {
                 batch.add(batch.get(realCount - 1));
             }
-
-            // arguments.get(depIdx) -> one tensor per window in the batch.
-            List<List<FloatTensor>> arguments = new ArrayList<>(deps.length);
-            for (int dependencyIndex = 0; dependencyIndex < deps.length; dependencyIndex++) {
-                List<FloatTensor> dependencyArguments = new ArrayList<>(batch.size());
-                for (int[] windowIndex : batch) {
-                    int[][] bounds = depWindows[dependencyIndex].getBounds(windowIndex);
-                    dependencyArguments.add(deps[dependencyIndex].getSlice(starts(bounds), ends(bounds)));
-                }
-                arguments.add(dependencyArguments);
-            }
-
-            List<FloatTensor> outputs = batchFunction.apply(batch, arguments);
-            if (outputs == null || outputs.size() != batch.size()) {
-                throw new IllegalStateException(
-                        "Batch function for tensor '" + id + "' returned "
-                                + (outputs == null ? "null" : outputs.size() + " outputs")
-                                + ", expected " + batch.size());
-            }
-
-            for (int batchIndex = 0; batchIndex < realCount; batchIndex++) {
-                FloatTensor result = outputs.get(batchIndex);
-                int[] windowIndex = batch.get(batchIndex);
-                validateOutputShape(result);
-                store.cacheWindow(id, windowIndex, result);
-            }
-
+            batches.add(batch);
+            realCounts.add(realCount);
             from = to;
+        }
+
+        // Strictly one batch at a time. Overlapping them does keep the GPU busier, but two
+        // concurrent runs of one ONNX session return slightly different floats from run to run
+        // (the execution provider picks kernels against whatever workspace is free at the time),
+        // and terrain that changes between generations would seam against already-saved chunks.
+        for (int batchIndex = 0; batchIndex < batches.size(); batchIndex++) {
+            runBatch(batches.get(batchIndex), realCounts.get(batchIndex));
+        }
+    }
+
+    private void runBatch(List<int[]> batch, int realCount) {
+        // arguments.get(depIdx) -> one tensor per window in the batch.
+        List<List<FloatTensor>> arguments = new ArrayList<>(deps.length);
+        for (int dependencyIndex = 0; dependencyIndex < deps.length; dependencyIndex++) {
+            List<FloatTensor> dependencyArguments = new ArrayList<>(batch.size());
+            for (int[] windowIndex : batch) {
+                int[][] bounds = depWindows[dependencyIndex].getBounds(windowIndex);
+                dependencyArguments.add(deps[dependencyIndex].getSlice(starts(bounds), ends(bounds)));
+            }
+            arguments.add(dependencyArguments);
+        }
+
+        List<FloatTensor> outputs = batchFunction.apply(batch, arguments);
+        if (outputs == null || outputs.size() != batch.size()) {
+            throw new IllegalStateException(
+                    "Batch function for tensor '" + id + "' returned "
+                            + (outputs == null ? "null" : outputs.size() + " outputs")
+                            + ", expected " + batch.size());
+        }
+
+        for (int batchIndex = 0; batchIndex < realCount; batchIndex++) {
+            FloatTensor result = outputs.get(batchIndex);
+            int[] windowIndex = batch.get(batchIndex);
+            validateOutputShape(result);
+            store.cacheWindow(id, windowIndex, result);
         }
     }
 

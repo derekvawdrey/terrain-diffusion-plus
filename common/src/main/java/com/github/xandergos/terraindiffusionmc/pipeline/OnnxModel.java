@@ -17,6 +17,8 @@ import java.security.NoSuchAlgorithmException;
 import java.util.EnumSet;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
@@ -38,17 +40,25 @@ public final class OnnxModel implements AutoCloseable {
     private static final AtomicBoolean dmlWarnLoggedOnce = new AtomicBoolean(false);
     private static final AtomicBoolean noGpuWarnLoggedOnce = new AtomicBoolean(false);
 
-    // GPU slot: when offload_models=true, only one session is alive at a time.
+    // GPU slot: when models are offloaded, only one session is alive at a time.
     private static final Object GPU_SLOT_LOCK = new Object();
     private static OnnxModel gpuSlotHolder = null;
     private static OrtSession activeGpuSession = null;
+
+    /**
+     * Every model currently holding a resident GPU session, so an out-of-memory failure during
+     * inference can drop all of them at once and continue with GPU-slot swapping instead of
+     * failing world generation.
+     */
+    private static final Set<OnnxModel> RESIDENT_MODELS = ConcurrentHashMap.newKeySet();
+    private static volatile boolean residencyDowngraded = false;
 
     private final OrtEnvironment env;
     private final Path sessionModelPath;
     private final long sessionModelSizeBytes;
     private final String name;
     private OrtSession cpuSession;    // non-null in CPU-only mode
-    private OrtSession gpuSession;    // non-null when offload_models=false
+    private volatile OrtSession gpuSession;    // non-null while this model stays resident
 
     private static final class OptimizedModelLoadResult {
         private final Path sessionModelPath;
@@ -175,26 +185,63 @@ public final class OnnxModel implements AutoCloseable {
                     name, modelSizeBytes / 1024, System.currentTimeMillis() - startMillis);
             return;
         }
-        if (!TerrainDiffusionConfig.offloadModels()) {
-            try (OrtSession.SessionOptions sessionOptions = new OrtSession.SessionOptions()) {
-                sessionOptions.setOptimizationLevel(OrtSession.SessionOptions.OptLevel.ALL_OPT);
-                addGpuProvider(sessionOptions);
-                if ("CoreML".equals(resolvedInferenceProvider)) {
-                    throw new OrtException(
-                            "inference.offload_models=false is not supported with CoreML. " +
-                            "Set inference.offload_models=true in terrain-diffusion-mc.properties.");
+
+        TerrainDiffusionConfig.ModelResidency residency = TerrainDiffusionConfig.modelResidency();
+        boolean automatic = residency == TerrainDiffusionConfig.ModelResidency.AUTO;
+        if (residency != TerrainDiffusionConfig.ModelResidency.OFFLOAD && !residencyDowngraded) {
+            try {
+                createResidentSession(modelPathString);
+                this.cpuSession = null;
+                LOG.info("ONNX model '{}' loaded on GPU from file ({} KB) in {} ms",
+                        name, modelSizeBytes / 1024, System.currentTimeMillis() - startMillis);
+                return;
+            } catch (OrtException | RuntimeException residentFailure) {
+                // A missing GPU is a configuration problem, not a capacity one: offloading would
+                // hit exactly the same wall on the first inference, so let it surface here.
+                if (!automatic || residentFailure instanceof GpuProviderUnavailableException) {
+                    throw residentFailure;
                 }
-                this.gpuSession = env.createSession(modelPathString, sessionOptions);
+                // The GPU cannot hold every model at once; fall back to swapping one in at a time.
+                LOG.info("Keeping ONNX model '{}' resident failed ({}); using GPU-slot swapping instead",
+                        name, residentFailure.getMessage());
+                downgradeResidency();
             }
-            this.cpuSession = null;
-            LOG.info("ONNX model '{}' loaded on GPU from file ({} KB) in {} ms",
-                    name, modelSizeBytes / 1024, System.currentTimeMillis() - startMillis);
-            return;
         }
         this.cpuSession = null;
         this.gpuSession = null;
         LOG.info("ONNX model '{}' prepared for on-demand GPU loading from file ({} KB) in {} ms",
                 name, modelSizeBytes / 1024, System.currentTimeMillis() - startMillis);
+    }
+
+    private void createResidentSession(String modelPathString) throws OrtException {
+        try (OrtSession.SessionOptions sessionOptions = new OrtSession.SessionOptions()) {
+            sessionOptions.setOptimizationLevel(OrtSession.SessionOptions.OptLevel.ALL_OPT);
+            addGpuProvider(sessionOptions);
+            if ("CoreML".equals(resolvedInferenceProvider)) {
+                throw new OrtException("keeping models resident is not supported with CoreML. "
+                        + "Set inference.offload_models=auto or true in terrain-diffusion-mc.properties.");
+            }
+            this.gpuSession = env.createSession(modelPathString, sessionOptions);
+        }
+        RESIDENT_MODELS.add(this);
+    }
+
+    /**
+     * Drops every resident session and makes all models swap through the GPU slot from now on.
+     * Called when the GPU turns out not to have room -- either while loading a model or on the
+     * first inference that runs out of memory -- so a small GPU degrades to slower generation
+     * instead of a failed chunk.
+     */
+    private static void downgradeResidency() {
+        residencyDowngraded = true;
+        for (OnnxModel model : RESIDENT_MODELS) {
+            OrtSession resident = model.gpuSession;
+            if (resident != null) {
+                model.gpuSession = null;
+                closeSessionQuietly(resident);
+            }
+        }
+        RESIDENT_MODELS.clear();
     }
 
     private void closeLoadedSessions() {
@@ -271,14 +318,52 @@ public final class OnnxModel implements AutoCloseable {
      */
     public float[] run(Object[][] inputs) {
         if (cpuSession != null) {
-            return runWithSession(cpuSession, inputs);
+            return timedRun(cpuSession, inputs);
         }
-        if (gpuSession != null) {
-            return runWithSession(gpuSession, inputs);
+        OrtSession resident = gpuSession;
+        if (resident != null) {
+            try {
+                return timedRun(resident, inputs);
+            } catch (RuntimeException inferenceFailure) {
+                if (!isOutOfMemory(inferenceFailure)) throw inferenceFailure;
+                // Weights fit but the working memory did not: give up residency and retry the
+                // same call through the GPU slot rather than failing the chunk.
+                LOG.warn("ONNX model '{}' ran out of GPU memory while resident; falling back to "
+                        + "loading one model at a time", name);
+                synchronized (GPU_SLOT_LOCK) {
+                    downgradeResidency();
+                }
+            }
         }
         synchronized (GPU_SLOT_LOCK) {
             claimGpuSlot();
-            return runWithSession(activeGpuSession, inputs);
+            return timedRun(activeGpuSession, inputs);
+        }
+    }
+
+    /** Thrown when {@code inference.device=gpu} but no GPU execution provider could be added. */
+    static final class GpuProviderUnavailableException extends IllegalStateException {
+        GpuProviderUnavailableException(String message) {
+            super(message);
+        }
+    }
+
+    private static boolean isOutOfMemory(Throwable failure) {
+        for (Throwable cause = failure; cause != null; cause = cause.getCause()) {
+            String message = cause.getMessage();
+            if (message != null && message.toLowerCase().contains("out of memory")) return true;
+            if (cause.getCause() == cause) break;
+        }
+        return false;
+    }
+
+    /** Times the inference itself, separately from any GPU-slot session load that preceded it. */
+    private float[] timedRun(OrtSession session, Object[][] inputs) {
+        long start = System.nanoTime();
+        try {
+            return runWithSession(session, inputs);
+        } finally {
+            InferenceStats.recordRun(name, System.nanoTime() - start, ((long[]) inputs[0][2])[0]);
         }
     }
 
@@ -302,6 +387,7 @@ public final class OnnxModel implements AutoCloseable {
      */
     private void claimGpuSlot() {
         if (gpuSlotHolder == this) return;
+        long start = System.nanoTime();
 
         if (activeGpuSession != null) {
             LOG.debug("Evicting '{}' from GPU, loading '{}'",
@@ -316,6 +402,7 @@ public final class OnnxModel implements AutoCloseable {
             addGpuProvider(opts);
             activeGpuSession = env.createSession(sessionModelPath.toAbsolutePath().toString(), opts);
             gpuSlotHolder = this;
+            InferenceStats.recordSessionCreate(name, System.nanoTime() - start);
             LOG.debug("GPU session ready for '{}' from file ({} KB)", name, sessionModelSizeBytes / 1024);
         } catch (OrtException e) {
             throw new RuntimeException("Failed to create GPU session for: " + name, e);
@@ -370,7 +457,7 @@ public final class OnnxModel implements AutoCloseable {
             }
         }
         if (gpuRequired && !added) {
-            throw new OrtException(
+            throw new GpuProviderUnavailableException(
                     "inference.device=gpu but no GPU provider (CUDA, DirectML, CoreML) is available. " +
                     "Use the appropriate build for your platform or set inference.device=cpu.");
         }
@@ -428,9 +515,11 @@ public final class OnnxModel implements AutoCloseable {
             closeSessionQuietly(cpuSession);
             cpuSession = null;
         }
-        if (gpuSession != null) {
-            closeSessionQuietly(gpuSession);
+        RESIDENT_MODELS.remove(this);
+        OrtSession resident = gpuSession;
+        if (resident != null) {
             gpuSession = null;
+            closeSessionQuietly(resident);
         }
     }
 }

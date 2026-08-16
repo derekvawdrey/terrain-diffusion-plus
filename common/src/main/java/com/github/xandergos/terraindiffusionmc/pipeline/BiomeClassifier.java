@@ -1,11 +1,14 @@
 package com.github.xandergos.terraindiffusionmc.pipeline;
 
 import com.github.xandergos.terraindiffusionmc.biome.BiomeRuleEngine;
+import com.github.xandergos.terraindiffusionmc.biome.TerrainBiomeCondition;
 import com.github.xandergos.terraindiffusionmc.biome.TerrainBiomeNoiseSample;
 import com.github.xandergos.terraindiffusionmc.biome.TerrainBiomeRegistry;
 import com.github.xandergos.terraindiffusionmc.biome.TerrainClimateSample;
 import com.github.xandergos.terraindiffusionmc.config.TerrainDiffusionConfig;
 import com.github.xandergos.terraindiffusionmc.hydrology.HydrologyParallel;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * Climate-based biome classifier.
@@ -19,6 +22,8 @@ import com.github.xandergos.terraindiffusionmc.hydrology.HydrologyParallel;
  * replaced with rule-based evaluation.</p>
  */
 public final class BiomeClassifier {
+
+    private static final Logger LOG = LoggerFactory.getLogger(BiomeClassifier.class);
 
     private static final int DETAIL_SHORELINE_PADDING = 24;
 
@@ -164,6 +169,7 @@ public final class BiomeClassifier {
      */
     public static short[] classify(float[] elev, float[] climate, int i0, int j0,
                                     float[] elevPadded, int H, int W, float pixelSizeM) {
+        long tStart = System.nanoTime();
         short[] out = new short[H * W];
         short defaultBiome = REGISTRY.defaultBiomeIndex();
         HydrologyParallel.forEachIndex(0, H * W, index -> out[index] = defaultBiome);
@@ -172,58 +178,59 @@ public final class BiomeClassifier {
             return out;
         }
 
-        float[] tempNoise = new float[H * W];
-        float[] precipNoiseFact = new float[H * W];
-        float[] snowNoise = new float[H * W];
-        float[] variantNoise = new float[H * W];
-        float[] cherryNoise = new float[H * W];
-        float[] paleNoise = new float[H * W];
-        float[] clearingNoise = new float[H * W];
-        float[] flowerNoise = new float[H * W];
-        float[] regionNoise = new float[H * W];
-        float[] japanRegion = new float[H * W];
+        float[] slopeRatio = computeSlopeRatio(elevPadded, H, W, pixelSizeM);
+        long tSlope = System.nanoTime();
 
+        // Zone names resolve to rule-array indexes once per region instead of once per pixel.
+        // Resolved here rather than at class-init because the compiled rule set depends on which
+        // optional biome mods turned out to be installed.
+        ZoneIds zones = new ZoneIds(ENGINE);
         HydrologyParallel.forEachRow(0, H, W, r -> {
+            // One scratch per row task: the rule engine reads a pixel's variables from it, and it
+            // must not be shared between worker threads.
+            BiomeRuleEngine.Scratch scratch = new BiomeRuleEngine.Scratch();
             for (int c = 0; c < W; c++) {
                 int idx = r * W + c;
+                // Noise is sampled here rather than into ten full-region arrays first: the values
+                // are consumed immediately by this pixel's rules, so keeping them in registers
+                // avoids writing and re-reading tens of megabytes per tile.
                 float nx = j0 + c, ny = i0 + r;
                 float tnc = TEMP_NOISE.GetNoise(nx, ny);
                 float tnf = TEMP_NOISE_FINE.GetNoise(nx, ny);
-                tempNoise[idx] = 0.4f * tnc + 0.2f * tnf;
+                float tempNoise = 0.4f * tnc + 0.2f * tnf;
+                float precipNoiseFactor = 1.0f + 0.2f * PRECIP_NOISE.GetNoise(nx, ny);
+                // SNOW_NOISE/SNOW_NOISE_FINE are constructed with the same seed and parameters as
+                // the temperature pair, so they are the same field: reuse the samples instead of
+                // evaluating five more octaves for identical values.
+                float snowNoise = 3.0f * tnc + 2.0f * tnf;
 
-                float pn = PRECIP_NOISE.GetNoise(nx, ny);
-                precipNoiseFact[idx] = 1.0f + 0.2f * pn;
+                float variantNoise = BIOME_VARIANT_NOISE.GetNoise(nx, ny);
+                // Both region fields read the same warped coordinate, so warp once (six of the
+                // ~forty noise octaves this loop evaluates per pixel were being computed twice).
+                float wx = nx + REGION_WARP_AMPLITUDE * REGION_WARP_X.GetNoise(nx, ny);
+                float wz = ny + REGION_WARP_AMPLITUDE * REGION_WARP_Z.GetNoise(nx, ny);
+                float regionNoise = REGION_NOISE.GetNoise(wx, wz);
+                float japanRegion = JAPAN_NOISE.GetNoise(wx, wz) - JAPAN_THRESHOLD;
 
-                float snc = SNOW_NOISE.GetNoise(nx, ny);
-                float snf = SNOW_NOISE_FINE.GetNoise(nx, ny);
-                snowNoise[idx] = 3.0f * snc + 2.0f * snf;
-
-                variantNoise[idx] = BIOME_VARIANT_NOISE.GetNoise(nx, ny);
-                cherryNoise[idx] = CHERRY_GROVE_NOISE.GetNoise(nx, ny);
-                paleNoise[idx] = PALE_GARDEN_NOISE.GetNoise(nx, ny);
-                clearingNoise[idx] = FOREST_CLEARING_NOISE.GetNoise(nx, ny);
-                flowerNoise[idx] = FLOWER_PATCH_NOISE.GetNoise(nx, ny);
-                regionNoise[idx] = sampleRegionNoise(nx, ny);
-                japanRegion[idx] = sampleJapanRegion(nx, ny);
-            }
-        });
-
-        float[] slopeRatio = computeSlopeRatio(elevPadded, H, W, pixelSizeM);
-
-        HydrologyParallel.forEachRow(0, H, W, r -> {
-            for (int c = 0; c < W; c++) {
-                int idx = r * W + c;
                 boolean coastline = isCoastlineCandidate(elev, H, W, r, c, elev[idx], slopeRatio[idx]);
-                out[idx] = classifyPixel(elev[idx], climate, H, W, idx, tempNoise[idx],
-                        precipNoiseFact[idx], snowNoise[idx], variantNoise[idx], cherryNoise[idx], paleNoise[idx],
-                        clearingNoise[idx], flowerNoise[idx], regionNoise[idx], japanRegion[idx],
+                out[idx] = classifyPixel(elev[idx], climate, H, W, idx, tempNoise,
+                        precipNoiseFactor, snowNoise, variantNoise, regionNoise, japanRegion,
                         slopeRatio[idx], coastline,
-                        j0 + c, i0 + r);
+                        nx, ny, scratch, zones);
             }
         });
+        long tRules = System.nanoTime();
         smoothIsolatedTransitions(out, H, W);
         smoothOrganicTransitions(out, H, W);
+        long tSmooth = System.nanoTime();
+        LOG.debug("BiomeClassifier.classify {}x{} phases (ms): slope={} noiseAndRules={} smoothing={} total={}",
+                H, W, millis(tStart, tSlope), millis(tSlope, tRules),
+                millis(tRules, tSmooth), millis(tStart, tSmooth));
         return out;
+    }
+
+    private static long millis(long fromNanos, long toNanos) {
+        return (toNanos - fromNanos) / 1_000_000L;
     }
 
     private static void smoothIsolatedTransitions(short[] biomes, int H, int W) {
@@ -235,6 +242,10 @@ public final class BiomeClassifier {
                 int idx = r * W + c;
                 short current = src[idx];
                 if (REGISTRY.isHardBoundary(current)) continue;
+                // Inside a biome nothing can change: all nine cells count as `current`, which is
+                // neither isolated nor outvoted. Most of a tile is interior, so testing for that
+                // first skips the counting entirely.
+                if (isUniform3x3(src, W, idx, current)) continue;
 
                 int touchedCount = collectBiomeCounts(
                         src, W, r, c, 1, false, counts, touched);
@@ -271,6 +282,7 @@ public final class BiomeClassifier {
                 int idx = r * W + c;
                 short current = localSource[idx];
                 if (!REGISTRY.isBlendableLandBiome(current)) continue;
+                if (isUniform3x3(localSource, W, idx, current)) continue;
 
                 int touchedCount = collectBiomeCounts(
                         localSource, W, r, c, 1, true, counts, touched);
@@ -325,6 +337,15 @@ public final class BiomeClassifier {
         });
     }
 
+    /** Whether every cell of the 3x3 around {@code idx} already holds {@code value}. */
+    private static boolean isUniform3x3(short[] source, int width, int idx, short value) {
+        int above = idx - width;
+        int below = idx + width;
+        return source[above - 1] == value && source[above] == value && source[above + 1] == value
+                && source[idx - 1] == value && source[idx + 1] == value
+                && source[below - 1] == value && source[below] == value && source[below + 1] == value;
+    }
+
     private static int collectBiomeCounts(short[] source, int width, int row, int col, int radius,
                                           boolean blendableOnly, int[] counts, short[] touched) {
         int touchedCount = 0;
@@ -344,10 +365,29 @@ public final class BiomeClassifier {
         for (int index = 0; index < touchedCount; index++) counts[touched[index]] = 0;
     }
 
+    /** Noise fields only a handful of rare rules gate on; sampled when one of them asks. */
+    private static final TerrainBiomeCondition.Variable[] RARE_NOISE_FIELDS = {
+            TerrainBiomeCondition.Variable.CHERRY_NOISE,
+            TerrainBiomeCondition.Variable.PALE_NOISE,
+            TerrainBiomeCondition.Variable.CLEARING_NOISE,
+            TerrainBiomeCondition.Variable.FLOWER_NOISE,
+    };
+
+    private static final BiomeRuleEngine.NoiseSampler RARE_NOISE_SAMPLER = (variable, x, z) ->
+            switch (variable) {
+                case CHERRY_NOISE -> CHERRY_GROVE_NOISE.GetNoise(x, z);
+                case PALE_NOISE -> PALE_GARDEN_NOISE.GetNoise(x, z);
+                case CLEARING_NOISE -> FOREST_CLEARING_NOISE.GetNoise(x, z);
+                case FLOWER_NOISE -> FLOWER_PATCH_NOISE.GetNoise(x, z);
+                default -> Float.NaN;
+            };
+
     private static short classifyPixel(float elevation, float[] climate, int H, int W, int idx,
                                         float tempNoise, float precipNoiseFactor, float snowNoise,
-                                        float variantNoise, float cherryNoise, float paleNoise, float clearingNoise, float flowerNoise, float regionNoise, float japanRegion, float slope, boolean coastline,
-                                        float worldX, float worldZ) {
+                                        float variantNoise, float regionNoise, float japanRegion,
+                                        float slope, boolean coastline,
+                                        float worldX, float worldZ,
+                                        BiomeRuleEngine.Scratch scratch, ZoneIds zones) {
         float temp = climate[idx] + tempNoise;
         float tSeason = climate[H * W + idx];
         float precip = Math.max(0f, climate[2 * H * W + idx]) * precipNoiseFactor;
@@ -355,9 +395,45 @@ public final class BiomeClassifier {
 
         TerrainClimateSample sample = deriveSample(elevation, temp, tSeason, precip, pCV,
                 snowNoise, variantNoise, slope);
-        TerrainBiomeNoiseSample noiseValues = new TerrainBiomeNoiseSample(
-                variantNoise, cherryNoise, paleNoise, clearingNoise, flowerNoise, regionNoise, japanRegion);
-        return selectBiome(sample, noiseValues, coastline, worldX, worldZ);
+        scratch.setClimate(sample);
+        scratch.setNoise(variantNoise, Float.NaN, Float.NaN, Float.NaN, Float.NaN,
+                regionNoise, japanRegion);
+        scratch.deferNoise(RARE_NOISE_SAMPLER, worldX, worldZ, RARE_NOISE_FIELDS);
+
+        short defaultIndex = REGISTRY.defaultBiomeIndex();
+        short biome = ENGINE.select(zones.of(sample, coastline), scratch, defaultIndex, worldX, worldZ);
+        if (sample.bareSlope() && !sample.ocean() && !sample.mountain()) {
+            biome = ENGINE.select(zones.bareSlope, scratch, biome, worldX, worldZ);
+        }
+        return biome;
+    }
+
+    /**
+     * The four dispatch zones plus {@code bareSlope}, resolved to rule-array indexes. Mirrors
+     * {@link #zoneFor} exactly; that method stays the readable definition and is what cold callers
+     * (the explorer overlay) use.
+     */
+    private static final class ZoneIds {
+        final int ocean;
+        final int beach;
+        final int mountain;
+        final int lowland;
+        final int bareSlope;
+
+        ZoneIds(BiomeRuleEngine engine) {
+            ocean = engine.zoneId("ocean");
+            beach = engine.zoneId("beach");
+            mountain = engine.zoneId("mountain");
+            lowland = engine.zoneId("lowland");
+            bareSlope = engine.zoneId("bareSlope");
+        }
+
+        int of(TerrainClimateSample sample, boolean coastline) {
+            if (sample.ocean()) return ocean;
+            if (coastline && !sample.mountain()) return beach;
+            if (sample.mountain()) return mountain;
+            return lowland;
+        }
     }
 
     /**

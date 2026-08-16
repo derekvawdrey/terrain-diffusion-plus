@@ -1,5 +1,8 @@
 package com.github.xandergos.terraindiffusionmc.pipeline;
 
+import java.util.LinkedHashMap;
+import java.util.Map;
+
 /**
  * Deterministic tile-seeded Gaussian noise matching Python world_pipeline.gaussian_noise_patch.
  * Uses portable_rng (PCG64 + Marsaglia polar) and _tile_seed; same algorithm as Python.
@@ -8,6 +11,24 @@ public final class GaussianNoisePatch {
 
     private static final int DEFAULT_TILE_H = 256;
     private static final int DEFAULT_TILE_W = 256;
+
+    /**
+     * Recently generated noise tiles, keyed by seed and tile coordinate.
+     *
+     * <p>Pipeline windows overlap -- decoder windows advance 192 pixels through 256-pixel noise
+     * tiles, latent windows 32 through 64 -- so consecutive windows read mostly the same tiles.
+     * A tile's values can only be produced by running its RNG stream from the start, so without
+     * this each window regenerated up to four full tiles to use a quarter of them. Cached tiles
+     * are immutable and keyed by everything that determines their contents, so reuse returns
+     * exactly what regeneration would.
+     */
+    private static final long CACHE_MAX_BYTES = 32L * 1024 * 1024;
+
+    private record TileKey(long baseSeed, int tileH, int tileW, int channels, int ty, int tx) {}
+
+    private static final Map<TileKey, float[]> TILE_CACHE =
+            new LinkedHashMap<>(64, 0.75f, true);
+    private static long cachedBytes;
 
     /**
      * Returns a (channels, h, w) patch of standard-normal noise.
@@ -41,10 +62,7 @@ public final class GaussianNoisePatch {
                 int ox0 = Math.max(x0, tileX0);
                 int ox1 = Math.min(x0 + w, tileX0 + tileW);
 
-                long seed = PortableRng.tileSeed(baseSeed, ty, tx);
-                int tileLen = channels * tileH * tileW;
-                float[] tileFlat = new float[tileLen];
-                PortableRng.fillStandardNormal(seed, tileFlat, 0, tileLen);
+                float[] tileFlat = tile(baseSeed, tileH, tileW, channels, ty, tx);
 
                 for (int c = 0; c < channels; c++) {
                     for (int py = oy0; py < oy1; py++) {
@@ -60,6 +78,42 @@ public final class GaussianNoisePatch {
             }
         }
         return out;
+    }
+
+    /** One tile's noise, from the cache when it is still there and freshly generated otherwise. */
+    private static float[] tile(long baseSeed, int tileH, int tileW, int channels, int ty, int tx) {
+        TileKey key = new TileKey(baseSeed, tileH, tileW, channels, ty, tx);
+        synchronized (TILE_CACHE) {
+            float[] cached = TILE_CACHE.get(key);
+            if (cached != null) return cached;
+        }
+
+        int tileLen = channels * tileH * tileW;
+        float[] tileFlat = new float[tileLen];
+        PortableRng.fillStandardNormal(PortableRng.tileSeed(baseSeed, ty, tx), tileFlat, 0, tileLen);
+
+        synchronized (TILE_CACHE) {
+            // A concurrent generation of the same tile produced identical values, so either copy
+            // is fine to keep; preferring the cached one keeps a single instance shared.
+            float[] raced = TILE_CACHE.putIfAbsent(key, tileFlat);
+            if (raced != null) return raced;
+            cachedBytes += (long) tileLen * Float.BYTES;
+            var iterator = TILE_CACHE.entrySet().iterator();
+            while (cachedBytes > CACHE_MAX_BYTES && TILE_CACHE.size() > 1 && iterator.hasNext()) {
+                Map.Entry<TileKey, float[]> eldest = iterator.next();
+                cachedBytes -= (long) eldest.getValue().length * Float.BYTES;
+                iterator.remove();
+            }
+        }
+        return tileFlat;
+    }
+
+    /** Drops every cached noise tile; used when the world seed changes. */
+    public static void clearCache() {
+        synchronized (TILE_CACHE) {
+            TILE_CACHE.clear();
+            cachedBytes = 0L;
+        }
     }
 
     public static float[][][] generate(long baseSeed, int y0, int x0, int h, int w, int channels) {

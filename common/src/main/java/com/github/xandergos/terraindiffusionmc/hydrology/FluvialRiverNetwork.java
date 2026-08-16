@@ -324,6 +324,20 @@ public final class FluvialRiverNetwork {
         });
     }
 
+    /** Ascending cell indexes of the visible channel network, so passes can skip empty terrain. */
+    private static int[] collectVisibleCells(boolean[] visible, int n) {
+        int count = 0;
+        for (int idx = 0; idx < n; idx++) {
+            if (visible[idx]) count++;
+        }
+        int[] cells = new int[count];
+        int at = 0;
+        for (int idx = 0; idx < n && at < count; idx++) {
+            if (visible[idx]) cells[at++] = idx;
+        }
+        return cells;
+    }
+
     private static void rasterizeHermiteChannels(long seed, int i0, int j0,
                                                   float[] elevation, float[] surface, int[] downstream,
                                                   float[] accumulation, boolean[] visible,
@@ -331,14 +345,18 @@ public final class FluvialRiverNetwork {
                                                   int height, int width, float pixelSizeM) {
         int n = height * width;
         long t0 = System.nanoTime();
+        // A tile has millions of cells but only thousands of channel cells, so every pass here
+        // walks the channel list instead of the grid; the grid-shaped arrays stay, since
+        // upstream/downstream links are cell indexes.
+        int[] channelCells = collectVisibleCells(visible, n);
         float[] radius = new float[n];
-        HydrologyParallel.forEachIndex(0, n, idx -> {
-            if (!visible[idx]) return;
+        HydrologyParallel.forEachTask(channelCells.length, position -> {
+            int idx = channelCells[position];
             radius[idx] = radiusPixels(accumulation[idx], elevation[idx]);
         });
         long t1 = System.nanoTime();
         CenterlineGeometry geometry = smoothCenterlineGeometry(
-                seed, i0, j0, surface, downstream, accumulation, visible,
+                seed, i0, j0, surface, downstream, accumulation, visible, channelCells,
                 height, width, pixelSizeM);
         long t2 = System.nanoTime();
 
@@ -350,15 +368,12 @@ public final class FluvialRiverNetwork {
             }
         }
         Object[] locks = channelLocks;
-        HydrologyParallel.forEachIndex(0, n, idx -> rasterizeChannelSegment(
-                idx, surface, downstream, accumulation, visible, radius, geometry,
+        HydrologyParallel.forEachTask(channelCells.length, position -> rasterizeChannelSegment(
+                channelCells[position], surface, downstream, accumulation, visible, radius, geometry,
                 profile, load, waterSurface, height, width, locks));
         long t3 = System.nanoTime();
 
-        int visibleCount = 0;
-        for (int idx = 0; idx < n; idx++) {
-            if (visible[idx]) visibleCount++;
-        }
+        int visibleCount = channelCells.length;
         LOG.info("FluvialRiverNetwork.rasterizeHermiteChannels ({}, {}) n={} visible={} phases (ms): "
                         + "radius={} centerlineGeometry={} stampChannels={} total={}",
                 j0, i0, n, visibleCount, millis(t0, t1), millis(t1, t2), millis(t2, t3), millis(t0, t3));
@@ -404,12 +419,14 @@ public final class FluvialRiverNetwork {
      */
     private static CenterlineGeometry smoothCenterlineGeometry(
             long seed, int i0, int j0, float[] surface, int[] downstream,
-            float[] accumulation, boolean[] visible, int height, int width, float pixelSizeM) {
+            float[] accumulation, boolean[] visible, int[] channelCells,
+            int height, int width, float pixelSizeM) {
         int n = height * width;
+        int channelCount = channelCells.length;
         int[] dominantUpstream = new int[n];
         Arrays.fill(dominantUpstream, -1);
-        for (int idx = 0; idx < n; idx++) {
-            if (!visible[idx]) continue;
+        for (int position = 0; position < channelCount; position++) {
+            int idx = channelCells[position];
             int down = downstream[idx];
             if (down < 0 || !visible[down]) continue;
             int current = dominantUpstream[down];
@@ -422,8 +439,8 @@ public final class FluvialRiverNetwork {
         float[] colA = new float[n];
         float[] rowB = new float[n];
         float[] colB = new float[n];
-        HydrologyParallel.forEachIndex(0, n, idx -> {
-            if (!visible[idx]) return;
+        HydrologyParallel.forEachTask(channelCount, position -> {
+            int idx = channelCells[position];
             int row = idx / width;
             rowA[idx] = row + 0.5f;
             colA[idx] = idx - row * width + 0.5f;
@@ -438,8 +455,8 @@ public final class FluvialRiverNetwork {
             float[] passSourceCol = sourceCol;
             float[] passTargetRow = targetRow;
             float[] passTargetCol = targetCol;
-            HydrologyParallel.forEachIndex(0, n, idx -> {
-                if (!visible[idx]) return;
+            HydrologyParallel.forEachTask(channelCount, position -> {
+                int idx = channelCells[position];
                 float row = passSourceRow[idx];
                 float col = passSourceCol[idx];
                 int up = dominantUpstream[idx];
@@ -460,8 +477,8 @@ public final class FluvialRiverNetwork {
             targetCol = swap;
         }
 
-        for (int idx = 0; idx < n; idx++) {
-            if (!visible[idx]) continue;
+        for (int position = 0; position < channelCount; position++) {
+            int idx = channelCells[position];
             int down = downstream[idx];
             if (down < 0 || !visible[down]) continue;
             float dr = sourceRow[down] - sourceRow[idx];
@@ -485,8 +502,8 @@ public final class FluvialRiverNetwork {
         float[] finalSourceCol = sourceCol;
         float[] tangentRow = targetRow;
         float[] tangentCol = targetCol;
-        HydrologyParallel.forEachIndex(0, n, idx -> {
-            if (!visible[idx]) return;
+        HydrologyParallel.forEachTask(channelCount, position -> {
+            int idx = channelCells[position];
             int up = dominantUpstream[idx];
             int down = downstream[idx];
             boolean hasUp = up >= 0 && visible[up];

@@ -1,6 +1,7 @@
 package com.github.xandergos.terraindiffusionmc.mixin;
 
 import com.github.xandergos.terraindiffusionmc.world.MutableLevelStem;
+import com.github.xandergos.terraindiffusionmc.world.OverworldBiomeDelegate;
 import com.github.xandergos.terraindiffusionmc.world.TerrainDiffusionBiomeSource;
 import net.minecraft.core.Registry;
 import net.minecraft.world.level.chunk.ChunkGenerator;
@@ -57,6 +58,10 @@ public abstract class WorldDimensionsMixin {
         if (fromDatapack == null || terrainDiffusion$isOurs(fromDatapack.generator())) {
             return;
         }
+
+        // The overworld we are about to displace still knows how this pack fills its underground.
+        // Keep its biome source so cave biomes can come from it rather than from our own guesses.
+        OverworldBiomeDelegate.capture(fromDatapack.generator().getBiomeSource());
 
         ((MutableLevelStem) (Object) fromDatapack).terrainDiffusion$setType(chosen.type());
         ((MutableLevelStem) (Object) fromDatapack).terrainDiffusion$setGenerator(chosen.generator());

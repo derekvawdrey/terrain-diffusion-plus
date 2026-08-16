@@ -82,6 +82,47 @@ public final class LaplacianUtils {
     }
 
     /**
+     * The rectangle {@code [row0, row0 + h) x [col0, col0 + w)} of
+     * {@link #bilinearResize}{@code (src, dstH, dstW)}, returned row-major, without materialising
+     * the rest of that resize. Indexes outside the resized grid clamp to its edge, matching a
+     * crop of the full result.
+     *
+     * <p>Each output pixel uses the same expression the full resize would, so the values are
+     * bit-identical to resizing and then cropping -- it just skips the pixels nothing reads.
+     */
+    public static float[] bilinearResizeWindow(float[][] src, int dstH, int dstW,
+                                                int row0, int col0, int h, int w) {
+        int srcH = src.length, srcW = src[0].length;
+        float[] dst = new float[h * w];
+        HydrologyParallel.forEachRow(0, h, w, r -> {
+            int dstRow = Math.max(0, Math.min(dstH - 1, row0 + r));
+            float srcR = ((dstRow + 0.5f) * srcH / dstH) - 0.5f;
+            int r0 = (int) Math.floor(srcR);
+            int r1 = r0 + 1;
+            float wr = srcR - r0;
+            r0 = Math.max(0, Math.min(srcH - 1, r0));
+            r1 = Math.max(0, Math.min(srcH - 1, r1));
+            float[] srcRow0 = src[r0];
+            float[] srcRow1 = src[r1];
+            int outBase = r * w;
+            for (int c = 0; c < w; c++) {
+                int dstCol = Math.max(0, Math.min(dstW - 1, col0 + c));
+                float srcC = ((dstCol + 0.5f) * srcW / dstW) - 0.5f;
+                int c0 = (int) Math.floor(srcC);
+                int c1 = c0 + 1;
+                float wc = srcC - c0;
+                c0 = Math.max(0, Math.min(srcW - 1, c0));
+                c1 = Math.max(0, Math.min(srcW - 1, c1));
+                dst[outBase + c] = (1 - wr) * (1 - wc) * srcRow0[c0]
+                        + (1 - wr) * wc * srcRow0[c1]
+                        + wr * (1 - wc) * srcRow1[c0]
+                        + wr * wc * srcRow1[c1];
+            }
+        });
+        return dst;
+    }
+
+    /**
      * Bilinear resize with linear extrapolation padding (for laplacian_denoise extrapolate=True).
      * Pads by 1 pixel on each side using linear extrapolation before resizing.
      */

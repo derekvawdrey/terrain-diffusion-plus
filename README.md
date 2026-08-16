@@ -111,10 +111,17 @@ Edit `config/terrain-diffusion-mc.properties`, created automatically on first la
 # CPU build defaults to "auto": uses CoreML on macOS, otherwise CPU.
 inference.device=gpu
 
-# Offload inactive models from VRAM between pipeline stages.
-# Keeps peak VRAM to roughly 1.5-2 GB. Set to false if you have roughly 2.5+ GB free
-# for slightly faster generation.
-inference.offload_models=true
+# Whether inactive models are offloaded from VRAM between pipeline stages.
+# "auto" keeps all three resident when the GPU has room (roughly 2.5 GB) and offloads
+# if it does not; offloading reloads a model on every stage switch, which costs about
+# 0.8 s per generated tile. "true" always offloads (peak 1.5-2 GB), "false" never does.
+inference.offload_models=auto
+
+# Overlap between neighbouring model windows: "full" (default) generates every latent
+# pixel four times and blends the copies, "reduced" widens the strides for about 1.45x
+# faster generation with less margin for the blend to hide a window boundary.
+# This changes generated terrain, so pick it before creating a world and keep it.
+inference.window_overlap=full
 
 # Validate SHA-256 for pre-existing files in .minecraft/terrain-diffusion-models.
 # Set to false if you want to provide custom models/config files without hash checks.

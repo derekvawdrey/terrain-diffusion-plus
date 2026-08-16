@@ -61,21 +61,35 @@ public class FloatTensor {
         }
         if (total == 0) return;
 
-        // Compute strides for iterating over the count-shaped region
-        int[] iterStrides = new int[n];
-        iterStrides[n - 1] = 1;
-        for (int d = n - 2; d >= 0; d--) {
-            iterStrides[d] = iterStrides[d + 1] * count[d + 1];
-        }
+        // Walk the region one innermost line at a time. Both tensors are row-major, so a line is
+        // contiguous in each and costs one add per element; only the line's start offsets need the
+        // index arithmetic. (Decomposing a flat index per element instead spent several integer
+        // divisions on every float, which showed up as hundreds of milliseconds per tile once the
+        // blended slices grew to millions of elements.)
+        int innerCount = count[n - 1];
+        int lineCount = total / innerCount;
+        int innerDstStride = strides[n - 1];
+        int innerSrcStride = src.strides[n - 1];
 
-        HydrologyParallel.forEachIndex(0, total, flat -> {
-            int dstFlat = 0, srcFlat = 0;
-            for (int d = 0; d < n; d++) {
-                int idx = (flat / iterStrides[d]) % count[d];
+        HydrologyParallel.forEachRow(0, lineCount, innerCount, line -> {
+            int dstFlat = dstRegion[n - 1][0] * innerDstStride;
+            int srcFlat = srcRegion[n - 1][0] * innerSrcStride;
+            int remaining = line;
+            for (int d = n - 2; d >= 0; d--) {
+                int idx = remaining % count[d];
+                remaining /= count[d];
                 dstFlat += (dstRegion[d][0] + idx) * strides[d];
                 srcFlat += (srcRegion[d][0] + idx) * src.strides[d];
             }
-            data[dstFlat] += src.data[srcFlat];
+            if (innerDstStride == 1 && innerSrcStride == 1) {
+                for (int i = 0; i < innerCount; i++) {
+                    data[dstFlat + i] += src.data[srcFlat + i];
+                }
+            } else {
+                for (int i = 0; i < innerCount; i++) {
+                    data[dstFlat + i * innerDstStride] += src.data[srcFlat + i * innerSrcStride];
+                }
+            }
         });
     }
 

@@ -13,7 +13,6 @@ public final class TerrainDiffusionConfig {
     private static final String RESOURCE_PATH = "/" + FILE_NAME;
     private static final Properties PROPERTIES = new Properties();
     private static final String BUILD_VARIANT = readBuildVariant();
-    private static final boolean DEFAULT_OFFLOAD_MODELS = true;
     private static final boolean DEFAULT_VALIDATE_MODEL = true;
     private static final int DEFAULT_EXPLORER_PORT = 19801;
     private static final int DEFAULT_TILE_SIZE = 256;
@@ -63,23 +62,60 @@ public final class TerrainDiffusionConfig {
         return device;
     }
 
-    /** Whether to offload inactive models from VRAM between pipeline stages. */
-    public static boolean offloadModels() {
-        return readBoolean("inference.offload_models", DEFAULT_OFFLOAD_MODELS);
+    /** How the three pipeline models share the GPU. */
+    public enum ModelResidency {
+        /** Try to keep every model resident; fall back to swapping if the GPU cannot hold them. */
+        AUTO,
+        /** Keep every model resident in VRAM (fastest, needs roughly 2.5 GB). */
+        RESIDENT,
+        /** Only one model in VRAM at a time; reloaded on every stage switch (smallest footprint). */
+        OFFLOAD
     }
 
     /**
-     * Concurrent region/tile computations. Zero selects an automatic value: 1 when
-     * {@link #offloadModels()} is true (GPU-slot swapping already serializes every inference
-     * call, so extra threads would only add queuing overhead and risk swap thrashing between
-     * different models), or a small pool sized off available CPUs when models stay resident.
+     * Reads {@code inference.offload_models}: {@code auto} (default), {@code true} to always
+     * offload, {@code false} to always keep models resident.
+     *
+     * <p>Offloading costs a full session load on every stage switch -- roughly 0.8 s per generated
+     * hydrology tile, since the latent model alone is about 1 GB -- so it is worth paying only on
+     * GPUs that cannot hold all three at once. {@code auto} finds that out by loading them and
+     * falling back if the GPU refuses.
+     */
+    public static ModelResidency modelResidency() {
+        String value = readString("inference.offload_models", "auto");
+        return switch (value) {
+            case "true" -> ModelResidency.OFFLOAD;
+            case "false" -> ModelResidency.RESIDENT;
+            case "auto" -> ModelResidency.AUTO;
+            default -> {
+                System.err.println("Invalid inference.offload_models: " + value + ", using auto");
+                yield ModelResidency.AUTO;
+            }
+        };
+    }
+
+    /** Whether inactive models may be offloaded from VRAM between pipeline stages. */
+    public static boolean offloadModels() {
+        return modelResidency() != ModelResidency.RESIDENT;
+    }
+
+    /**
+     * Concurrent region/tile computations. Zero selects an automatic value: 1 when models are
+     * always offloaded (GPU-slot swapping already serializes every inference call, so extra
+     * threads would only add queuing overhead and risk swap thrashing between different models),
+     * otherwise 2.
+     *
+     * <p>Two is where the gain is: a region alternates between GPU inference and CPU-only river
+     * and biome passes, so a second region in flight fills whichever side is idle. Beyond that the
+     * two sides are both saturated and each extra region costs another ~0.6 GB of heap for its
+     * full-resolution working arrays, which matters more on a server than the remaining overlap.
      */
     public static int inferenceWorkerThreads() {
         int configured = readInt("inference.worker_threads", DEFAULT_INFERENCE_WORKER_THREADS);
         if (configured == 0) {
-            if (offloadModels()) return 1;
+            if (modelResidency() == ModelResidency.OFFLOAD) return 1;
             int available = Math.max(1, Runtime.getRuntime().availableProcessors());
-            return Math.max(1, Math.min(4, available / 2));
+            return available >= 4 ? 2 : 1;
         }
         if (configured < 1 || configured > MAX_INFERENCE_WORKER_THREADS) {
             System.err.println("Invalid inference.worker_threads: " + configured + ", using 1");
@@ -104,6 +140,39 @@ public final class TerrainDiffusionConfig {
             return DEFAULT_DECODER_BATCH_SIZE;
         }
         return configured;
+    }
+
+    /** How far the pipeline's sliding windows overlap each other. */
+    public enum WindowOverlap {
+        /** Every latent pixel is generated four times and blended; the shipped behaviour. */
+        FULL,
+        /** Wider strides: roughly half as much duplicated inference, at some blending margin. */
+        REDUCED
+    }
+
+    /**
+     * Overlap between neighbouring model windows.
+     *
+     * <p>Each stage generates overlapping windows and blends them, which is what keeps window
+     * boundaries invisible -- and also what makes the latent stage generate every pixel four
+     * times over. {@code reduced} widens the strides (latent 32 -> 48, decoder 192 -> 224), which
+     * measured about 1.45x faster generation on an RTX 3090 Ti, with less margin for the blend to
+     * hide a seam.
+     *
+     * <p>This changes generated terrain. Treat it like {@code hydrology.tile_size}: choose it
+     * before creating a world, keep it for that world's lifetime, and keep it the same across
+     * installs sharing a world or a hydrology cache.
+     */
+    public static WindowOverlap windowOverlap() {
+        String value = readString("inference.window_overlap", "full");
+        return switch (value) {
+            case "full" -> WindowOverlap.FULL;
+            case "reduced" -> WindowOverlap.REDUCED;
+            default -> {
+                System.err.println("Invalid inference.window_overlap: " + value + ", using full");
+                yield WindowOverlap.FULL;
+            }
+        };
     }
 
     /** TCP port for the local terrain explorer HTTP server. */

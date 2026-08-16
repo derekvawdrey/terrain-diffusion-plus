@@ -1,6 +1,7 @@
 package com.github.xandergos.terraindiffusionmc.biome;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -33,6 +34,16 @@ import java.util.Map;
  * override rule matches a pixel, only override candidates compete there, still by weight. This is
  * the escape hatch for cases where a biome must strictly win rather than merely win often; the
  * ordinary variant relationship wants a weight.</p>
+ *
+ * <h2>Compiled rules</h2>
+ * <p>Selection runs once per generated block, so the authored rule objects are compiled at first
+ * use into flat primitive arrays ({@link CompiledZone}) and matched against a preloaded
+ * {@link Scratch} value vector. That removes, from the inner loop, the per-condition list
+ * iterators, {@code Number}/{@code Boolean} unboxing and per-zone map lookup that the object form
+ * would pay for on every one of the ~4 million pixels in a hydrology tile. The compiled form
+ * evaluates exactly the conditions the objects do, in the same order, with the same float
+ * comparisons -- {@link TerrainBiomeRule#matches} stays as the readable reference implementation
+ * for cold paths such as the explorer's overlay.</p>
  */
 public final class BiomeRuleEngine {
 
@@ -64,35 +75,357 @@ public final class BiomeRuleEngine {
         1.000000f
     };
 
+    /** Condition kinds in the compiled form. */
+    private static final byte KIND_NUMERIC = 0;
+    private static final byte KIND_BOOL_FALSE = 1;
+    private static final byte KIND_BOOL_TRUE = 2;
+
+    /** Operator codes; {@link #OP_NEVER} stands in for a catalog rule with no operator. */
+    private static final byte OP_NEVER = -1;
+
+    /** {@code Variable.values()} clones its array on every call, so hold one copy. */
+    private static final TerrainBiomeCondition.Variable[] VARIABLES = TerrainBiomeCondition.Variable.values();
+    private static final int VARIABLE_COUNT = VARIABLES.length;
+
     private final TerrainBiomeRegistry registry;
 
-    /** Pre-grouped rules by zone for fast lookup. */
-    private Map<String, RuleEntry[]> zoneGroups;
-    private boolean initialized = false;
+    /** Compiled rules per zone, published as a whole once built. */
+    private volatile Compiled compiled;
 
     public BiomeRuleEngine(TerrainBiomeRegistry registry) {
         this.registry = registry;
     }
 
-    private void init() {
-        if (initialized) return;
+    /** Supplies a noise field's value at a world position, for fields sampled only on demand. */
+    @FunctionalInterface
+    public interface NoiseSampler {
+        float sample(TerrainBiomeCondition.Variable variable, float worldX, float worldZ);
+    }
 
-        Map<String, List<RuleEntry>> byZone = new LinkedHashMap<>();
-        for (TerrainBiomeSettlement settlement : registry.all()) {
-            for (TerrainBiomeRule rule : settlement.rules()) {
-                if (rule.rarity() <= 0f) continue;  // weightless rules can never be selected
-                if (!rule.isAvailable()) continue;  // rule belongs to an optional mod that isn't installed
-                byZone.computeIfAbsent(rule.zone(), z -> new ArrayList<>())
-                        .add(new RuleEntry(settlement.index(), rule));
+    /** Per-thread value vectors a compiled match reads. Reused across pixels; never shared. */
+    public static final class Scratch {
+        private final float[] climateValues = new float[VARIABLE_COUNT];
+        private final boolean[] climateFlags = new boolean[VARIABLE_COUNT];
+        private final float[] noiseValues = new float[VARIABLE_COUNT];
+
+        /** Variables still to be sampled for this pixel, one bit per {@code Variable} ordinal. */
+        private int deferred;
+        private NoiseSampler sampler;
+        private float worldX;
+        private float worldZ;
+
+        public Scratch() {
+            // Variables a sample doesn't carry read as NaN, so every numeric comparison against
+            // them is false -- the behaviour of the object form's `default -> Float.NaN`.
+            java.util.Arrays.fill(climateValues, Float.NaN);
+            java.util.Arrays.fill(noiseValues, Float.NaN);
+        }
+
+        /** Loads the twelve numeric climate variables and the five boolean flags. */
+        public void setClimate(TerrainClimateSample sample) {
+            float[] values = climateValues;
+            values[TerrainBiomeCondition.Variable.ELEVATION_M.ordinal()] = sample.elevationM();
+            values[TerrainBiomeCondition.Variable.TEMPERATURE_C.ordinal()] = sample.temperatureC();
+            values[TerrainBiomeCondition.Variable.TEMPERATURE_SEASONALITY.ordinal()] = sample.temperatureSeasonality();
+            values[TerrainBiomeCondition.Variable.PRECIPITATION_MM.ordinal()] = sample.precipitationMm();
+            values[TerrainBiomeCondition.Variable.PRECIPITATION_CV.ordinal()] = sample.precipitationCv();
+            values[TerrainBiomeCondition.Variable.MOISTURE.ordinal()] = sample.moisture();
+            values[TerrainBiomeCondition.Variable.ARIDITY.ordinal()] = sample.aridity();
+            values[TerrainBiomeCondition.Variable.TREE_MOISTURE.ordinal()] = sample.treeMoisture();
+            values[TerrainBiomeCondition.Variable.TREE_COVERAGE.ordinal()] = sample.treeCoverage();
+            values[TerrainBiomeCondition.Variable.SPARSITY.ordinal()] = sample.sparsity();
+            values[TerrainBiomeCondition.Variable.SLOPE.ordinal()] = sample.slope();
+            values[TerrainBiomeCondition.Variable.GROWING_SEASON_DAYS.ordinal()] = sample.growingSeasonDays();
+
+            boolean[] flags = climateFlags;
+            flags[TerrainBiomeCondition.Variable.OCEAN.ordinal()] = sample.ocean();
+            flags[TerrainBiomeCondition.Variable.SNOWY.ordinal()] = sample.snowy();
+            flags[TerrainBiomeCondition.Variable.BARE_SLOPE.ordinal()] = sample.bareSlope();
+            flags[TerrainBiomeCondition.Variable.MOUNTAIN.ordinal()] = sample.mountain();
+            flags[TerrainBiomeCondition.Variable.LOWLAND.ordinal()] = sample.lowland();
+        }
+
+        /** Loads the seven noise fields rules may gate on. */
+        public void setNoise(TerrainBiomeNoiseSample noise) {
+            setNoise(noise.variantNoise(), noise.cherryNoise(), noise.paleNoise(), noise.clearingNoise(),
+                    noise.flowerNoise(), noise.regionNoise(), noise.japanRegion());
+        }
+
+        /** Field-wise variant, so a per-pixel loop need not build a {@link TerrainBiomeNoiseSample}. */
+        public void setNoise(float variantNoise, float cherryNoise, float paleNoise, float clearingNoise,
+                             float flowerNoise, float regionNoise, float japanRegion) {
+            float[] values = noiseValues;
+            values[TerrainBiomeCondition.Variable.VARIANT_NOISE.ordinal()] = variantNoise;
+            values[TerrainBiomeCondition.Variable.CHERRY_NOISE.ordinal()] = cherryNoise;
+            values[TerrainBiomeCondition.Variable.PALE_NOISE.ordinal()] = paleNoise;
+            values[TerrainBiomeCondition.Variable.CLEARING_NOISE.ordinal()] = clearingNoise;
+            values[TerrainBiomeCondition.Variable.FLOWER_NOISE.ordinal()] = flowerNoise;
+            values[TerrainBiomeCondition.Variable.REGION_NOISE.ordinal()] = regionNoise;
+            values[TerrainBiomeCondition.Variable.JAPAN_REGION.ordinal()] = japanRegion;
+            deferred = 0;
+        }
+
+        /**
+         * Marks the given noise variables as sampled on first use at {@code (worldX, worldZ)}.
+         *
+         * <p>Noise conditions gate a handful of rare biomes and are only reached once a rule's
+         * climate conditions have all passed, so at most pixels those fields are never read at
+         * all. Sampling them eagerly meant evaluating their octaves for every generated block.
+         * The value a rule sees is the same either way -- these fields are pure functions of the
+         * position.
+         */
+        public void deferNoise(NoiseSampler sampler, float worldX, float worldZ,
+                               TerrainBiomeCondition.Variable... variables) {
+            this.sampler = sampler;
+            this.worldX = worldX;
+            this.worldZ = worldZ;
+            int mask = 0;
+            for (TerrainBiomeCondition.Variable variable : variables) mask |= 1 << variable.ordinal();
+            this.deferred = mask;
+        }
+
+        private float noise(int variableOrdinal) {
+            if ((deferred & (1 << variableOrdinal)) != 0) {
+                deferred &= ~(1 << variableOrdinal);
+                noiseValues[variableOrdinal] = sampler.sample(VARIABLES[variableOrdinal], worldX, worldZ);
             }
+            return noiseValues[variableOrdinal];
+        }
+    }
+
+    /** Every zone's compiled rules plus the zone-name lookup, built and published together. */
+    private record Compiled(Map<String, Integer> zoneIds, CompiledZone[] zones) {}
+
+    /** Temperature index covering -60..60 C in 1-degree buckets; the ends absorb everything beyond. */
+    private static final float BUCKET_MIN_C = -60f;
+    private static final int BUCKET_COUNT = 120;
+
+    /**
+     * One zone's rules in struct-of-arrays form. Conditions of all rules live in shared arrays;
+     * rule {@code r} owns the slice {@code [start[r], start[r + 1])}.
+     */
+    private static final class CompiledZone {
+        final int ruleCount;
+        final short[] biomeIndex;
+        final float[] rarity;
+        final boolean[] override;
+
+        final int[] climateStart;
+        final byte[] climateVar;
+        final byte[] climateOp;
+        final byte[] climateKind;
+        final float[] climateValue;
+        final float[] climateValue2;
+
+        final int[] noiseStart;
+        final byte[] noiseVar;
+        final byte[] noiseOp;
+        final float[] noiseValue;
+        final float[] noiseValue2;
+
+        /**
+         * Rules that can possibly match at a given temperature, in rule order.
+         *
+         * <p>Three quarters of the catalog's rules name a temperature range, and a zone can hold
+         * over a hundred rules, so without this every pixel evaluates the leading condition of
+         * every rule in its zone just to reject it. A rule appears in a bucket whenever its
+         * temperature interval overlaps that bucket, so skipping the others cannot change which
+         * rule matches -- they would have failed their own temperature test.
+         */
+        final int[][] rulesByTemperature;
+
+        CompiledZone(List<RuleEntry> entries) {
+            ruleCount = entries.size();
+            biomeIndex = new short[ruleCount];
+            rarity = new float[ruleCount];
+            override = new boolean[ruleCount];
+            climateStart = new int[ruleCount + 1];
+            noiseStart = new int[ruleCount + 1];
+
+            int climateCount = 0;
+            int noiseCount = 0;
+            for (RuleEntry entry : entries) {
+                climateCount += entry.rule.conditions().size();
+                noiseCount += entry.rule.noiseConditions().size();
+            }
+            climateVar = new byte[climateCount];
+            climateOp = new byte[climateCount];
+            climateKind = new byte[climateCount];
+            climateValue = new float[climateCount];
+            climateValue2 = new float[climateCount];
+            noiseVar = new byte[noiseCount];
+            noiseOp = new byte[noiseCount];
+            noiseValue = new float[noiseCount];
+            noiseValue2 = new float[noiseCount];
+
+            int climateAt = 0;
+            int noiseAt = 0;
+            for (int rule = 0; rule < ruleCount; rule++) {
+                RuleEntry entry = entries.get(rule);
+                biomeIndex[rule] = entry.index;
+                rarity[rule] = entry.rule.rarity();
+                override[rule] = entry.rule.isOverride();
+
+                climateStart[rule] = climateAt;
+                for (TerrainBiomeCondition condition : entry.rule.conditions()) {
+                    climateVar[climateAt] = (byte) condition.resolvedVariable().ordinal();
+                    climateOp[climateAt] = operatorCode(condition);
+                    Boolean expected = condition.boolValue();
+                    climateKind[climateAt] = expected == null
+                            ? KIND_NUMERIC
+                            : (expected ? KIND_BOOL_TRUE : KIND_BOOL_FALSE);
+                    climateValue[climateAt] = condition.numericValue();
+                    climateValue2[climateAt] = condition.numericValue2();
+                    climateAt++;
+                }
+
+                noiseStart[rule] = noiseAt;
+                // Noise conditions are always compared numerically: the object form's
+                // evaluateNoiseCondition switches on the operator and never consults boolValue.
+                for (TerrainBiomeCondition condition : entry.rule.noiseConditions()) {
+                    noiseVar[noiseAt] = (byte) condition.resolvedVariable().ordinal();
+                    noiseOp[noiseAt] = operatorCode(condition);
+                    noiseValue[noiseAt] = condition.numericValue();
+                    noiseValue2[noiseAt] = condition.numericValue2();
+                    noiseAt++;
+                }
+            }
+            climateStart[ruleCount] = climateAt;
+            noiseStart[ruleCount] = noiseAt;
+            rulesByTemperature = buildTemperatureIndex(entries);
         }
 
-        Map<String, RuleEntry[]> groups = new LinkedHashMap<>();
-        for (Map.Entry<String, List<RuleEntry>> entry : byZone.entrySet()) {
-            groups.put(entry.getKey(), entry.getValue().toArray(new RuleEntry[0]));
+        private static int[][] buildTemperatureIndex(List<RuleEntry> entries) {
+            int ruleCount = entries.size();
+            float[] lowest = new float[ruleCount];
+            float[] highest = new float[ruleCount];
+            for (int rule = 0; rule < ruleCount; rule++) {
+                float low = Float.NEGATIVE_INFINITY;
+                float high = Float.POSITIVE_INFINITY;
+                for (TerrainBiomeCondition condition : entries.get(rule).rule.conditions()) {
+                    if (condition.resolvedVariable() != TerrainBiomeCondition.Variable.TEMPERATURE_C
+                            || condition.boolValue() != null || condition.operator() == null) {
+                        continue;
+                    }
+                    float value = condition.numericValue();
+                    switch (condition.operator()) {
+                        case EQ -> { low = Math.max(low, value); high = Math.min(high, value); }
+                        case GT, GTE -> low = Math.max(low, value);
+                        case LT, LTE -> high = Math.min(high, value);
+                        case BETWEEN -> {
+                            low = Math.max(low, value);
+                            high = Math.min(high, condition.numericValue2());
+                        }
+                    }
+                }
+                lowest[rule] = low;
+                highest[rule] = high;
+            }
+
+            int[][] buckets = new int[BUCKET_COUNT][];
+            int[] scratch = new int[ruleCount];
+            for (int bucket = 0; bucket < BUCKET_COUNT; bucket++) {
+                // The first and last buckets stand for everything past the indexed range.
+                float bucketLow = bucket == 0 ? Float.NEGATIVE_INFINITY : BUCKET_MIN_C + bucket;
+                float bucketHigh = bucket == BUCKET_COUNT - 1
+                        ? Float.POSITIVE_INFINITY : BUCKET_MIN_C + bucket + 1;
+                int count = 0;
+                for (int rule = 0; rule < ruleCount; rule++) {
+                    if (lowest[rule] <= bucketHigh && highest[rule] >= bucketLow) {
+                        scratch[count++] = rule;
+                    }
+                }
+                buckets[bucket] = java.util.Arrays.copyOf(scratch, count);
+            }
+            return buckets;
         }
-        zoneGroups = groups;
-        initialized = true;
+
+        /** Candidate rules for a pixel's temperature. A NaN temperature lands in bucket 0, whose
+         *  rules are exactly those that could still match when every temperature test fails. */
+        int[] candidates(float temperatureC) {
+            int bucket = (int) (temperatureC - BUCKET_MIN_C);
+            if (bucket < 0) bucket = 0;
+            if (bucket >= BUCKET_COUNT) bucket = BUCKET_COUNT - 1;
+            return rulesByTemperature[bucket];
+        }
+
+        private static byte operatorCode(TerrainBiomeCondition condition) {
+            TerrainBiomeCondition.Operator operator = condition.operator();
+            return operator == null ? OP_NEVER : (byte) operator.ordinal();
+        }
+
+        boolean matches(int rule, Scratch scratch) {
+            float[] values = scratch.climateValues;
+            boolean[] flags = scratch.climateFlags;
+            for (int at = climateStart[rule], end = climateStart[rule + 1]; at < end; at++) {
+                byte kind = climateKind[at];
+                if (kind == KIND_NUMERIC) {
+                    if (!compare(values[climateVar[at]], climateOp[at], climateValue[at], climateValue2[at])) {
+                        return false;
+                    }
+                } else if (flags[climateVar[at]] != (kind == KIND_BOOL_TRUE)) {
+                    return false;
+                }
+            }
+            for (int at = noiseStart[rule], end = noiseStart[rule + 1]; at < end; at++) {
+                if (!compare(scratch.noise(noiseVar[at]), noiseOp[at], noiseValue[at], noiseValue2[at])) {
+                    return false;
+                }
+            }
+            return true;
+        }
+
+        /** NaN inputs fail every comparison, matching the object form for absent variables. */
+        private static boolean compare(float actual, byte operator, float value, float value2) {
+            return switch (operator) {
+                case 0 -> actual == value;                          // EQ
+                case 1 -> actual > value;                           // GT
+                case 2 -> actual >= value;                          // GTE
+                case 3 -> actual < value;                           // LT
+                case 4 -> actual <= value;                          // LTE
+                case 5 -> actual >= value && actual <= value2;      // BETWEEN
+                default -> false;
+            };
+        }
+    }
+
+    private Compiled compiled() {
+        Compiled current = compiled;
+        if (current != null) return current;
+        synchronized (this) {
+            if (compiled != null) return compiled;
+
+            Map<String, List<RuleEntry>> byZone = new LinkedHashMap<>();
+            for (TerrainBiomeSettlement settlement : registry.all()) {
+                for (TerrainBiomeRule rule : settlement.rules()) {
+                    if (rule.rarity() <= 0f) continue;  // weightless rules can never be selected
+                    if (!rule.isAvailable()) continue;  // rule belongs to an optional mod that isn't installed
+                    byZone.computeIfAbsent(rule.zone(), zone -> new ArrayList<>())
+                            .add(new RuleEntry(settlement.index(), rule));
+                }
+            }
+
+            Map<String, Integer> zoneIds = new HashMap<>();
+            CompiledZone[] zones = new CompiledZone[byZone.size()];
+            int nextId = 0;
+            for (Map.Entry<String, List<RuleEntry>> entry : byZone.entrySet()) {
+                zones[nextId] = new CompiledZone(entry.getValue());
+                zoneIds.put(entry.getKey(), nextId);
+                nextId++;
+            }
+            compiled = new Compiled(zoneIds, zones);
+            return compiled;
+        }
+    }
+
+    /**
+     * Resolves a zone name to the id {@link #select(int, Scratch, short, float, float)} takes.
+     * Callers classifying many pixels resolve their zones once instead of hashing a string per
+     * pixel. Returns -1 for a zone no rule uses, which selects nothing.
+     */
+    public int zoneId(String zone) {
+        Integer id = compiled().zoneIds().get(zone);
+        return id == null ? -1 : id;
     }
 
     /**
@@ -107,9 +440,20 @@ public final class BiomeRuleEngine {
      */
     public short select(String zone, TerrainClimateSample sample, TerrainBiomeNoiseSample noiseValues,
                          short defaultIndex, float worldX, float worldZ) {
-        init();
-        RuleEntry[] rules = zoneGroups.get(zone);
-        if (rules == null) return defaultIndex;
+        Scratch scratch = new Scratch();
+        scratch.setClimate(sample);
+        scratch.setNoise(noiseValues);
+        return select(zoneId(zone), scratch, defaultIndex, worldX, worldZ);
+    }
+
+    /**
+     * Hot-path selection: the zone is already an id and the pixel's variables are already loaded
+     * into {@code scratch}. Semantically identical to
+     * {@link #select(String, TerrainClimateSample, TerrainBiomeNoiseSample, short, float, float)}.
+     */
+    public short select(int zoneId, Scratch scratch, short defaultIndex, float worldX, float worldZ) {
+        if (zoneId < 0) return defaultIndex;
+        CompiledZone zone = compiled().zones()[zoneId];
 
         // Single pass, no allocation. A biome with several matching rules simply gets scored once
         // per rule; since the key rises monotonically with weight for a fixed u, keeping the
@@ -128,15 +472,17 @@ public final class BiomeRuleEngine {
         short overrideWinner = -1;
         float bestOverrideKey = Float.NEGATIVE_INFINITY;
 
-        for (RuleEntry entry : rules) {
-            if (!entry.rule.matches(sample)) continue;
-            if (!entry.rule.matchesNoise(noiseValues)) continue;
+        int[] candidates = zone.candidates(
+                scratch.climateValues[TerrainBiomeCondition.Variable.TEMPERATURE_C.ordinal()]);
+        for (int candidate = 0, candidateCount = candidates.length; candidate < candidateCount; candidate++) {
+            int rule = candidates[candidate];
+            if (!zone.matches(rule, scratch)) continue;
 
             matches++;
             if (matches == 1) {
-                firstIndex = entry.index;
-                firstRarity = entry.rule.rarity();
-                firstOverride = entry.rule.isOverride();
+                firstIndex = zone.biomeIndex[rule];
+                firstRarity = zone.rarity[rule];
+                firstOverride = zone.override[rule];
                 continue;
             }
             if (matches == 2) {
@@ -150,15 +496,16 @@ public final class BiomeRuleEngine {
                 }
             }
 
-            float key = selectionKey(entry.index, entry.rule.rarity(), worldX, worldZ);
-            if (entry.rule.isOverride()) {
+            short index = zone.biomeIndex[rule];
+            float key = selectionKey(index, zone.rarity[rule], worldX, worldZ);
+            if (zone.override[rule]) {
                 if (key > bestOverrideKey) {
                     bestOverrideKey = key;
-                    overrideWinner = entry.index;
+                    overrideWinner = index;
                 }
             } else if (key > bestKey) {
                 bestKey = key;
-                winner = entry.index;
+                winner = index;
             }
         }
 

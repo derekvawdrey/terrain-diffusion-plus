@@ -4,7 +4,6 @@ import com.github.xandergos.terraindiffusionmc.biome.TerrainBiomeCatalog;
 import com.github.xandergos.terraindiffusionmc.biome.TerrainBiomeRegistry;
 import com.github.xandergos.terraindiffusionmc.biome.TerrainBiomeSettlement;
 import com.github.xandergos.terraindiffusionmc.config.TerrainDiffusionConfig;
-import com.github.xandergos.terraindiffusionmc.pipeline.BiomeClassifier;
 import com.github.xandergos.terraindiffusionmc.pipeline.LocalTerrainProvider;
 import com.github.xandergos.terraindiffusionmc.pipeline.LocalTerrainProvider.HeightmapData;
 import com.mojang.datafixers.util.Pair;
@@ -45,6 +44,8 @@ public class TerrainDiffusionBiomeSource extends BiomeSource {
     private volatile Map<Short, Holder<Biome>> biomeIndexMap = null;
     /** The subset of {@link #biomeIndexMap} this source will actually ever return. */
     private volatile List<Holder<Biome>> possibleBiomes = null;
+    /** Which {@link OverworldBiomeDelegate} generation {@link #possibleBiomes} was built against. */
+    private volatile int delegateStamp = -1;
 
     public TerrainDiffusionBiomeSource(HolderGetter<Biome> biomeLookup) {
         this.biomeLookup = biomeLookup;
@@ -56,13 +57,16 @@ public class TerrainDiffusionBiomeSource extends BiomeSource {
     }
 
     private void requireBiomeIndexMap() {
-        if (biomeIndexMap != null) return;
+        // The delegate resolves when the server loads its levels, which can be after this map was
+        // first built; its stamp changing means the set of biomes we may return has grown.
+        if (biomeIndexMap != null && delegateStamp == OverworldBiomeDelegate.stamp()) return;
 
         // getNoiseBiome runs concurrently on multiple chunk-generation worker threads;
         // without this lock two threads can race to build the map and one can observe
         // a partially-published biomeIndexMap, causing getNoiseBiome to return null.
         synchronized (this) {
-            if (biomeIndexMap != null) return;
+            int stamp = OverworldBiomeDelegate.stamp();
+            if (biomeIndexMap != null && delegateStamp == stamp) return;
 
             Map<Short, Holder<Biome>> resolved = new LinkedHashMap<>();
             List<Holder<Biome>> possible = new ArrayList<>();
@@ -82,8 +86,16 @@ public class TerrainDiffusionBiomeSource extends BiomeSource {
                     possible.add(biome);
                 }
             }
+            // Biomes the pack places only below the surface. selectUndergroundBiome really can
+            // return these, and a biome source that returns something it never advertised breaks
+            // feature sorting and structure placement. They are overworld biomes by construction
+            // -- they came from an overworld table -- so they carry no cross-dimension risk.
+            for (Holder<Biome> underground : OverworldBiomeDelegate.undergroundBiomes()) {
+                if (!possible.contains(underground)) possible.add(underground);
+            }
             possibleBiomes = Collections.unmodifiableList(possible);
             biomeIndexMap = Collections.unmodifiableMap(resolved);
+            delegateStamp = stamp;
         }
     }
 
@@ -145,6 +157,14 @@ public class TerrainDiffusionBiomeSource extends BiomeSource {
             int localX = Math.max(0, Math.min(data.width  - 1, blockX - blockStartX));
             int localZ = Math.max(0, Math.min(data.height - 1, blockZ - blockStartZ));
             short surfaceBiomeIndex = data.biomeIndexes[localZ][localX];
+
+            Holder<Biome> surfaceBiome = biomeIndexMap.get(surfaceBiomeIndex);
+            if (surfaceBiome != null) {
+                Holder<Biome> delegated = delegatedUndergroundBiome(
+                        data, localX, localZ, blockX, blockZ, blockY, surfaceBiome);
+                if (delegated != null) return delegated;
+            }
+
             short caveBiomeIndex = selectUndergroundBiome(data, localX, localZ, blockX, blockZ, surfaceBiomeIndex, blockY);
             Holder<Biome> entry = biomeIndexMap.get(caveBiomeIndex);
             if (entry != null) return entry;
@@ -158,14 +178,33 @@ public class TerrainDiffusionBiomeSource extends BiomeSource {
     }
 
     /**
+     * Asks the pack's own overworld table what belongs this far under our surface biome, per
+     * {@link OverworldBiomeDelegate}. Null means it had nothing to say and the built-in placement
+     * below should decide -- either because no pack table was available, or because it puts
+     * nothing but the surface biome here.
+     */
+    private static Holder<Biome> delegatedUndergroundBiome(HeightmapData data, int localX, int localZ,
+                                                           int blockX, int blockZ, int blockY,
+                                                           Holder<Biome> surfaceBiome) {
+        int surfaceHeight = HeightConverter.convertToMinecraftHeight(data.heightmap[localZ][localX]);
+        return OverworldBiomeDelegate.undergroundBiome(surfaceBiome, surfaceHeight - blockY, blockY,
+                regionNoise(EROSION_JITTER_NOISE_SEED, blockX, blockZ),
+                regionNoise(CONTINENTALNESS_JITTER_NOISE_SEED, blockX, blockZ),
+                regionNoise(WEIRDNESS_JITTER_NOISE_SEED, blockX, blockZ));
+    }
+
+    /**
      * Selects the biome for a position below the terrain surface.
      *
-     * <p>Vanilla does not treat the underground as a solid slab of cave biomes: the surface
-     * biome extends downward, and lush/dripstone caves are sparse patches picked by the
-     * climate sampler (humidity for lush, continentalness for dripstone) within a depth band,
-     * with the deep dark reserved for the bottom of the world. This reproduces that layout
-     * using the terrain heightmap for depth and a coherent world-space noise field for the
-     * patch shapes.</p>
+     * <p>This is the fallback for packs with no multi-noise overworld to delegate to. It
+     * approximates what vanilla's table would have done: the surface biome extends downward, and
+     * lush/dripstone caves are sparse patches picked on humidity and continentalness within a
+     * depth band, with the deep dark reserved for the bottom of the world -- using the terrain
+     * heightmap for depth and a coherent world-space noise field for the patch shapes.</p>
+     *
+     * <p>It deliberately knows about no mod's biomes. A mod that adds cave biomes puts them in the
+     * overworld table, and {@link OverworldBiomeDelegate} places them from there, with the mod's
+     * own parameters rather than a rule written here on its behalf.</p>
      */
     private static short selectUndergroundBiome(HeightmapData data, int localX, int localZ,
                                                 int blockX, int blockZ,
@@ -181,21 +220,6 @@ public class TerrainDiffusionBiomeSource extends BiomeSource {
         if (blockY < DEEP_DARK_MAX_Y && depthBelowSurface > DEEP_DARK_MIN_DEPTH
                 && regionNoise(DEEP_DARK_NOISE_SEED, blockX, blockZ) > DEEP_DARK_THRESHOLD) {
             return TerrainBiomeCatalog.DEEP_DARK;
-        }
-
-        // Sengoku Jidai's two cave biomes, when that mod is installed and this is inside the
-        // Japan region. Checked ahead of the vanilla pair so they read as the regional variant
-        // rather than as leftovers in the gaps; each still claims only a slice of its noise
-        // field, so vanilla caves keep the majority.
-        if (isInJapanRegion(blockX, blockZ)) {
-            if (SUISHO_CAVES_INDEX >= 0 && isSnowySurfaceBiome(surfaceBiomeIndex)
-                    && regionNoise(SUISHO_CAVES_NOISE_SEED, blockX, blockZ) > SUISHO_CAVES_THRESHOLD) {
-                return SUISHO_CAVES_INDEX;
-            }
-            if (SENGOKU_CAVERNS_INDEX >= 0 && isInlandBiome(surfaceBiomeIndex)
-                    && regionNoise(SENGOKU_CAVERNS_NOISE_SEED, blockX, blockZ) > SENGOKU_CAVERNS_THRESHOLD) {
-                return SENGOKU_CAVERNS_INDEX;
-            }
         }
 
         // Lush caves under humid surfaces; vanilla selects them on humidity >= 0.7.
@@ -215,7 +239,7 @@ public class TerrainDiffusionBiomeSource extends BiomeSource {
     }
 
     /** Depth below the surface where cave biomes start (vanilla depth parameter ~0.2). */
-    private static final int CAVE_BIOME_MIN_DEPTH = 24;
+    private static final int CAVE_BIOME_MIN_DEPTH = OverworldBiomeDelegate.MIN_DEPTH_BELOW_SURFACE;
     /** Depth below the surface the deep dark needs (vanilla depth parameter ~1.1). */
     private static final int DEEP_DARK_MIN_DEPTH = 100;
     /** The deep dark is additionally confined to the bottom of the world. */
@@ -230,37 +254,12 @@ public class TerrainDiffusionBiomeSource extends BiomeSource {
     private static final float LUSH_CAVES_THRESHOLD = 0.10f;
     private static final int DRIPSTONE_NOISE_SEED = 33419;
     private static final float DRIPSTONE_THRESHOLD = 0.25f;
-    // Higher thresholds than the vanilla pair: these are a regional accent, so they take roughly
-    // a quarter of eligible area rather than a third.
-    private static final int SUISHO_CAVES_NOISE_SEED = 61183;
-    private static final float SUISHO_CAVES_THRESHOLD = 0.35f;
-    private static final int SENGOKU_CAVERNS_NOISE_SEED = 74902;
-    private static final float SENGOKU_CAVERNS_THRESHOLD = 0.40f;
 
-    private static final TerrainBiomeRegistry REGISTRY = TerrainBiomeRegistry.instance();
-
-    /**
-     * Catalog indices for Sengoku's cave biomes, or -1 when that mod isn't installed. Resolved by
-     * key rather than being {@code TerrainBiomeCatalog} constants because these entries are
-     * mod-gated -- {@link TerrainBiomeRegistry#build} drops them entirely without the mod, and a
-     * fixed constant would then point at nothing.
-     */
-    private static final short SENGOKU_CAVERNS_INDEX = optionalBiomeIndex("sengoku:caverns");
-    private static final short SUISHO_CAVES_INDEX = optionalBiomeIndex("sengoku:suisho_caves");
-
-    private static short optionalBiomeIndex(String key) {
-        TerrainBiomeSettlement settlement = REGISTRY.byKey(key);
-        return settlement != null ? settlement.index() : (short) -1;
-    }
-
-    /**
-     * Whether this column is inside the Japan region, sharing the exact field the catalog's
-     * {@code japanRegion} rules use so cave placement and surface placement can't disagree about
-     * where the region is.
-     */
-    private static boolean isInJapanRegion(int blockX, int blockZ) {
-        return BiomeClassifier.sampleJapanRegion(blockX, blockZ) >= 0f;
-    }
+    // Fields that break the delegated underground into patches. Separate seeds from the ones
+    // above so the two placements do not share their patch shapes.
+    private static final int EROSION_JITTER_NOISE_SEED = 61183;
+    private static final int CONTINENTALNESS_JITTER_NOISE_SEED = 74902;
+    private static final int WEIRDNESS_JITTER_NOISE_SEED = 18844;
 
     /**
      * Samples the cave-region noise field in world space, so patches do not repeat per
@@ -283,24 +282,6 @@ public class TerrainDiffusionBiomeSource extends BiomeSource {
             case TerrainBiomeCatalog.OLD_GROWTH_SPRUCE_TAIGA:
             case TerrainBiomeCatalog.OLD_GROWTH_PINE_TAIGA:
             case TerrainBiomeCatalog.MUSHROOM_FIELDS:
-                return true;
-            default:
-                return false;
-        }
-    }
-
-    /**
-     * Cold surfaces, under which Sengoku's ice-crystal caves form. Deliberately the frozen
-     * *land* biomes only: the oceanic ones sit under water rather than under cave-bearing rock.
-     */
-    private static boolean isSnowySurfaceBiome(short index) {
-        switch (index) {
-            case TerrainBiomeCatalog.SNOWY_PLAINS:
-            case TerrainBiomeCatalog.ICE_SPIKES:
-            case TerrainBiomeCatalog.SNOWY_TAIGA:
-            case TerrainBiomeCatalog.SNOWY_SLOPES:
-            case TerrainBiomeCatalog.FROZEN_PEAKS:
-            case TerrainBiomeCatalog.GROVE:
                 return true;
             default:
                 return false;

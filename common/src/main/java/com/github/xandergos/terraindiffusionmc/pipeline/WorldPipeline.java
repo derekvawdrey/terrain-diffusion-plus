@@ -26,9 +26,22 @@ public final class WorldPipeline implements AutoCloseable {
     static final int COARSE_TILE_SIZE   = 64;
     static final int COARSE_TILE_STRIDE = 48;
     static final int LATENT_TILE_SIZE   = 64;
-    static final int LATENT_TILE_STRIDE = 32;
     static final int DECODER_TILE_SIZE  = 256;
-    static final int DECODER_TILE_STRIDE = 192;
+
+    /**
+     * Window strides for the two expensive stages. The default overlap generates each latent
+     * pixel four times and each decoder pixel about twice, and blends the copies; the reduced
+     * setting trades some of that blending margin for roughly a third less inference. See
+     * {@link TerrainDiffusionConfig#windowOverlap()} -- the choice changes generated terrain, so
+     * it is read once here and belongs to a world for its lifetime.
+     */
+    static final int LATENT_TILE_STRIDE;
+    static final int DECODER_TILE_STRIDE;
+    static {
+        boolean reduced = TerrainDiffusionConfig.windowOverlap() == TerrainDiffusionConfig.WindowOverlap.REDUCED;
+        LATENT_TILE_STRIDE = reduced ? 48 : 32;
+        DECODER_TILE_STRIDE = reduced ? 224 : 192;
+    }
 
     static final float[] MODEL_MEANS = WorldPipelineModelConfig.coarseMeans();
     static final float[] MODEL_STDS = WorldPipelineModelConfig.coarseStds();
@@ -119,6 +132,7 @@ public final class WorldPipeline implements AutoCloseable {
         this.seed = s;
         this.syntheticMapFactory = new SyntheticMapFactory(s);
         tileStore.clearAllCaches();
+        GaussianNoisePatch.clearCache();
     }
 
     // =========================================================================
@@ -487,9 +501,13 @@ public final class WorldPipeline implements AutoCloseable {
      * @return float[2]: [0] = elev (H*W flat), [1] = climate (5*H*W flat, or null)
      */
     public float[][] get(int i1, int j1, int i2, int j2, boolean withClimate) {
+        long start = System.nanoTime();
         float[] elevFlat = computeElev(i1, j1, i2, j2);
+        long afterElev = System.nanoTime();
         int H = i2 - i1, W = j2 - j1;
         float[] climate = withClimate ? computeClimate(i1, j1, i2, j2, elevFlat, H, W) : null;
+        LOG.debug("WorldPipeline.get {}x{} (ms): elev(inference+laplacian)={} climate={}",
+                H, W, (afterElev - start) / 1_000_000L, (System.nanoTime() - afterElev) / 1_000_000L);
         return new float[][]{elevFlat, climate};
     }
 
@@ -511,8 +529,10 @@ public final class WorldPipeline implements AutoCloseable {
         int pj2 = -Math.floorDiv(-(j2 + padHr), lc) * lc;
         int pH = pi2 - pi1, pW = pj2 - pj1;
 
+        long tStart = System.nanoTime();
         // Residual slice (2, pH, pW)
         FloatTensor resSlice = residual.getSlice(new int[]{0, pi1, pj1}, new int[]{2, pi2, pj2});
+        long tResidual = System.nanoTime();
         float[][] residualP = new float[pH][pW];
         HydrologyParallel.forEachRow(0, pH, pW, r -> {
             for (int c = 0; c < pW; c++) {
@@ -535,8 +555,11 @@ public final class WorldPipeline implements AutoCloseable {
             }
         });
 
+        long tLatent = System.nanoTime();
         float[][] newLowres = LaplacianUtils.laplacianDenoise(residualP, lowfreqP, sigma);
+        long tDenoise = System.nanoTime();
         float[][] elevP = LaplacianUtils.laplacianDecode(residualP, newLowres);
+        long tDecode = System.nanoTime();
 
         int oi = i1 - pi1, oj = j1 - pj1, H = i2 - i1, W = j2 - j1;
         float[] flat = new float[H * W];
@@ -546,6 +569,10 @@ public final class WorldPipeline implements AutoCloseable {
                 flat[r * W + c] = (float) (Math.signum(es) * es * es);
             }
         });
+        LOG.debug("WorldPipeline.computeElev {}x{} (ms): residualStage={} latentStage={} denoise={} decode={} square={}",
+                H, W, (tResidual - tStart) / 1_000_000L, (tLatent - tResidual) / 1_000_000L,
+                (tDenoise - tLatent) / 1_000_000L, (tDecode - tDenoise) / 1_000_000L,
+                (System.nanoTime() - tDecode) / 1_000_000L);
         return flat;
     }
 

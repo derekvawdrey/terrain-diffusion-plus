@@ -533,6 +533,21 @@ public final class LocalTerrainProvider {
                 hydrology.width(), hydrology.height());
     }
 
+    /**
+     * Generates one canonical hydrology tile directly, bypassing both tile caches and the
+     * world-scoped scale settings. For benchmarks and diagnostics ({@link WorldGenBenchmark});
+     * chunk generation goes through {@link HydrologyProvider} so tiles stay shared and cached.
+     */
+    public HydrologyProvider.HydrologyTile generateHydrologyTileUncached(
+            int coreI0, int coreJ0, int coreSize, int halo, int scale, boolean blockLowAltitudeSources) {
+        return computeHydrologyTile(coreI0, coreJ0, coreSize, halo, scale, blockLowAltitudeSources);
+    }
+
+    /** Drops every retained pipeline tensor window, so a benchmark tile starts from a cold cache. */
+    public void clearPipelineCaches() {
+        pipeline.clearCaches();
+    }
+
     /** Generate exactly one fixed hydrology tile, including its fixed analysis halo. */
     private HydrologyProvider.HydrologyTile computeHydrologyTile(
             int coreI0, int coreJ0, int coreSize, int halo, int scale,
@@ -659,11 +674,12 @@ public final class LocalTerrainProvider {
         int nativeHeight = i2p - i1p;
         int nativeWidth = j2p - j1p;
 
+        long tStart = System.nanoTime();
         float[][] raw = pipeline.get(i1p, j1p, i2p, j2p, true);
+        long tPipeline = System.nanoTime();
         float[][] nativeElevation = to2D(raw[0], nativeHeight, nativeWidth);
         int upHeight = nativeHeight * scale;
         int upWidth = nativeWidth * scale;
-        float[][] upscaledElevation = LaplacianUtils.bilinearResize(nativeElevation, upHeight, upWidth);
 
         int nativePadUp = 2 * scale;
         int offsetI = i1 - i1n * scale;
@@ -671,12 +687,22 @@ public final class LocalTerrainProvider {
         int cropI = nativePadUp + offsetI;
         int cropJ = nativePadUp + offsetJ;
 
-        float[] elevation = cropFlat(upscaledElevation, cropI, cropJ,
-                height, width, upHeight, upWidth);
-        float[] elevationWithBorder = cropFlat(upscaledElevation, cropI - 1, cropJ - 1,
-                height + 2, width + 2, upHeight, upWidth);
+        // The bordered window is what both outputs come from: resizing the whole upsampled grid
+        // and cropping it twice would sample every pixel three times and hold a second
+        // full-resolution copy of it.
+        float[] elevationWithBorder = LaplacianUtils.bilinearResizeWindow(nativeElevation,
+                upHeight, upWidth, cropI - 1, cropJ - 1, height + 2, width + 2);
+        float[] elevation = new float[height * width];
+        int borderedWidth = width + 2;
+        HydrologyParallel.forEachRow(0, height, width, r ->
+                System.arraycopy(elevationWithBorder, (r + 1) * borderedWidth + 1,
+                        elevation, r * width, width));
+        long tElevation = System.nanoTime();
         float[] climate = upsampleClimate(raw[1], nativeHeight, nativeWidth,
                 cropI, cropJ, height, width, scale, upHeight, upWidth);
+        LOG.debug("Upsampled terrain {}x{} (ms): pipeline={} elevation={} climate={}",
+                height, width, millis(tStart, tPipeline), millis(tPipeline, tElevation),
+                millis(tElevation, System.nanoTime()));
         return new UpsampledTerrainSample(elevation, elevationWithBorder, climate);
     }
 
@@ -777,12 +803,11 @@ public final class LocalTerrainProvider {
             HydrologyParallel.forEachRow(0, nH, nW, r ->
                     System.arraycopy(climNative, channel * nH * nW + r * nW,
                             chNative[r], 0, nW));
-            float[][] chUp = LaplacianUtils.bilinearResize(chNative, upH, upW);
-            HydrologyParallel.forEachRow(0, H, W, r -> {
-                for (int c = 0; c < W; c++)
-                    result[channel * H * W + r * W + c] =
-                            chUp[cropI1 + r][cropJ1 + c];
-            });
+            // Only the cropped window is ever read, and it is the majority of the upsampled grid:
+            // resizing all of it first meant a second full-size array and a second pass per channel.
+            float[] chUp = LaplacianUtils.bilinearResizeWindow(chNative, upH, upW,
+                    cropI1, cropJ1, H, W);
+            System.arraycopy(chUp, 0, result, channel * H * W, H * W);
         }
         return result;
     }

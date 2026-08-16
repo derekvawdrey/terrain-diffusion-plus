@@ -1,8 +1,10 @@
 package com.github.xandergos.terraindiffusionmc.mixin;
 
 import com.github.xandergos.terraindiffusionmc.pipeline.SpawnSelector;
+import com.github.xandergos.terraindiffusionmc.world.OverworldBiomeDelegate;
 import com.github.xandergos.terraindiffusionmc.world.SengokuSurfaceRules;
 import net.minecraft.core.BlockPos;
+import net.minecraft.core.RegistryAccess;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.level.Level;
@@ -22,7 +24,9 @@ public class MinecraftServerMixin {
      */
     @Inject(method = "loadLevel", at = @At("HEAD"))
     private void applySengokuSurfaceRules(CallbackInfo ci) {
-        SengokuSurfaceRules.applyIfPresent(((MinecraftServer) (Object) this).registryAccess());
+        RegistryAccess registries = ((MinecraftServer) (Object) this).registryAccess();
+        SengokuSurfaceRules.applyIfPresent(registries);
+        OverworldBiomeDelegate.initialize(registries);
     }
 
     @Inject(method = "setInitialSpawn", at = @At("HEAD"), cancellable = true)

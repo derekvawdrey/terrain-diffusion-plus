@@ -300,9 +300,10 @@ subprojects { subproject ->
 
                 // YUNG's Better Caves (LGPL-3.0) + its required YUNG's API, bundled jar-in-jar so caves
                 // work out of the box. See NOTICE.md for attribution/license details.
-                // Better Caves' own carver stops at y=80, which is below most of our terrain; we ship
-                // data/bettercaves/worldgen/configured_carver/better_cave.json to raise top_y to the
-                // top of our dimension so caves follow the surface at every world scale.
+                // It is bundled, not overridden: whatever a pack or the player configures for it is
+                // what generates. We used to ship a data/bettercaves/... file replacing its carver
+                // config to raise top_y; that clobbered every other pack's settings, in every world,
+                // so it is gone. Carver altitudes are lifted at runtime instead -- see ScaledCarvers.
                 modImplementation 'maven.modrinth:yungs-api:1.21.1-Fabric-5.1.6'
                 include 'maven.modrinth:yungs-api:1.21.1-Fabric-5.1.6'
                 modImplementation 'maven.modrinth:yungs-better-caves:1.21.1-Fabric-3.1.4'

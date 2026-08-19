@@ -1,6 +1,7 @@
 package com.github.xandergos.terraindiffusionmc.pipeline;
 
 import com.github.xandergos.terraindiffusionmc.config.TerrainDiffusionConfig;
+import com.github.xandergos.terraindiffusionmc.hydrology.CoarseDrainageProvider;
 import com.github.xandergos.terraindiffusionmc.hydrology.DetailedRiverCarver;
 import com.github.xandergos.terraindiffusionmc.hydrology.FluvialRiverNetwork;
 import com.github.xandergos.terraindiffusionmc.hydrology.HydrologyParallel;
@@ -226,12 +227,22 @@ public final class LocalTerrainProvider {
 
     private final WorldPipeline pipeline;
     private final HydrologyProvider hydrologyProvider;
+    private final CoarseDrainageProvider coarseDrainageProvider;
 
     private static final Object INIT_LOCK = new Object();
 
     private LocalTerrainProvider(long seed, PipelineModels models) {
         this.pipeline = new WorldPipeline(seed, models);
         this.hydrologyProvider = new HydrologyProvider(this::computeHydrologyTile);
+        this.coarseDrainageProvider = new CoarseDrainageProvider(
+                (s, scale, li0, lj0, latentSize) -> buildCoarseTile(scale, li0, lj0, latentSize));
+    }
+
+    /** Coarse drainage super-tile contents: latent-resolution elevation and climate, then the shared flood pass. */
+    private CoarseDrainageProvider.CoarseTile buildCoarseTile(int scale, int li0, int lj0, int latentSize) {
+        float[] elevation = pipeline.getLatentElevation(li0, lj0, li0 + latentSize, lj0 + latentSize);
+        float[] climate = pipeline.getLatentClimate(li0, lj0, li0 + latentSize, lj0 + latentSize, elevation);
+        return CoarseDrainageProvider.buildCoarseTile(li0, lj0, latentSize, elevation, climate);
     }
 
     /** Seed is 64-bit world seed. Creates provider once; later worlds only update seed and clear caches (lightweight). */
@@ -245,6 +256,7 @@ public final class LocalTerrainProvider {
         } else if (instanceSeed != seed) {
             INSTANCE.pipeline.setSeed(seed);
             INSTANCE.hydrologyProvider.clear();
+            INSTANCE.coarseDrainageProvider.clear();
             instanceSeed = seed;
             clearRegionCaches();
         }
@@ -270,6 +282,7 @@ public final class LocalTerrainProvider {
         LocalTerrainProvider provider = INSTANCE;
         if (provider != null) {
             provider.hydrologyProvider.clear();
+            provider.coarseDrainageProvider.clear();
             provider.pipeline.clearCaches();
         }
     }
@@ -576,9 +589,14 @@ public final class LocalTerrainProvider {
         }
         long tSample = System.nanoTime();
 
+        // Upstream load crossing this analysis window, from the coarse drainage super-tile.
+        // Resolved against the window's own drainage, so it is supplied as a callback.
         FluvialRiverNetwork.RiverTopology topology = FluvialRiverNetwork.build(
                 instanceSeed, analysisI0, analysisJ0, elevation, climate, analysisHeight, analysisWidth,
-                pixelSizeM, blockLowAltitudeSources, WorldScaleManager.MINIMUM_SOURCE_ELEVATION_METERS);
+                pixelSizeM, blockLowAltitudeSources, WorldScaleManager.MINIMUM_SOURCE_ELEVATION_METERS,
+                (downstream, baseAccumulation) -> coarseDrainageProvider.boundaryInflow(
+                        instanceSeed, scale, analysisI0, analysisJ0,
+                        analysisHeight, analysisWidth, elevation, downstream));
         long tRiverBuild = System.nanoTime();
         DetailedRiverCarver.CarvedTerrain carved = DetailedRiverCarver.carve(
                 elevation, topology, analysisHeight, analysisWidth, pixelSizeM);

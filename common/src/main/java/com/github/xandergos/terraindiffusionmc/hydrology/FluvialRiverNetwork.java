@@ -38,6 +38,40 @@ public final class FluvialRiverNetwork {
 
     private FluvialRiverNetwork() {}
 
+    /**
+     * Upstream river load that enters this analysis window across its boundary.
+     *
+     * <p>Each entry adds a coarse-resolution accumulation (effective runoff area in km²,
+     * the same units as the accumulated cell loads) to the given window cell, before the
+     * downstream propagation of {@link #build} accumulates it through the window. Indices
+     * are flat cell offsets within the window (row-major, {@code row * width + col}).</p>
+     */
+    public record BoundaryInflow(int[] cellIndices, float[] flows) {
+        public BoundaryInflow {
+            if (cellIndices.length != flows.length) {
+                throw new IllegalArgumentException("BoundaryInflow arrays must have equal length");
+            }
+        }
+    }
+
+    /**
+     * Supplies the upstream load entering the window, once its drainage is known.
+     *
+     * <p>Resolved after the flood rather than before it because where the load may be placed
+     * depends on the flood's own routing: the window border is the flood's outlet, so cells
+     * beside it drain straight back out, and load put there leaves without ever reaching the
+     * tile. Only {@code downstream} says which cells carry water inward.</p>
+     */
+    @FunctionalInterface
+    public interface BoundaryInflowResolver {
+        /**
+         * @param downstream flood-resolved D8 links over the window; -1 at an outlet
+         * @param baseAccumulation the window's own accumulated load, before any inflow is added;
+         *                         identifies which cells are channels and which are hillside
+         */
+        BoundaryInflow resolve(int[] downstream, float[] baseAccumulation);
+    }
+
     public static int analysisPaddingPixels(float pixelSizeM) {
         float meters = Math.max(768.0f, pixelSizeM * 10.0f);
         int pad = (int) Math.ceil(meters / Math.max(1.0f, pixelSizeM));
@@ -47,6 +81,19 @@ public final class FluvialRiverNetwork {
     public static RiverTopology build(long seed, int i0, int j0, float[] elevation, float[] climate,
                                       int height, int width, float pixelSizeM,
                                       boolean blockSourcesBelowElevation, float minimumSourceElevationM) {
+        return build(seed, i0, j0, elevation, climate, height, width, pixelSizeM,
+                blockSourcesBelowElevation, minimumSourceElevationM, null);
+    }
+
+    /**
+     * Builds the river topology, additionally injecting upstream loads that enter the analysis
+     * window across its boundary. {@code boundaryInflowResolver} may be null, in which case
+     * behaviour is identical to the single-window build.
+     */
+    public static RiverTopology build(long seed, int i0, int j0, float[] elevation, float[] climate,
+                                      int height, int width, float pixelSizeM,
+                                      boolean blockSourcesBelowElevation, float minimumSourceElevationM,
+                                      BoundaryInflowResolver boundaryInflowResolver) {
         int n = Math.multiplyExact(height, width);
         if (elevation.length != n) {
             throw new IllegalArgumentException("elevation length does not match grid shape");
@@ -61,11 +108,19 @@ public final class FluvialRiverNetwork {
         // exactly; drainage tie-breaking in flat lake surfaces may differ (valid either way),
         // and is machine-independent because the strip count is fixed, not CPU-derived.
         // Validated against runPriorityFloodSequential by HydrologyFloodValidation.
-        PriorityFlood flood = runPriorityFloodParallel(elevation, height, width);
-        resolveFlatDrainage(elevation, flood, height, width);
+        PriorityFlood flood = runDrainage(elevation, height, width);
         long t1 = System.nanoTime();
         float[] accumulation = accumulateRunoff(elevation, climate, flood.downstream, flood.order,
-                flood.orderSize, height, width, pixelSizeM);
+                flood.orderSize, height, width, pixelSizeM, null);
+        if (boundaryInflowResolver != null) {
+            // The resolver needs to see which cells are channels, which is what the first pass
+            // establishes, so inflow costs a second propagation over the same order.
+            BoundaryInflow boundaryInflow = boundaryInflowResolver.resolve(flood.downstream, accumulation);
+            if (boundaryInflow != null && boundaryInflow.cellIndices().length > 0) {
+                accumulation = accumulateRunoff(elevation, climate, flood.downstream, flood.order,
+                        flood.orderSize, height, width, pixelSizeM, boundaryInflow);
+            }
+        }
         long t2 = System.nanoTime();
         boolean[] visible = selectVisibleNetwork(elevation, climate, accumulation, flood.downstream, flood.order,
                 flood.orderSize, height, width, i0, j0, blockSourcesBelowElevation, minimumSourceElevationM);
@@ -1067,6 +1122,24 @@ public final class FluvialRiverNetwork {
     }
 
     /**
+     * Flood plus flat drainage, as a unit. Reused by {@link CoarseDrainageProvider} for the coarse
+     * pass so both resolutions share the exact same drainage guarantees.
+     *
+     * <p>Uses {@link #runPriorityFloodFast}, which reproduces {@link #runPriorityFloodSequential}
+     * exactly -- filled surface, {@code downstream} and order alike. {@link
+     * #runPriorityFloodParallel} must not be used here: it agrees on the filled surface but leaves
+     * roughly two thirds of land cells with no {@code downstream} link at all (measured 65% on real
+     * terrain, 42-74% on synthetic), so flow never accumulates through them and rivers break off
+     * mid-channel. Fast costs nothing for that correctness -- 0.53s against parallel's 0.41s on a
+     * 2304x2304 window, against ~23s for the whole tile.</p>
+     */
+    static PriorityFlood runDrainage(float[] elevation, int height, int width) {
+        PriorityFlood flood = runPriorityFloodFast(elevation, height, width);
+        resolveFlatDrainage(elevation, flood, height, width);
+        return flood;
+    }
+
+    /**
      * Parallel priority-flood via row-strip domain decomposition, in four phases:
      *
      * <p><b>1.</b> Every strip is flooded independently in parallel using only true seeds (each
@@ -1105,6 +1178,14 @@ public final class FluvialRiverNetwork {
      * from its same-strip source seeds. This sidesteps reconstructing the geometric path by
      * hand: the flood's own propagation finds it, and assigns those cells an interior-consistent
      * downstream link in the process.
+     *
+     * <p><b>Not fit for use, and not used.</b> The claim below -- that it differs from
+     * {@link #runPriorityFloodSequential} only in tie-breaking across flat lake surfaces -- holds
+     * for the filled surface but not for {@code downstream}: this leaves 42-74% of interior land
+     * cells with {@code downstream == -1}, against zero for the sequential and fast floods, which
+     * severs flow accumulation and fragments the river network. {@link #runDrainage} therefore
+     * calls {@link #runPriorityFloodFast}. Kept only so {@link HydrologyFloodValidation} can keep
+     * measuring it.
      *
      * <p>The one behavioral difference from {@link #runPriorityFloodSequential} is in perfectly
      * flat filled regions (lake surfaces): when several neighbors tie for the minimum crossing
@@ -1583,8 +1664,10 @@ public final class FluvialRiverNetwork {
         return orderSize;
     }
 
-    private static float[] accumulateRunoff(float[] elevation, float[] climate, int[] downstream,
-                                             int[] order, int orderSize, int height, int width, float pixelSizeM) {
+    /** Visible to {@link CoarseDrainageProvider}, which reuses it for the coarse pass without inflow. */
+    static float[] accumulateRunoff(float[] elevation, float[] climate, int[] downstream,
+                                    int[] order, int orderSize, int height, int width, float pixelSizeM,
+                                    BoundaryInflow boundaryInflow) {
         int n = height * width;
         float[] accumulation = new float[n];
         float cellAreaKm2 = (pixelSizeM * pixelSizeM) / 1_000_000.0f;
@@ -1592,6 +1675,14 @@ public final class FluvialRiverNetwork {
             accumulation[idx] = elevation[idx] <= SEA_LEVEL_METERS ? 0.0f
                     : localRunoff(idx, elevation[idx], climate, n) * cellAreaKm2;
         });
+        if (boundaryInflow != null) {
+            int[] cells = boundaryInflow.cellIndices();
+            float[] flows = boundaryInflow.flows();
+            for (int k = 0; k < cells.length; k++) {
+                int cell = cells[k];
+                if (cell >= 0 && cell < n) accumulation[cell] += flows[k];
+            }
+        }
         for (int oi = orderSize - 1; oi >= 0; oi--) {
             int idx = order[oi];
             int down = downstream[idx];

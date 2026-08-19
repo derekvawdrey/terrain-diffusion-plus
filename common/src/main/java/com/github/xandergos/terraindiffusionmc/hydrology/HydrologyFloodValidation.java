@@ -43,6 +43,13 @@ public class HydrologyFloodValidation {
         FluvialRiverNetwork.PriorityFlood parallel =
                 FluvialRiverNetwork.runPriorityFloodParallel(elevation, height, width);
 
+        // Every interior land cell must drain somewhere. Comparing only the filled surface misses
+        // the failure that matters: a flood can agree on filled values to the bit while leaving
+        // most cells with downstream == -1, which severs accumulation and breaks rivers mid-channel.
+        if (!validateNoOrphans("sequential", sequential, elevation, height, width, seed)) return false;
+        if (!validateNoOrphans("fast", FluvialRiverNetwork.runPriorityFloodFast(elevation, height, width),
+                elevation, height, width, seed)) return false;
+
         int n = height * width;
         float[] filledSeq = sequential.filledSurface();
         float[] filledPar = parallel.filledSurface();
@@ -130,6 +137,30 @@ public class HydrologyFloodValidation {
                 height, width, seed, pass ? "EXACT" : "FAIL",
                 filledMismatches, downstreamMismatches, orderMismatches,
                 sequential.orderSize(), fast.orderSize());
+        return pass;
+    }
+
+    /**
+     * Every interior land cell must have somewhere to drain to. Only border cells and cells at or
+     * below sea level may terminate a flow path; anything else is an orphan, and flow that reaches
+     * it stops there instead of continuing downstream.
+     */
+    private static boolean validateNoOrphans(String label, FluvialRiverNetwork.PriorityFlood flood,
+                                             float[] elevation, int height, int width, long seed) {
+        FluvialRiverNetwork.resolveFlatDrainage(elevation, flood, height, width);
+        int orphans = 0;
+        int land = 0;
+        for (int idx = 0; idx < height * width; idx++) {
+            int r = idx / width;
+            int c = idx - r * width;
+            if (r == 0 || c == 0 || r == height - 1 || c == width - 1) continue;
+            if (!(elevation[idx] > 0f)) continue;
+            land++;
+            if (flood.downstream()[idx] < 0) orphans++;
+        }
+        boolean pass = orphans == 0;
+        System.out.printf("size=%dx%d seed=%d: %s orphaned interior land cells = %d of %d %s%n",
+                height, width, seed, label, orphans, land, pass ? "OK" : "FAIL");
         return pass;
     }
 

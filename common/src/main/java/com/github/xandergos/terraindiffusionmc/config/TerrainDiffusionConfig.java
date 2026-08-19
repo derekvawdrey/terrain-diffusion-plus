@@ -31,6 +31,9 @@ public final class TerrainDiffusionConfig {
     private static final int DEFAULT_HYDROLOGY_CACHE_MAX_MIB = 160;
     private static final int DEFAULT_HYDROLOGY_CACHE_MAX_ENTRIES = 5;
     private static final boolean DEFAULT_HYDROLOGY_DISK_CACHE_ENABLED = true;
+    private static final int DEFAULT_COARSE_DRAINAGE_CACHE_MAX_MIB = 320;
+    private static final int DEFAULT_COARSE_DRAINAGE_CACHE_MAX_ENTRIES = 4;
+    private static final boolean DEFAULT_COARSE_DRAINAGE_DISK_CACHE_ENABLED = true;
     private static final boolean DEFAULT_SURFACE_FEATURES_ENABLED = true;
     private static final boolean DEFAULT_OCEAN_ISLANDS_ENABLED = true;
     private static final float DEFAULT_OCEAN_ISLAND_DENSITY = 1.0f;
@@ -280,6 +283,26 @@ public final class TerrainDiffusionConfig {
         return readString("hydrology.disk_cache.namespace", "default");
     }
 
+    /** Maximum retained coarse drainage tiles, in bytes. */
+    public static long coarseDrainageCacheMaxBytes() {
+        return positiveMibToBytes("coarse_drainage.cache.max_mib", DEFAULT_COARSE_DRAINAGE_CACHE_MAX_MIB);
+    }
+
+    /** Maximum retained coarse drainage tiles, by entry count. */
+    public static int coarseDrainageCacheMaxEntries() {
+        return readPositiveInt("coarse_drainage.cache.max_entries", DEFAULT_COARSE_DRAINAGE_CACHE_MAX_ENTRIES);
+    }
+
+    /** Whether coarse drainage tiles are persisted under the game cache directory. */
+    public static boolean coarseDrainageDiskCacheEnabled() {
+        return readBoolean("coarse_drainage.disk_cache.enabled", DEFAULT_COARSE_DRAINAGE_DISK_CACHE_ENABLED);
+    }
+
+    /** Namespace used to invalidate disk tiles when custom terrain models are replaced. */
+    public static String coarseDrainageDiskCacheNamespace() {
+        return readString("coarse_drainage.disk_cache.namespace", "default");
+    }
+
     /**
      * Whether open ocean gets islands. The trained elevation distribution is Earth's, whose deep
      * ocean is a featureless 3-5 km plain, so islands are stamped into the conditioning map
@@ -350,6 +373,10 @@ public final class TerrainDiffusionConfig {
             PROPERTIES.setProperty("hydrology.cache.max_entries", String.valueOf(DEFAULT_HYDROLOGY_CACHE_MAX_ENTRIES));
             PROPERTIES.setProperty("hydrology.disk_cache.enabled", String.valueOf(DEFAULT_HYDROLOGY_DISK_CACHE_ENABLED));
             PROPERTIES.setProperty("hydrology.disk_cache.namespace", "default");
+            PROPERTIES.setProperty("coarse_drainage.cache.max_mib", String.valueOf(DEFAULT_COARSE_DRAINAGE_CACHE_MAX_MIB));
+            PROPERTIES.setProperty("coarse_drainage.cache.max_entries", String.valueOf(DEFAULT_COARSE_DRAINAGE_CACHE_MAX_ENTRIES));
+            PROPERTIES.setProperty("coarse_drainage.disk_cache.enabled", String.valueOf(DEFAULT_COARSE_DRAINAGE_DISK_CACHE_ENABLED));
+            PROPERTIES.setProperty("coarse_drainage.disk_cache.namespace", "default");
             PROPERTIES.setProperty("surface_features.enabled", String.valueOf(DEFAULT_SURFACE_FEATURES_ENABLED));
             PROPERTIES.setProperty("biome.japan_region_share", String.valueOf(DEFAULT_JAPAN_REGION_SHARE));
             PROPERTIES.setProperty("biome.sengoku_surface_rules", String.valueOf(DEFAULT_SENGOKU_SURFACE_RULES));

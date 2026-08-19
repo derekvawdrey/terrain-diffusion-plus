@@ -500,6 +500,103 @@ public final class WorldPipeline implements AutoCloseable {
     }
 
     /**
+     * Low-frequency elevation in metres at latent resolution (no residual stage).
+     * Coordinates are in latent pixel units (1 unit = {@link #LATENT_COMPRESSION} native pixels).
+     * This is the latent stage's low-frequency plane unnormalized and squared into the same
+     * metre domain as full-resolution elevation; it carries the large-scale drainage structure
+     * used for coarse cross-tile river continuity.
+     *
+     * @return flat array of (li1-li0) * (lj1-lj0) metres
+     */
+    public float[] getLatentElevation(int li0, int lj0, int li1, int lj1) {
+        int lH = li1 - li0, lW = lj1 - lj0;
+        FloatTensor latSlice = latents.getSlice(new int[]{0, li0, lj0}, new int[]{6, li1, lj1});
+        float[] elevation = new float[lH * lW];
+        HydrologyParallel.forEachIndex(0, lH * lW, idx -> {
+            float w = latSlice.data[5 * lH * lW + idx];
+            float v = (w > 1e-6f) ? latSlice.data[4 * lH * lW + idx] / w : 0f;
+            v = v * LOWFREQ_STD + LOWFREQ_MEAN;
+            elevation[idx] = (float) (Math.signum(v) * v * v);
+        });
+        return elevation;
+    }
+
+    /**
+     * Five-plane climate field at latent resolution, for the coarse drainage pass.
+     * Plane 0 = lapse-rate-corrected temperature (baseline + beta * elevation, elevation
+     * clamped at 0), plane 1 = channel 3, plane 2 = precipitation mm, plane 3 =
+     * precipitation cv, plane 4 = lapse-rate beta. Same coarse source and mapping as
+     * {@link #computeClimate}, but evaluated at latent-pixel centres with the given
+     * low-frequency elevation (metres, same window).
+     *
+     * @param latentElevation metres per latent pixel of the same window
+     * @return flat array of 5 * (li1 - li0) * (lj1 - lj0)
+     */
+    public float[] getLatentClimate(int li0, int lj0, int li1, int lj1, float[] latentElevation) {
+        int H = li1 - li0, W = lj1 - lj0;
+        int n = Math.multiplyExact(H, W);
+        int lc = LATENT_COMPRESSION;
+        int S = 32 * lc;
+
+        int i1 = Math.multiplyExact(li0, lc);
+        int j1 = Math.multiplyExact(lj0, lc);
+        int i2 = Math.multiplyExact(li1, lc);
+        int j2 = Math.multiplyExact(lj1, lc);
+
+        int ci1 = Math.floorDiv(i1, S);
+        int cj1 = Math.floorDiv(j1, S);
+        int ci2 = -Math.floorDiv(-i2, S);
+        int cj2 = -Math.floorDiv(-j2, S);
+
+        int win = 15, pad = (win - 1) / 2 + 1;
+        FloatTensor coarseSlice = coarse.getSlice(
+                new int[]{0, ci1 - pad, cj1 - pad}, new int[]{7, ci2 + pad, cj2 + pad});
+        int cH = ci2 + pad - (ci1 - pad);
+        int cW = cj2 + pad - (cj1 - pad);
+        int coarsePlane = cH * cW;
+        float[][] coarseMap = new float[6][coarsePlane];
+        HydrologyParallel.forEachIndex(0, 6 * coarsePlane, index -> {
+            int ch = index / coarsePlane;
+            int px = index - ch * coarsePlane;
+            float w = coarseSlice.data[6 * coarsePlane + px];
+            coarseMap[ch][px] = (w > 1e-6f) ? coarseSlice.data[ch * coarsePlane + px] / w : 0f;
+        });
+
+        float[] coarseElev = new float[coarsePlane];
+        HydrologyParallel.forEachIndex(0, coarsePlane, px -> {
+            float v = Math.max(0f, coarseMap[0][px]);
+            coarseElev[px] = v * v;
+        });
+
+        // lbt row r / column c is the regression window centred on coarse cell
+        // (ci1 - pad + r + (win - 1) / 2, ...) = (ci1 + r - 1, cj1 + c - 1).
+        float[][][] lbt = LaplacianUtils.localBaselineTemperature(
+                to2D(coarseMap[2], cH, cW), to2D(coarseElev, cH, cW), win, 0.02f,
+                ci1 - pad, cj1 - pad, S);
+        int lH = lbt[0].length, lW = lbt[0][0].length;
+
+        float[] climate = new float[5 * n];
+        HydrologyParallel.forEachRow(0, H, W, r -> {
+            int li = li0 + r;
+            int q = Math.floorDiv(li * lc + lc / 2, S);
+            int localRow = q - ci1 + 1;
+            for (int c = 0; c < W; c++) {
+                int qCol = Math.floorDiv((lj0 + c) * lc + lc / 2, S);
+                int localCol = qCol - cj1 + 1;
+                int coarseIndex = (q - (ci1 - pad)) * cW + (qCol - (cj1 - pad));
+                int idx = r * W + c;
+                float beta = lbt[1][localRow][localCol];
+                climate[idx] = lbt[0][localRow][localCol] + beta * Math.max(0f, latentElevation[idx]);
+                climate[n + idx] = coarseMap[3][coarseIndex];
+                climate[2 * n + idx] = coarseMap[4][coarseIndex];
+                climate[3 * n + idx] = coarseMap[5][coarseIndex];
+                climate[4 * n + idx] = beta;
+            }
+        });
+        return climate;
+    }
+
+    /**
      * Get elevation and climate for a bounding box.
      *
      * @return float[2]: [0] = elev (H*W flat), [1] = climate (5*H*W flat, or null)

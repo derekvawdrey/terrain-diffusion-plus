@@ -36,7 +36,7 @@ public final class HydrologyProvider {
     private static final Logger LOG = LoggerFactory.getLogger(HydrologyProvider.class);
 
     /** Increment when generated hydrology or compact encoding becomes semantically incompatible. */
-    private static final int ALGORITHM_VERSION = 10;
+    private static final int ALGORITHM_VERSION = 11;
     private static final int DISK_FORMAT_VERSION = 2;
     private static final int DISK_MAGIC = 0x54444859; // TDHY
     /** Keeps the initial explorer viewport centered on a canonical grid boundary-compatible origin. */

@@ -37,6 +37,9 @@ public final class SyntheticMapFactory {
     // Per-seed noise instances (channels 0..4)
     private final FastNoiseLite[] noises = new FastNoiseLite[N_CHANNELS];
 
+    /** Islands raised into the elevation channel; see {@link OceanIslandField}. */
+    private final OceanIslandField islands;
+
     private static float[][] cachedDataQuantiles;
     private static float cachedATempStd;
     private static float cachedBTempStd;
@@ -67,6 +70,16 @@ public final class SyntheticMapFactory {
             noises[ch] = fnl;
             this.noiseQuantiles[ch] = buildNoiseQuantiles(fnl, 64, 1e-4f);
         }
+
+        this.islands = new OceanIslandField(worldSeed);
+    }
+
+    /**
+     * Base elevation in metres at fractional coordinates, before islands are stamped in.
+     * Used to reject island seeds sitting over shallow water.
+     */
+    private float baseElevation(float x, float y) {
+        return interp(noises[0].GetNoise(x, y), noiseQuantiles[0], dataQuantiles[0]);
     }
 
     private static synchronized void loadDataIfNeeded() {
@@ -160,6 +173,10 @@ public final class SyntheticMapFactory {
                 }
             }
         }
+
+        // Islands: raise the elevation channel where a seamount stands over the sea floor.
+        // Away from islands every value is left exactly as sampled.
+        islands.apply(rawChannels[0], x1, y1, W, H, this::baseElevation);
 
         // Reshape to [ch][H][W]
         float[][] ch2d = new float[N_CHANNELS][H * W];

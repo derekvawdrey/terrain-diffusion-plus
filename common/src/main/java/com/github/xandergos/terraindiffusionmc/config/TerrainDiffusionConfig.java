@@ -32,6 +32,9 @@ public final class TerrainDiffusionConfig {
     private static final int DEFAULT_HYDROLOGY_CACHE_MAX_ENTRIES = 5;
     private static final boolean DEFAULT_HYDROLOGY_DISK_CACHE_ENABLED = true;
     private static final boolean DEFAULT_SURFACE_FEATURES_ENABLED = true;
+    private static final boolean DEFAULT_OCEAN_ISLANDS_ENABLED = true;
+    private static final float DEFAULT_OCEAN_ISLAND_DENSITY = 1.0f;
+    private static final float DEFAULT_OCEAN_ISLAND_RELIEF = 1.0f;
     /**
      * Whole world by default: Sengoku Jidai rethemes the 64 vanilla biomes globally, so confining
      * its own 15 biomes to a sub-region would read as an inconsistency (Japanese-looking forests
@@ -277,6 +280,26 @@ public final class TerrainDiffusionConfig {
         return readString("hydrology.disk_cache.namespace", "default");
     }
 
+    /**
+     * Whether open ocean gets islands. The trained elevation distribution is Earth's, whose deep
+     * ocean is a featureless 3-5 km plain, so islands are stamped into the conditioning map
+     * rather than emerging from it. Changing any {@code oceans.islands.*} value moves coastlines,
+     * so pick them before creating a world and keep them for that world's lifetime.
+     */
+    public static boolean oceanIslandsEnabled() {
+        return readBoolean("oceans.islands.enabled", DEFAULT_OCEAN_ISLANDS_ENABLED);
+    }
+
+    /** Multiplier on how many islands each stretch of ocean gets. 0 disables them. */
+    public static float oceanIslandDensity() {
+        return readFloatInRange("oceans.islands.density", DEFAULT_OCEAN_ISLAND_DENSITY, 0f, 8f);
+    }
+
+    /** Multiplier on island summit heights: below 1 for low atolls, above 1 for taller peaks. */
+    public static float oceanIslandRelief() {
+        return readFloatInRange("oceans.islands.relief", DEFAULT_OCEAN_ISLAND_RELIEF, 0f, 4f);
+    }
+
     /** Global kill switch for procedural surface structures (boulders, hoodoos, arches, ...). */
     public static boolean surfaceFeaturesEnabled() {
         return readBoolean("surface_features.enabled", DEFAULT_SURFACE_FEATURES_ENABLED);
@@ -388,6 +411,23 @@ public final class TerrainDiffusionConfig {
             return Integer.parseInt(value);
         } catch (NumberFormatException e) {
             System.err.println("Invalid int for " + key + ": " + value + ", using default " + defaultValue);
+            return defaultValue;
+        }
+    }
+
+    private static float readFloatInRange(String key, float defaultValue, float min, float max) {
+        String value = PROPERTIES.getProperty(key);
+        if (value == null) return defaultValue;
+        try {
+            float parsed = Float.parseFloat(value.trim());
+            if (parsed < min || parsed > max || Float.isNaN(parsed)) {
+                System.err.println("Out-of-range value for " + key + ": " + value
+                        + " (expected " + min + ".." + max + "), using default " + defaultValue);
+                return defaultValue;
+            }
+            return parsed;
+        } catch (NumberFormatException e) {
+            System.err.println("Invalid float for " + key + ": " + value + ", using default " + defaultValue);
             return defaultValue;
         }
     }

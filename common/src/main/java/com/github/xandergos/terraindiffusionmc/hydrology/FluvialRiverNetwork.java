@@ -62,6 +62,7 @@ public final class FluvialRiverNetwork {
         // and is machine-independent because the strip count is fixed, not CPU-derived.
         // Validated against runPriorityFloodSequential by HydrologyFloodValidation.
         PriorityFlood flood = runPriorityFloodParallel(elevation, height, width);
+        resolveFlatDrainage(elevation, flood, height, width);
         long t1 = System.nanoTime();
         float[] accumulation = accumulateRunoff(elevation, climate, flood.downstream, flood.order,
                 flood.orderSize, height, width, pixelSizeM);
@@ -76,7 +77,8 @@ public final class FluvialRiverNetwork {
         float[] waterSurface = new float[n];
         Arrays.fill(waterSurface, Float.NaN);
 
-        rasterizeLakes(elevation, flood.filledSurface, accumulation, lake, load, waterSurface);
+        rasterizeLakes(elevation, flood.filledSurface, accumulation, flood.downstream, flood.order,
+                flood.orderSize, lake, load, waterSurface);
         long t4 = System.nanoTime();
         rasterizeHermiteChannels(seed, i0, j0, elevation, flood.filledSurface, flood.downstream, accumulation,
                 visible, profile, load, waterSurface, height, width, pixelSizeM);
@@ -310,18 +312,80 @@ public final class FluvialRiverNetwork {
         return visible;
     }
 
+    /**
+     * Whether a filled depression reads as standing water is a property of the whole water body,
+     * not of its individual cells, so the throughflow and depth tests are applied per body.
+     *
+     * <p>Judging each cell on its own accumulation used to cut lakes into straight-edged stripes.
+     * A lake surface is exactly flat by construction, and drainage across a flat is decided by
+     * the priority flood's tie-break, which is the cell index -- so every cell in the lake routes
+     * along its row to the outlet, and accumulation piles into one dead-straight band. Gating on
+     * that made the band full-depth water and left the rest of the lake at 0.35x depth or, in
+     * margins shallower than {@code 3 m}, dropped it from the water mask entirely.
+     */
     private static void rasterizeLakes(float[] elevation, float[] filledSurface, float[] accumulation,
+                                       int[] downstream, int[] order, int orderSize,
                                        float[] lake, float[] load, float[] waterSurface) {
+        WaterBodies bodies = groupWaterBodies(elevation, filledSurface, accumulation,
+                downstream, order, orderSize);
         HydrologyParallel.forEachIndex(0, elevation.length, idx -> {
             if (elevation[idx] <= SEA_LEVEL_METERS) return;
             float depth = filledSurface[idx] - elevation[idx];
             if (depth < LAKE_MIN_DEPTH_M) return;
-            float flowGate = clamp01(accumulation[idx] / MIN_VISIBLE_FLOW);
-            if (flowGate <= 0.05f && depth < 3.0f) return;
+            int body = bodies.bodyOf[idx];
+            if (body < 0) return;
+            float flowGate = clamp01(bodies.throughflow[body] / MIN_VISIBLE_FLOW);
+            if (flowGate <= 0.05f && bodies.maxDepth[body] < 3.0f) return;
             lake[idx] = depth * (0.35f + 0.65f * flowGate);
             load[idx] = Math.max(load[idx], flowGate);
             waterSurface[idx] = filledSurface[idx];
         });
+    }
+
+    /**
+     * Connected bodies of standing water, with the flow and depth each one is judged by.
+     *
+     * @param bodyOf     per cell: body id, or -1 for a cell that is not under standing water
+     * @param throughflow per body: the accumulation reaching its outlet
+     * @param maxDepth   per body: its deepest point
+     */
+    private record WaterBodies(int[] bodyOf, float[] throughflow, float[] maxDepth) {}
+
+    /**
+     * Groups submerged cells into water bodies in two linear passes over the flood order, with no
+     * separate connected-component search: the flood spreads into a depression from its outlet, so
+     * a submerged cell's {@code downstream} is either another cell of the same body (identical
+     * filled surface, since one depression fills to exactly one spill value) or the body's exit.
+     * Walking {@code order} outlets-first therefore always sees a cell's downstream already
+     * labelled.
+     */
+    private static WaterBodies groupWaterBodies(float[] elevation, float[] filledSurface,
+                                                float[] accumulation, int[] downstream,
+                                                int[] order, int orderSize) {
+        int n = elevation.length;
+        int[] bodyOf = new int[n];
+        Arrays.fill(bodyOf, -1);
+        int bodyCount = 0;
+        for (int oi = 0; oi < orderSize; oi++) {
+            int idx = order[oi];
+            if (elevation[idx] <= SEA_LEVEL_METERS || filledSurface[idx] <= elevation[idx]) continue;
+            int down = downstream[idx];
+            int downBody = down >= 0 ? bodyOf[down] : -1;
+            bodyOf[idx] = (downBody >= 0 && filledSurface[down] == filledSurface[idx])
+                    ? downBody
+                    : bodyCount++;
+        }
+
+        float[] throughflow = new float[bodyCount];
+        float[] maxDepth = new float[bodyCount];
+        for (int idx = 0; idx < n; idx++) {
+            int body = bodyOf[idx];
+            if (body < 0) continue;
+            if (accumulation[idx] > throughflow[body]) throughflow[body] = accumulation[idx];
+            float depth = filledSurface[idx] - elevation[idx];
+            if (depth > maxDepth[body]) maxDepth[body] = depth;
+        }
+        return new WaterBodies(bodyOf, throughflow, maxDepth);
     }
 
     /** Ascending cell indexes of the visible channel network, so passes can skip empty terrain. */
@@ -767,6 +831,236 @@ public final class FluvialRiverNetwork {
      * strips with less parallelism.
      */
     private static final int MAX_FLOOD_STRIPS = 16;
+
+
+    /**
+     * Replaces the drainage directions the flood assigned inside flat surfaces.
+     *
+     * <p>Priority-flood gives every cell the neighbour that first reached it, which on a surface
+     * of exactly equal values is decided purely by the heap's tie-break -- the cell index. The
+     * frontier then sweeps row-major, so a flat drains along its rows: accumulation piles into a
+     * handful of dead-straight, evenly spaced parallel lines that the channel pass rasterises as
+     * rivers. Lake surfaces are exactly flat by construction (one depression fills to exactly one
+     * spill value), so any terrain with lakes or filled basins grows these.
+     *
+     * <p>This is the flat-resolution scheme of Barnes, Lehman &amp; Mulla (2014): build two
+     * breadth-first distance fields inside each flat -- one from the edges where it spills out,
+     * one from the edges where higher ground drains in -- and route each cell to the neighbour
+     * lowest on a potential combining them, {@code 3 * spillDistance - inflowDistance}. Flow then
+     * heads for the spill point while preferring the line furthest from wherever higher ground
+     * pours in, which is the way water actually crosses a pan.
+     *
+     * <p>The filled surface is untouched; only {@code downstream} and the traversal order change,
+     * and only for cells the flood routed sideways along a flat rather than downhill. Every
+     * rewritten link points either out of the flat to strictly lower ground or to a strictly
+     * smaller {@code (potential, index)} pair within it, so the result stays acyclic.
+     */
+    static void resolveFlatDrainage(float[] elevation, PriorityFlood flood, int height, int width) {
+        float[] filled = flood.filledSurface();
+        int[] downstream = flood.downstream();
+        int n = height * width;
+
+        int[] flatId = new int[n];
+        Arrays.fill(flatId, -1);
+        int flatCount = 0;
+        for (int idx = 0; idx < n; idx++) {
+            if (elevation[idx] <= SEA_LEVEL_METERS) continue;
+            if (hasNeighborAtSameLevel(filled, idx, height, width)) flatId[idx] = flatCount++;
+        }
+        if (flatCount == 0) return;
+
+        int[] flatCell = new int[flatCount];
+        for (int idx = 0; idx < n; idx++) {
+            if (flatId[idx] >= 0) flatCell[flatId[idx]] = idx;
+        }
+
+        int[] distanceToSpill = new int[flatCount];
+        int[] distanceFromInflow = new int[flatCount];
+        seedAndSpread(filled, flatId, flatCell, distanceToSpill, height, width, true);
+        seedAndSpread(filled, flatId, flatCell, distanceFromInflow, height, width, false);
+
+        // The weights are what make this safe rather than merely plausible. Neighbouring cells'
+        // distances differ by at most one step each, so giving the spill distance a weight of 3
+        // leaves it dominant over both the inflow term and the jitter combined: any cell still
+        // short of the spill edge is guaranteed a strictly lower-potential neighbour closer to it.
+        // Every flat cell therefore has a descending path out, which is what rules out cycles and
+        // interior sinks -- weighting the inflow term higher instead pools flow in the middle of
+        // the flat and erases the river through it.
+        //
+        // The inflow term then only breaks ties between cells equally far from the spill,
+        // preferring the one furthest from where higher ground drains in, so channels favour the
+        // flat's medial axis. Both distances are breadth-first hop counts whose iso-lines are
+        // octagons rather than circles, so each potential also carries a sub-step jitter keyed to
+        // the cell's coordinates: too small to reorder the gradient, big enough to keep the
+        // metric's diagonal seams from becoming channels in their own right.
+        int[] potential = new int[flatCount];
+        int minPotential = Integer.MAX_VALUE;
+        int maxPotential = Integer.MIN_VALUE;
+        for (int f = 0; f < flatCount; f++) {
+            if (distanceToSpill[f] == UNREACHABLE) continue;
+            int idx = flatCell[f];
+            int inflow = distanceFromInflow[f] == UNREACHABLE ? 0 : distanceFromInflow[f];
+            int jitter = flatJitter(idx / width, idx - (idx / width) * width);
+            potential[f] = FLAT_POTENTIAL_STEPS * (3 * distanceToSpill[f] - inflow) + jitter;
+            if (potential[f] < minPotential) minPotential = potential[f];
+            if (potential[f] > maxPotential) maxPotential = potential[f];
+        }
+        if (minPotential > maxPotential) return;
+
+        // Counting sort by potential; within one potential, ascending cell index. Sorting keeps
+        // the assignment loop able to test "already settled" as a plain comparison.
+        int span = maxPotential - minPotential + 1;
+        int[] bucketStart = new int[span + 1];
+        int sortable = 0;
+        for (int f = 0; f < flatCount; f++) {
+            if (distanceToSpill[f] == UNREACHABLE) continue;
+            bucketStart[potential[f] - minPotential + 1]++;
+            sortable++;
+        }
+        for (int b = 0; b < span; b++) bucketStart[b + 1] += bucketStart[b];
+        int[] sorted = new int[sortable];
+        int[] cursor = bucketStart.clone();
+        for (int f = 0; f < flatCount; f++) {
+            if (distanceToSpill[f] == UNREACHABLE) continue;
+            sorted[cursor[potential[f] - minPotential]++] = f;
+        }
+
+        for (int position = 0; position < sortable; position++) {
+            int f = sorted[position];
+            int idx = flatCell[f];
+            int current = downstream[idx];
+            // Only sideways links are the problem. A cell the flood already sent downhill, and a
+            // root, are both left exactly as they were: this pass must not become a second,
+            // weaker flow router for terrain that never needed one.
+            if (current < 0 || filled[current] < filled[idx]) continue;
+
+            int spill = lowestLowerNeighbor(filled, idx, height, width);
+            if (spill >= 0) {
+                downstream[idx] = spill;
+                continue;
+            }
+            int best = -1;
+            int bestPotential = 0;
+            int r = idx / width;
+            int c = idx - r * width;
+            for (int k = 0; k < 8; k++) {
+                int nr = r + DR[k];
+                int nc = c + DC[k];
+                if (nr < 0 || nr >= height || nc < 0 || nc >= width) continue;
+                int ni = nr * width + nc;
+                int nf = flatId[ni];
+                if (nf < 0 || filled[ni] != filled[idx] || distanceToSpill[nf] == UNREACHABLE) continue;
+                // Strictly earlier in the sort order, which is what makes the result acyclic.
+                if (potential[nf] > potential[f] || (potential[nf] == potential[f] && ni >= idx)) continue;
+                if (best < 0 || potential[nf] < bestPotential
+                        || (potential[nf] == bestPotential && ni < best)) {
+                    best = ni;
+                    bestPotential = potential[nf];
+                }
+            }
+            // Keeping the flood's link when nothing better exists matters: dropping it would turn
+            // the cell into a root and silently truncate every river draining through it.
+            if (best >= 0) downstream[idx] = best;
+        }
+
+        flood.setOrderSize(buildTopologicalOrder(downstream, n, flood.order()));
+    }
+
+    /**
+     * A flat cell no breadth-first pass reached. For the spill distance this means the flat has no
+     * way out at all, which only happens against the domain edge; those cells keep the flood's own
+     * links rather than being rerouted into a sink.
+     */
+    private static final int UNREACHABLE = Integer.MAX_VALUE;
+
+    /** Sub-step spread of the flat potential's jitter. */
+    private static final int FLAT_POTENTIAL_STEPS = 24;
+
+    /** Deterministic per-cell jitter in {@code [0, FLAT_POTENTIAL_STEPS)}; world seed independent
+     * so a flat resolves the same way wherever its tile boundaries happen to fall. */
+    private static int flatJitter(int row, int col) {
+        int h = row * 0x27D4EB2D + col * 0x165667B1;
+        h ^= h >>> 15;
+        h *= 0x2545F491;
+        h ^= h >>> 13;
+        return (h >>> 8) % FLAT_POTENTIAL_STEPS;
+    }
+
+    private static boolean hasNeighborAtSameLevel(float[] filled, int idx, int height, int width) {
+        int r = idx / width;
+        int c = idx - r * width;
+        for (int k = 0; k < 8; k++) {
+            int nr = r + DR[k];
+            int nc = c + DC[k];
+            if (nr < 0 || nr >= height || nc < 0 || nc >= width) continue;
+            if (filled[nr * width + nc] == filled[idx]) return true;
+        }
+        return false;
+    }
+
+    /** The lowest strictly-lower neighbour, i.e. where this cell spills out of its flat. */
+    private static int lowestLowerNeighbor(float[] filled, int idx, int height, int width) {
+        int r = idx / width;
+        int c = idx - r * width;
+        int best = -1;
+        for (int k = 0; k < 8; k++) {
+            int nr = r + DR[k];
+            int nc = c + DC[k];
+            if (nr < 0 || nr >= height || nc < 0 || nc >= width) continue;
+            int ni = nr * width + nc;
+            if (filled[ni] >= filled[idx]) continue;
+            if (best < 0 || filled[ni] < filled[best]) best = ni;
+        }
+        return best;
+    }
+
+    /**
+     * Breadth-first distance across each flat from its spill edges ({@code towardsSpill}) or from
+     * the edges higher ground drains into. Steps never leave a cell's own level, so each flat is
+     * measured independently without a separate component search.
+     */
+    private static void seedAndSpread(float[] filled, int[] flatId, int[] flatCell,
+                                      int[] distance, int height, int width, boolean towardsSpill) {
+        int flatCount = flatCell.length;
+        Arrays.fill(distance, UNREACHABLE);
+        int[] queue = new int[flatCount];
+        int head = 0;
+        int tail = 0;
+        for (int f = 0; f < flatCount; f++) {
+            int idx = flatCell[f];
+            int r = idx / width;
+            int c = idx - r * width;
+            boolean seed = false;
+            for (int k = 0; k < 8 && !seed; k++) {
+                int nr = r + DR[k];
+                int nc = c + DC[k];
+                if (nr < 0 || nr >= height || nc < 0 || nc >= width) continue;
+                float neighbor = filled[nr * width + nc];
+                seed = towardsSpill ? neighbor < filled[idx] : neighbor > filled[idx];
+            }
+            if (seed) {
+                distance[f] = 0;
+                queue[tail++] = f;
+            }
+        }
+        while (head < tail) {
+            int f = queue[head++];
+            int idx = flatCell[f];
+            int r = idx / width;
+            int c = idx - r * width;
+            for (int k = 0; k < 8; k++) {
+                int nr = r + DR[k];
+                int nc = c + DC[k];
+                if (nr < 0 || nr >= height || nc < 0 || nc >= width) continue;
+                int ni = nr * width + nc;
+                int nf = flatId[ni];
+                if (nf < 0 || filled[ni] != filled[idx]) continue;
+                if (distance[nf] != UNREACHABLE) continue;
+                distance[nf] = distance[f] + 1;
+                queue[tail++] = nf;
+            }
+        }
+    }
 
     private static boolean isTrueSeed(int r, int c, int height, int width, float elevationValue) {
         return r == 0 || c == 0 || r == height - 1 || c == width - 1 || elevationValue <= SEA_LEVEL_METERS;
@@ -1501,7 +1795,26 @@ public final class FluvialRiverNetwork {
     private record CenterlineGeometry(float[] row, float[] col,
                                       float[] tangentRow, float[] tangentCol) {}
 
-    record PriorityFlood(float[] filledSurface, int[] downstream, int[] order, int orderSize) {}
+    /** Mutable {@code orderSize}: {@link #resolveFlatDrainage} rebuilds the order in place. */
+    static final class PriorityFlood {
+        final float[] filledSurface;
+        final int[] downstream;
+        final int[] order;
+        private int orderSize;
+
+        PriorityFlood(float[] filledSurface, int[] downstream, int[] order, int orderSize) {
+            this.filledSurface = filledSurface;
+            this.downstream = downstream;
+            this.order = order;
+            this.orderSize = orderSize;
+        }
+
+        float[] filledSurface() { return filledSurface; }
+        int[] downstream() { return downstream; }
+        int[] order() { return order; }
+        int orderSize() { return orderSize; }
+        void setOrderSize(int value) { this.orderSize = value; }
+    }
 
     public record RiverTopology(float[] channelProfile, float[] channelLoad, float[] lakeDepth,
                                 float[] waterSurface, int height, int width) {

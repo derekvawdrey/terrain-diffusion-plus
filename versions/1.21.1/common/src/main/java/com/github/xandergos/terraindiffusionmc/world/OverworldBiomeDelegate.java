@@ -25,8 +25,8 @@ import java.util.Set;
  * overworld's multi-noise table, distinguished only by sitting at a {@code depth} the surface
  * never reaches. Vanilla puts lush caves at depth 0.4-0.9 and humidity 0.7-1, the deep dark at
  * depth 1.1 and erosion -1..-0.375, and every mod that adds a cave biome adds a row to that same
- * table -- Sengoku Jidai's {@code caverns} and {@code suisho_caves} are rows in the list inlined
- * in its {@code minecraft:overworld} dimension.</p>
+ * table -- a total-conversion mod's own cave biomes are rows in the list inlined in the
+ * {@code minecraft:overworld} dimension it ships.</p>
  *
  * <p>We cannot sample that table the way vanilla does, because our noise router carries no climate
  * fields to sample -- our terrain comes from the diffusion model, not from continentalness and
@@ -82,11 +82,11 @@ public final class OverworldBiomeDelegate {
      *
      * <p>The separation this keys on is structural rather than tuned. A surface biome is written
      * into the table twice, once at depth 0 and once at depth 1, so it claims essentially the same
-     * volume at both -- measured against Sengoku Jidai's 13183-row table, every one of its surface
-     * biomes lands within 10% of a 1.0 ratio. A cave biome has rows only in the middle of the
-     * depth axis, so its ratio is unbounded: lush caves come out at 2261, {@code suisho_caves} at
-     * 300, and dripstone, {@code caverns} and the deep dark at infinity, never appearing at the
-     * surface at all. Anything in the wide gap between those two populations does not occur, so
+     * volume at both -- measured against a total-conversion mod's 13183-row table, every one of
+     * its surface biomes lands within 10% of a 1.0 ratio. A cave biome has rows only in the middle
+     * of the depth axis, so its ratio is unbounded: lush caves come out at 2261, that mod's
+     * crystal caves at 300, and dripstone, its plain caverns and the deep dark at infinity, never
+     * appearing at the surface at all. Anything in the wide gap between those two populations does not occur, so
      * the exact value here does not much matter.</p>
      */
     private static final int UNDERGROUND_VOLUME_RATIO = 8;
@@ -214,9 +214,9 @@ public final class OverworldBiomeDelegate {
      *
      * <p>Measuring volumes is what makes the classification robust. The obvious test -- "this
      * biome never appears at depth 0" -- fails on real tables, because they have gaps: in
-     * Sengoku's, a very cold, very wet, flat column has no surface row anywhere near it, so a cave
-     * row wins there even at depth 0. That artifact costs lush caves and {@code suisho_caves}
-     * their classification under a strict test, while barely moving their volume ratio.</p>
+     * that modded table, a very cold, very wet, flat column has no surface row anywhere near it,
+     * so a cave row wins there even at depth 0. That artifact costs lush caves and its crystal
+     * caves their classification under a strict test, while barely moving their volume ratio.</p>
      */
     @SuppressWarnings("unchecked")
     private static Delegate sweep(MultiNoiseBiomeSource source) {
@@ -265,7 +265,7 @@ public final class OverworldBiomeDelegate {
      *
      * <p>The obvious alternative, taking the first point that produced it, gives badly atypical
      * answers. Nearest-match fills every gap in a table, so a biome turns up in corners that have
-     * nothing to do with it: against Sengoku's table the first point producing desert sits at
+     * nothing to do with it: against that same table the first point producing desert sits at
      * temperature -1.0, and asking what lies under a "cold desert" then yields lush caves. The
      * centre of desert's 222 points comes out at temperature 0.0, humidity -0.25, which behaves
      * like a desert should.</p>

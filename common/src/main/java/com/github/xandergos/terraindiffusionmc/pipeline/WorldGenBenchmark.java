@@ -37,11 +37,15 @@ public final class WorldGenBenchmark {
         int tiles = args.length > 1 ? Integer.parseInt(args[1]) : 1;
         int tileSize = args.length > 2 ? Integer.parseInt(args[2]) : TerrainDiffusionConfig.hydrologyTileSize();
         int halo = args.length > 3 ? Integer.parseInt(args[3]) : TerrainDiffusionConfig.hydrologyAnalysisHalo();
-        // "cold": far-apart tiles with cleared caches, i.e. the worst case for one tile.
-        // "walk": neighbouring tiles with caches kept, i.e. a player exploring in one direction.
-        // "parN": N tiles generated at once, i.e. several chunk workers wanting fresh terrain.
+        // "cold":   far-apart tiles with cleared caches, i.e. the worst case for one tile.
+        // "walk":   neighbouring tiles with caches kept, i.e. a player exploring in one direction.
+        // "walk2d": a serpentine over a square block of adjacent tiles, i.e. a player exploring an
+        //           area. Unlike "walk" this revisits the row above, so it only reuses the window
+        //           caches if they are large enough to hold more than one tile's windows.
+        // "parN":   N tiles generated at once, i.e. several chunk workers wanting fresh terrain.
         String mode = args.length > 4 ? args[4].toLowerCase() : "cold";
         boolean walk = mode.equals("walk");
+        boolean walk2d = mode.equals("walk2d");
         int parallelTiles = mode.startsWith("par") ? Integer.parseInt(mode.substring(3)) : 1;
 
         int analysis = tileSize + 2 * halo;
@@ -64,10 +68,19 @@ public final class WorldGenBenchmark {
         }
 
         List<Long> tileMillis = new ArrayList<>(tiles);
+        int serpentineWidth = (int) Math.round(Math.sqrt(tiles));
         for (int tile = 0; tile < tiles; tile++) {
             int coreI0 = walk ? 0 : tile * tileSize * 4;
             int coreJ0 = walk ? tile * tileSize : 0;
-            if (!walk) {
+            if (walk2d) {
+                int row = tile / serpentineWidth;
+                int column = tile % serpentineWidth;
+                // Reverse alternate rows so consecutive tiles always share an edge.
+                if ((row & 1) == 1) column = serpentineWidth - 1 - column;
+                coreI0 = row * tileSize;
+                coreJ0 = column * tileSize;
+            }
+            if (!walk && !walk2d) {
                 // Fresh origin and empty caches: nothing from the previous tile can be reused.
                 provider.clearPipelineCaches();
             }

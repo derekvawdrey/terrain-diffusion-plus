@@ -38,7 +38,6 @@ public final class BiomeClassifier {
     private static final FastNoiseLite FOREST_CLEARING_NOISE, FLOWER_PATCH_NOISE;
     private static final FastNoiseLite REGION_NOISE;
     private static final FastNoiseLite REGION_WARP_X, REGION_WARP_Z;
-    private static final FastNoiseLite JAPAN_NOISE;
 
     /**
      * Domain-warp displacement amplitude for {@link #sampleRegionNoise}, in blocks. Sized against
@@ -73,43 +72,6 @@ public final class BiomeClassifier {
         // fitted by the biome lab (and the lab's distributional regionNoise model) stay valid.
         REGION_WARP_X = makeFnl(881122, 1f/1500f, 3, 2f, 0.5f);
         REGION_WARP_Z = makeFnl(993344, 1f/1500f, 3, 2f, 0.5f);
-
-        // Independent of REGION_NOISE on purpose: the Japan region is an overlay, not a fourth
-        // province, so it must not perturb the A/B/C tercile shares the catalog was fitted
-        // against. Same construction (2 octaves, gain 0.5, 5000-block wavelength) so it shares
-        // that field's measured marginal distribution -- which is what JAPAN_QUANTILES inverts.
-        JAPAN_NOISE = makeFnl(553311, 1f/5000f, 2, 2f, 0.5f);
-    }
-
-    /**
-     * Measured value distribution of the 2-octave/gain-0.5 noise family, as values at the 0th,
-     * 5th, ... 100th percentile. Lets {@link #japanThreshold} turn a configured area share
-     * straight into the noise cutoff that yields it. Copied from biome-lab's
-     * {@code data/noise_quantiles/oct2_gain050.json} (20.25M samples); its 33.3/66.7 entries
-     * reproduce the +-0.0967 province terciles the catalog already uses, which is the check that
-     * this table and the live field agree.
-     */
-    private static final float[] JAPAN_QUANTILES = {
-        -0.803125f, -0.379871f, -0.299978f, -0.242870f, -0.196260f, -0.155813f, -0.119302f,
-        -0.085727f, -0.054745f, -0.026083f, 0.000000f, 0.026099f, 0.054746f, 0.085725f,
-        0.119302f, 0.155824f, 0.196258f, 0.242851f, 0.300061f, 0.379794f, 0.807837f
-    };
-
-    /**
-     * Noise value above which a pixel counts as inside the Japan region, for the configured area
-     * share. Resolved once: {@code biome.japan_region_share} is a world-shaping setting, so it is
-     * read at class-init like the rest of the field construction rather than per pixel.
-     */
-    private static final float JAPAN_THRESHOLD = japanThreshold(TerrainDiffusionConfig.japanRegionShare());
-
-    private static float japanThreshold(float share) {
-        if (share >= 1f) return JAPAN_QUANTILES[0];
-        if (share <= 0f) return JAPAN_QUANTILES[JAPAN_QUANTILES.length - 1];
-        float position = (1f - share) * (JAPAN_QUANTILES.length - 1);
-        int lo = (int) position;
-        if (lo >= JAPAN_QUANTILES.length - 1) return JAPAN_QUANTILES[JAPAN_QUANTILES.length - 1];
-        float frac = position - lo;
-        return JAPAN_QUANTILES[lo] + (JAPAN_QUANTILES[lo + 1] - JAPAN_QUANTILES[lo]) * frac;
     }
 
     /**
@@ -122,20 +84,6 @@ public final class BiomeClassifier {
         float wx = worldX + REGION_WARP_AMPLITUDE * REGION_WARP_X.GetNoise(worldX, worldZ);
         float wz = worldZ + REGION_WARP_AMPLITUDE * REGION_WARP_Z.GetNoise(worldX, worldZ);
         return REGION_NOISE.GetNoise(wx, wz);
-    }
-
-    /**
-     * Signed membership in the Japan region: {@code >= 0} inside, {@code < 0} outside, with the
-     * magnitude being distance from the border in noise units. Returning a margin rather than the
-     * raw field is what lets {@code biome.japan_region_share} resize the region without every
-     * gated catalog rule needing its threshold rewritten -- a rule just asks for
-     * {@code japanRegion gte 0}. Shares the region field's domain warp so the two kinds of border
-     * have the same coastline-like character.
-     */
-    public static float sampleJapanRegion(float worldX, float worldZ) {
-        float wx = worldX + REGION_WARP_AMPLITUDE * REGION_WARP_X.GetNoise(worldX, worldZ);
-        float wz = worldZ + REGION_WARP_AMPLITUDE * REGION_WARP_Z.GetNoise(worldX, worldZ);
-        return JAPAN_NOISE.GetNoise(wx, wz) - JAPAN_THRESHOLD;
     }
 
     /** Extra elevation/climate pixels used by Explorer detail biome rendering. */
@@ -205,16 +153,13 @@ public final class BiomeClassifier {
                 float snowNoise = 3.0f * tnc + 2.0f * tnf;
 
                 float variantNoise = BIOME_VARIANT_NOISE.GetNoise(nx, ny);
-                // Both region fields read the same warped coordinate, so warp once (six of the
-                // ~forty noise octaves this loop evaluates per pixel were being computed twice).
                 float wx = nx + REGION_WARP_AMPLITUDE * REGION_WARP_X.GetNoise(nx, ny);
                 float wz = ny + REGION_WARP_AMPLITUDE * REGION_WARP_Z.GetNoise(nx, ny);
                 float regionNoise = REGION_NOISE.GetNoise(wx, wz);
-                float japanRegion = JAPAN_NOISE.GetNoise(wx, wz) - JAPAN_THRESHOLD;
 
                 boolean coastline = isCoastlineCandidate(elev, H, W, r, c, elev[idx], slopeRatio[idx]);
                 out[idx] = classifyPixel(elev[idx], climate, H, W, idx, tempNoise,
-                        precipNoiseFactor, snowNoise, variantNoise, regionNoise, japanRegion,
+                        precipNoiseFactor, snowNoise, variantNoise, regionNoise,
                         slopeRatio[idx], coastline,
                         nx, ny, scratch, zones);
             }
@@ -384,7 +329,7 @@ public final class BiomeClassifier {
 
     private static short classifyPixel(float elevation, float[] climate, int H, int W, int idx,
                                         float tempNoise, float precipNoiseFactor, float snowNoise,
-                                        float variantNoise, float regionNoise, float japanRegion,
+                                        float variantNoise, float regionNoise,
                                         float slope, boolean coastline,
                                         float worldX, float worldZ,
                                         BiomeRuleEngine.Scratch scratch, ZoneIds zones) {
@@ -397,7 +342,7 @@ public final class BiomeClassifier {
                 snowNoise, variantNoise, slope);
         scratch.setClimate(sample);
         scratch.setNoise(variantNoise, Float.NaN, Float.NaN, Float.NaN, Float.NaN,
-                regionNoise, japanRegion);
+                regionNoise);
         scratch.deferNoise(RARE_NOISE_SAMPLER, worldX, worldZ, RARE_NOISE_FIELDS);
 
         short defaultIndex = REGISTRY.defaultBiomeIndex();
@@ -603,8 +548,7 @@ public final class BiomeClassifier {
                 PALE_GARDEN_NOISE.GetNoise(blockX, blockZ),
                 FOREST_CLEARING_NOISE.GetNoise(blockX, blockZ),
                 FLOWER_PATCH_NOISE.GetNoise(blockX, blockZ),
-                sampleRegionNoise(blockX, blockZ),
-                sampleJapanRegion(blockX, blockZ));
+                sampleRegionNoise(blockX, blockZ));
 
         short winner = selectBiome(sample, noise, false, blockX, blockZ);
         return new CoarseProbe(winner, sample, noise);

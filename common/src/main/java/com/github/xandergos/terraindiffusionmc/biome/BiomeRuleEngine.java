@@ -145,15 +145,15 @@ public final class BiomeRuleEngine {
             flags[TerrainBiomeCondition.Variable.LOWLAND.ordinal()] = sample.lowland();
         }
 
-        /** Loads the seven noise fields rules may gate on. */
+        /** Loads the six noise fields rules may gate on. */
         public void setNoise(TerrainBiomeNoiseSample noise) {
             setNoise(noise.variantNoise(), noise.cherryNoise(), noise.paleNoise(), noise.clearingNoise(),
-                    noise.flowerNoise(), noise.regionNoise(), noise.japanRegion());
+                    noise.flowerNoise(), noise.regionNoise());
         }
 
         /** Field-wise variant, so a per-pixel loop need not build a {@link TerrainBiomeNoiseSample}. */
         public void setNoise(float variantNoise, float cherryNoise, float paleNoise, float clearingNoise,
-                             float flowerNoise, float regionNoise, float japanRegion) {
+                             float flowerNoise, float regionNoise) {
             float[] values = noiseValues;
             values[TerrainBiomeCondition.Variable.VARIANT_NOISE.ordinal()] = variantNoise;
             values[TerrainBiomeCondition.Variable.CHERRY_NOISE.ordinal()] = cherryNoise;
@@ -161,7 +161,6 @@ public final class BiomeRuleEngine {
             values[TerrainBiomeCondition.Variable.CLEARING_NOISE.ordinal()] = clearingNoise;
             values[TerrainBiomeCondition.Variable.FLOWER_NOISE.ordinal()] = flowerNoise;
             values[TerrainBiomeCondition.Variable.REGION_NOISE.ordinal()] = regionNoise;
-            values[TerrainBiomeCondition.Variable.JAPAN_REGION.ordinal()] = japanRegion;
             deferred = 0;
         }
 

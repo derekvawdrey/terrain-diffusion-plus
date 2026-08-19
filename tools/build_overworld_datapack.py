@@ -9,7 +9,7 @@ mods instead ship `data/minecraft/dimension/overworld.json` in their jar, which 
 overworld dimension outright. `minecraft:dimension` is a datapack-loaded registry, and a
 datapack entry beats the preset -- so the overworld silently reverts to their generator even
 when the player picked our world type, and the resulting choice is baked into level.dat at
-creation. Sengoku Jidai does exactly this.
+creation.
 
 THE FIX
 -------

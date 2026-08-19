@@ -83,20 +83,20 @@ The shipped catalog carries every supported integration in one file, and each en
 |---|---|
 | Nothing extra | 65 vanilla |
 | [Biomes O' Plenty](https://modrinth.com/mod/biomes-o-plenty) | 124 |
-| Biomes O' Plenty + [Sengoku Jidai](https://modrinth.com/mod/sengokujidaimod) | 138 |
 
 To add your own, drop a `biome_catalog.json` into `config/terrain-diffusion-mc/` — it replaces the bundled one. Entries may set `"requiredMods": ["some_mod"]` to gate themselves the same way.
 
 ### Total-conversion mods
 
-Mods that retheme the whole game (Sengoku Jidai is the tested example) usually redefine the vanilla biomes in place. That works here with no configuration: their trees, colours, mobs and structures arrive through the biome registry, so the terrain is this mod's and the look is theirs.
+Mods that retheme the whole game usually redefine the vanilla biomes in place. That works here with no configuration: their trees, colours, mobs and structures arrive through the biome registry, so the terrain is this mod's and the look is theirs.
 
-Two things are handled automatically:
+One thing is handled automatically:
 
 - **Overworld reclaim.** Such mods often ship their own `minecraft:dimension/overworld`, which normally outranks any world type the player picked — the overworld would silently revert to their generator. If a world was created with the Terrain Diffusion world type, its overworld is reasserted on load. Worlds created with any other world type are untouched.
-- **Surface rules.** Their ground blocks live in the vanilla overworld noise settings, which this mod replaces, so they would otherwise be ignored. When such a mod is present its surface rule is applied to the diffusion terrain. Disable with `biome.sengoku_surface_rules=false` if you prefer this mod's own.
 
-Nothing from another mod is copied or redistributed; both features read what is already loaded in the game.
+Nothing from another mod is copied or redistributed; this reads only what is already loaded in the game.
+
+Note that such a mod's own surface rule lives in the vanilla overworld noise settings, which this mod replaces, so the ground blocks stay this mod's own.
 
 ## Configuration
 
@@ -139,16 +139,6 @@ spawn_search.max_size=128
 # Procedural surface structures (boulders, hoodoos, arches, ...) placed on top of the terrain.
 # Disable if you only want vanilla features.
 surface_features.enabled=true
-
-# Fraction of the world (0..1) forming the Japan region, where the Sengoku Jidai biomes
-# (hot springs, ginkgo groves, spider lily fields, ...) may generate. Ignored without that mod.
-# 1.0 puts them everywhere; 0.33 makes Japan a province you travel to. Like World Scale, this
-# moves biome borders, so pick it before creating a world.
-biome.japan_region_share=1.0
-
-# Apply a total-conversion mod's surface rule to the diffusion terrain (see Mod compatibility).
-# Ignored unless such a mod is installed.
-biome.sengoku_surface_rules=true
 ```
 
 ### Per-world settings

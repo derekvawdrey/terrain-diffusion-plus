@@ -47,8 +47,7 @@ NUMERIC_VARIABLES = (
     "slope", "growingSeasonDays",
 )
 BOOL_VARIABLES = ("ocean", "snowy", "bareSlope", "mountain", "lowland")
-NOISE_VARIABLES = ("variantNoise", "cherryNoise", "paleNoise", "clearingNoise", "flowerNoise", "regionNoise",
-                   "japanRegion")
+NOISE_VARIABLES = ("variantNoise", "cherryNoise", "paleNoise", "clearingNoise", "flowerNoise", "regionNoise")
 
 ZONES = ("ocean", "beach", "mountain", "lowland", "bareSlope")
 
@@ -169,7 +168,7 @@ def load(path: str | Path, mods: set[str] | None = None) -> Catalog:
     `mods=None` keeps every entry (the whole authored file). Passing a set filters out
     settlements and rules whose `requiredMods` aren't all present, exactly as
     TerrainBiomeRegistry.build() and BiomeRuleEngine.init() do -- which is how the same file gets
-    validated once per supported mod configuration (vanilla / +BoP / +BoP+Sengoku).
+    validated once per supported mod configuration (vanilla / +BoP).
     """
     path = Path(path)
     data = json.loads(path.read_text())

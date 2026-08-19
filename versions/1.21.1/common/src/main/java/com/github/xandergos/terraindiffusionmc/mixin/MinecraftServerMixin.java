@@ -2,7 +2,6 @@ package com.github.xandergos.terraindiffusionmc.mixin;
 
 import com.github.xandergos.terraindiffusionmc.pipeline.SpawnSelector;
 import com.github.xandergos.terraindiffusionmc.world.OverworldBiomeDelegate;
-import com.github.xandergos.terraindiffusionmc.world.SengokuSurfaceRules;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.RegistryAccess;
 import net.minecraft.server.MinecraftServer;
@@ -18,15 +17,13 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 public class MinecraftServerMixin {
 
     /**
-     * Swaps in Sengoku Jidai's surface rule before any level is created, so the very first chunk
-     * generated already uses it. loadLevel() runs after the datapack-backed registries are built
-     * and before createLevels(), which is the only window where both are true.
+     * Resolves the underground biome delegate before any level is created, so the very first
+     * chunk generated already has it. loadLevel() runs after the datapack-backed registries are
+     * built and before createLevels(), which is the only window where both are true.
      */
     @Inject(method = "loadLevel", at = @At("HEAD"))
-    private void applySengokuSurfaceRules(CallbackInfo ci) {
-        RegistryAccess registries = ((MinecraftServer) (Object) this).registryAccess();
-        SengokuSurfaceRules.applyIfPresent(registries);
-        OverworldBiomeDelegate.initialize(registries);
+    private void initializeOverworldBiomeDelegate(CallbackInfo ci) {
+        OverworldBiomeDelegate.initialize(((MinecraftServer) (Object) this).registryAccess());
     }
 
     @Inject(method = "setInitialSpawn", at = @At("HEAD"), cancellable = true)

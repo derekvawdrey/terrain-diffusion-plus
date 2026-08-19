@@ -175,7 +175,8 @@ public final class WorldPipeline implements AutoCloseable {
         }
 
         // Conditioning noise: Gaussian noise (5, S, S)
-        float[] condNoise = flatten3D(GaussianNoisePatch.generate(seed, i1, j1, S, S, 5, S, S));
+        float[] condNoise = new float[5 * S * S];
+        GaussianNoisePatch.generateInto(seed, i1, j1, S, S, 5, S, S, condNoise, 0);
 
         // cond_img_mixed = cos(t_cond) * normalized + sin(t_cond) * noise
         float[] condMixed = new float[5 * S * S];
@@ -190,7 +191,8 @@ public final class WorldPipeline implements AutoCloseable {
 
         // Initial sample: (6, S, S) noise * sigma_max
         EDMScheduler sched = new EDMScheduler(20);
-        float[] sample = flatten3D(GaussianNoisePatch.generate(seed + 1, i1, j1, S, S, 6, S, S));
+        float[] sample = new float[6 * S * S];
+        GaussianNoisePatch.generateInto(seed + 1, i1, j1, S, S, 6, S, S, sample, 0);
         for (int k = 0; k < sample.length; k++) sample[k] *= sched.sigmas[0];
 
         // 20-step DPM-Solver++
@@ -290,7 +292,8 @@ public final class WorldPipeline implements AutoCloseable {
             }
 
             // z = noise * sigma_data; x_t = cos(t)*sample + sin(t)*z
-            float[] noise = flatten3D(GaussianNoisePatch.generate(seed + seedOffset, i1, j1, S, S, 5, S, S));
+            float[] noise = new float[5 * S * S];
+            GaussianNoisePatch.generateInto(seed + seedOffset, i1, j1, S, S, 5, S, S, noise, 0);
             float[] xT = new float[5 * S * S];
             for (int k = 0; k < 5 * S * S; k++) {
                 float z = noise[k] * SIGMA_DATA;
@@ -430,7 +433,8 @@ public final class WorldPipeline implements AutoCloseable {
             float[] upsampled = nearestUpsample(latFlat, 4, Slc, Slc, S, S);
 
             // One flow-matching step (sample starts at zero)
-            float[] noise = flatten3D(GaussianNoisePatch.generate(seed + 5819, i1, j1, S, S, 1, S, S));
+            float[] noise = new float[S * S];
+            GaussianNoisePatch.generateInto(seed + 5819, i1, j1, S, S, 1, S, S, noise, 0);
             float[] xT = new float[S * S];
             for (int k = 0; k < S * S; k++) xT[k] = sinT * noise[k] * SIGMA_DATA;  // sample=0
             xTArr[b] = xT;
@@ -669,17 +673,6 @@ public final class WorldPipeline implements AutoCloseable {
             }
         }
         return w;
-    }
-
-    static float[] flatten3D(float[][][] arr) {
-        int C = arr.length, H = arr[0].length, W = arr[0][0].length;
-        float[] out = new float[C * H * W];
-        HydrologyParallel.forEachIndex(0, C * H, index -> {
-            int channel = index / H;
-            int row = index - channel * H;
-            System.arraycopy(arr[channel][row], 0, out, channel * H * W + row * W, W);
-        });
-        return out;
     }
 
     static int appendScaled(float[] out, int off, float[] arr, float scale) {

@@ -91,15 +91,23 @@ public final class InfiniteTensor {
         int[][] pixelRange = buildRange(start, end);
         List<int[]> requiredWindows = collectIntersectingWindows(pixelRange);
 
-        MemoryTileStore.WindowLease lease = null;
-        computeLock.lock();
-        try {
-            for (int attempt = 0; attempt < CACHE_LEASE_RETRY_COUNT && lease == null; attempt++) {
-                ensureComputedRangesLocked(Collections.singletonList(pixelRange));
-                lease = store.leaseWindows(id, requiredWindows);
+        // Fast path: if every window is already cached there is nothing to compute, so the
+        // compute lock is not taken at all. That matters because a slice of an upstream stage
+        // is often requested by a thread that only wants to read it (the elevation and climate
+        // reads at the end of a pipeline run), while another thread holds this tensor's compute
+        // lock for the whole of its own multi-second inference pass. Waiting there would idle
+        // the GPU: the reader has river and biome work it could be doing meanwhile.
+        MemoryTileStore.WindowLease lease = store.leaseWindows(id, requiredWindows);
+        if (lease == null) {
+            computeLock.lock();
+            try {
+                for (int attempt = 0; attempt < CACHE_LEASE_RETRY_COUNT && lease == null; attempt++) {
+                    ensureComputedRangesLocked(Collections.singletonList(pixelRange));
+                    lease = store.leaseWindows(id, requiredWindows);
+                }
+            } finally {
+                computeLock.unlock();
             }
-        } finally {
-            computeLock.unlock();
         }
 
         if (lease == null) {

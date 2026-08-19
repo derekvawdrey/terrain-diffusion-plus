@@ -78,7 +78,7 @@ public class TerrainDiffusionBiomeSource extends BiomeSource {
                 // never returns them, and claiming them here makes vanilla's FeatureSorter build
                 // one global feature order spanning all three dimensions at once. Vanilla's own
                 // biomes happen to be mutually consistent, so that went unnoticed; a mod that
-                // redefines biomes on both sides (Sengoku Jidai redefines minecraft:river and
+                // redefines biomes on both sides (say minecraft:river and
                 // minecraft:small_end_islands) makes the orders contradict and worldgen dies with
                 // "Feature order cycle found". Rivers and cave biomes stay -- getNoiseBiome and
                 // selectUndergroundBiome really do return those.

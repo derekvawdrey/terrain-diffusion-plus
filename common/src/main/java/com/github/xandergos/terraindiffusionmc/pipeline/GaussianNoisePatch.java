@@ -9,9 +9,6 @@ import java.util.Map;
  */
 public final class GaussianNoisePatch {
 
-    private static final int DEFAULT_TILE_H = 256;
-    private static final int DEFAULT_TILE_W = 256;
-
     /**
      * Recently generated noise tiles, keyed by seed and tile coordinate.
      *
@@ -31,21 +28,29 @@ public final class GaussianNoisePatch {
     private static long cachedBytes;
 
     /**
-     * Returns a (channels, h, w) patch of standard-normal noise.
+     * Writes a (channels, h, w) patch of standard-normal noise into {@code dest}, channel-major
+     * and flat, starting at {@code destOffset}.
      *
-     * @param baseSeed  world seed (64-bit, matches Python WorldPipeline.seed)
-     * @param y0        top pixel row (can be negative)
-     * @param x0        left pixel column (can be negative)
-     * @param h         output height in pixels
-     * @param w         output width in pixels
-     * @param channels  number of channels
-     * @param tileH     tile height for seeding
-     * @param tileW     tile width for seeding
-     * @return float array [channels][h][w] with Gaussian values
+     * <p>Flat is the only shape anyone wants: every caller hands the noise straight to a model as
+     * one contiguous buffer, and these patches are built between model calls, where CPU time is
+     * GPU idle time -- a {@code float[channels][h][w]} in between would cost an allocation and
+     * two full copies per window.
+     *
+     * @param baseSeed   world seed (64-bit, matches Python WorldPipeline.seed)
+     * @param y0         top pixel row (can be negative)
+     * @param x0         left pixel column (can be negative)
+     * @param h          patch height in pixels
+     * @param w          patch width in pixels
+     * @param channels   number of channels
+     * @param tileH      tile height for seeding
+     * @param tileW      tile width for seeding
+     * @param dest       destination array, at least {@code destOffset + channels * h * w} long
+     * @param destOffset index in {@code dest} where the first channel starts
      */
-    public static float[][][] generate(long baseSeed, int y0, int x0, int h, int w,
-                                       int channels, int tileH, int tileW) {
-        float[][][] out = new float[channels][h][w];
+    public static void generateInto(long baseSeed, int y0, int x0, int h, int w,
+                                    int channels, int tileH, int tileW,
+                                    float[] dest, int destOffset) {
+        int plane = h * w;
 
         int ty0 = Math.floorDiv(y0, tileH);
         int ty1 = Math.floorDiv(y0 + h - 1, tileH);
@@ -63,21 +68,21 @@ public final class GaussianNoisePatch {
                 int ox1 = Math.min(x0 + w, tileX0 + tileW);
 
                 float[] tileFlat = tile(baseSeed, tileH, tileW, channels, ty, tx);
+                int runLength = ox1 - ox0;
+                if (runLength <= 0) continue;
 
                 for (int c = 0; c < channels; c++) {
+                    int tilePlane = c * (tileH * tileW);
+                    int outPlane = destOffset + c * plane;
                     for (int py = oy0; py < oy1; py++) {
-                        int outY = py - y0;
-                        int tilePy = py - tileY0;
-                        for (int px = ox0; px < ox1; px++) {
-                            int outX = px - x0;
-                            int tilePx = px - tileX0;
-                            out[c][outY][outX] = tileFlat[c * (tileH * tileW) + tilePy * tileW + tilePx];
-                        }
+                        System.arraycopy(
+                                tileFlat, tilePlane + (py - tileY0) * tileW + (ox0 - tileX0),
+                                dest, outPlane + (py - y0) * w + (ox0 - x0),
+                                runLength);
                     }
                 }
             }
         }
-        return out;
     }
 
     /** One tile's noise, from the cache when it is still there and freshly generated otherwise. */
@@ -114,14 +119,5 @@ public final class GaussianNoisePatch {
             TILE_CACHE.clear();
             cachedBytes = 0L;
         }
-    }
-
-    public static float[][][] generate(long baseSeed, int y0, int x0, int h, int w, int channels) {
-        return generate(baseSeed, y0, x0, h, w, channels, DEFAULT_TILE_H, DEFAULT_TILE_W);
-    }
-
-    /** Generate with tile size matching the requested region (per-tile in pipeline). */
-    public static float[][][] generateTileSeeded(long baseSeed, int y0, int x0, int h, int w, int channels) {
-        return generate(baseSeed, y0, x0, h, w, channels, h, w);
     }
 }

@@ -88,13 +88,9 @@ def parse_args():
     p.add_argument("--seed", type=int, default=0, help="Monte Carlo RNG seed.")
     p.add_argument("--mods", default=None,
                    help="Comma-separated mod ids to treat as installed, e.g. "
-                        "'biomesoplenty,sengoku'. Entries whose requiredMods aren't all present "
+                        "'biomesoplenty'. Entries whose requiredMods aren't all present "
                         "are dropped, so you can validate the shipped catalog as each supported "
                         "install would actually see it. Omit to keep every entry.")
-    p.add_argument("--japan-share", type=float, default=1.0,
-                   help="Value of the mod's biome.japan_region_share config to simulate, i.e. the "
-                        "fraction of the world where japanRegion-gated rules are eligible. "
-                        "Defaults to 1.0, matching the shipped config.")
     return p.parse_args()
 
 
@@ -112,7 +108,7 @@ def main():
         print(f"ERROR: {e}", file=sys.stderr)
         return 2
 
-    vreport = validators.run(cat, families, args.japan_share)
+    vreport = validators.run(cat, families)
     n_dead = len(vreport.dead_findings)
     n_redundant = len(vreport.redundant_findings)
     print(f"Static validators: {n_dead} dead condition(s), {n_redundant} redundant condition(s) "
@@ -143,8 +139,7 @@ def main():
     else:
         print(f"Running Monte Carlo with {args.min_samples:,} samples (seed={args.seed})...")
         pipeline = climate_mod.load_pipeline_data(args.pipeline_data)
-        samples = climate_mod.simulate(pipeline, families, args.min_samples, seed=args.seed,
-                                       japan_share=args.japan_share)
+        samples = climate_mod.simulate(pipeline, families, args.min_samples, seed=args.seed)
         result = mc.classify(cat, samples)
         af = mc.area_fractions(result)
         dm_overall = mc.diversity_metrics(af.overall)

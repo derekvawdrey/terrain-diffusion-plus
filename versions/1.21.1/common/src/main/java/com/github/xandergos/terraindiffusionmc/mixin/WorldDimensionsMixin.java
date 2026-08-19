@@ -20,7 +20,7 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
  * redefine it.
  *
  * <h2>The problem</h2>
- * <p>We install our terrain through a world <i>preset</i>. Mods like Sengoku Jidai instead ship
+ * <p>We install our terrain through a world <i>preset</i>. Total-conversion mods instead ship
  * {@code data/minecraft/dimension/overworld.json}, which redefines the overworld dimension
  * outright. {@link WorldDimensions#bake} resolves every dimension as
  * {@code stemRegistry.getOptional(key).or(() -> this.dimensions.get(key))} -- the datapack

@@ -48,13 +48,24 @@ public final class CoarseDrainageProvider {
     private static final Logger LOG = LoggerFactory.getLogger(CoarseDrainageProvider.class);
 
     /** Increment when the coarse drainage output becomes semantically incompatible. */
-    private static final int ALGORITHM_VERSION = 1;
+    private static final int ALGORITHM_VERSION = 2;
     private static final int DISK_FORMAT_VERSION = 1;
     private static final int DISK_MAGIC = 0x54444344; // TDCD
     private static final int IO_BUFFER_SIZE = 4 * 1024 * 1024;
 
-    /** Super-tile core size in latent pixels (240 m per latent pixel, about 492 km at 2048). */
-    static final int CORE_LATENT = 2048;
+    /**
+     * Super-tile core size in latent pixels (240 m per latent pixel).
+     *
+     * <p>This is a latency knob, not a quality one. The window is drained in one burst before the
+     * hydrology tile that asked for it can finish, so its cost lands entirely on whoever first
+     * enters the super-tile: at 2048 that is 5,329 latent-model windows and a measured 531 s
+     * stall, repeated every 32,768 blocks of travel. 512 costs 625 windows -- about a fortieth of
+     * the work -- for the same job, because what the fine pass needs from this stage is the flow
+     * crossing its own edge, which is settled well inside a few tiles of context. The trade is
+     * more super-tiles, so more of their own boundaries; the halo is unchanged and is now a
+     * quarter of the core rather than a sixteenth, which is what keeps those boundaries weak.</p>
+     */
+    static final int CORE_LATENT = 512;
     /** Window halo around the super-tile core, in latent pixels. */
     static final int HALO_LATENT = 128;
     /** Grid cell size of the coarse (latent) drainage pass, in metres (1 latent pixel). */

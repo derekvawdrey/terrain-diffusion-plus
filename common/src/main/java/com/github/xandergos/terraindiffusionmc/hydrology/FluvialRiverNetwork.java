@@ -64,12 +64,8 @@ public final class FluvialRiverNetwork {
      */
     @FunctionalInterface
     public interface BoundaryInflowResolver {
-        /**
-         * @param downstream flood-resolved D8 links over the window; -1 at an outlet
-         * @param baseAccumulation the window's own accumulated load, before any inflow is added;
-         *                         identifies which cells are channels and which are hillside
-         */
-        BoundaryInflow resolve(int[] downstream, float[] baseAccumulation);
+        /** @param downstream flood-resolved D8 links over the window; -1 at an outlet */
+        BoundaryInflow resolve(int[] downstream);
     }
 
     public static int analysisPaddingPixels(float pixelSizeM) {
@@ -110,17 +106,10 @@ public final class FluvialRiverNetwork {
         // Validated against runPriorityFloodSequential by HydrologyFloodValidation.
         PriorityFlood flood = runDrainage(elevation, height, width);
         long t1 = System.nanoTime();
+        BoundaryInflow boundaryInflow = boundaryInflowResolver == null ? null
+                : boundaryInflowResolver.resolve(flood.downstream);
         float[] accumulation = accumulateRunoff(elevation, climate, flood.downstream, flood.order,
-                flood.orderSize, height, width, pixelSizeM, null);
-        if (boundaryInflowResolver != null) {
-            // The resolver needs to see which cells are channels, which is what the first pass
-            // establishes, so inflow costs a second propagation over the same order.
-            BoundaryInflow boundaryInflow = boundaryInflowResolver.resolve(flood.downstream, accumulation);
-            if (boundaryInflow != null && boundaryInflow.cellIndices().length > 0) {
-                accumulation = accumulateRunoff(elevation, climate, flood.downstream, flood.order,
-                        flood.orderSize, height, width, pixelSizeM, boundaryInflow);
-            }
-        }
+                flood.orderSize, height, width, pixelSizeM, boundaryInflow);
         long t2 = System.nanoTime();
         boolean[] visible = selectVisibleNetwork(elevation, climate, accumulation, flood.downstream, flood.order,
                 flood.orderSize, height, width, i0, j0, blockSourcesBelowElevation, minimumSourceElevationM);

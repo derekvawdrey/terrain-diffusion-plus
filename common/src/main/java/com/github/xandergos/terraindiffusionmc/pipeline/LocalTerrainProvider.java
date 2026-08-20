@@ -594,7 +594,7 @@ public final class LocalTerrainProvider {
         FluvialRiverNetwork.RiverTopology topology = FluvialRiverNetwork.build(
                 instanceSeed, analysisI0, analysisJ0, elevation, climate, analysisHeight, analysisWidth,
                 pixelSizeM, blockLowAltitudeSources, WorldScaleManager.MINIMUM_SOURCE_ELEVATION_METERS,
-                (downstream, baseAccumulation) -> coarseDrainageProvider.boundaryInflow(
+                downstream -> coarseDrainageProvider.boundaryInflow(
                         instanceSeed, scale, analysisI0, analysisJ0,
                         analysisHeight, analysisWidth, elevation, downstream));
         long tRiverBuild = System.nanoTime();

@@ -32,7 +32,7 @@ public final class TerrainDiffusionConfig {
     private static final int DEFAULT_HYDROLOGY_CACHE_MAX_ENTRIES = 5;
     private static final boolean DEFAULT_HYDROLOGY_DISK_CACHE_ENABLED = true;
     private static final int DEFAULT_COARSE_DRAINAGE_CACHE_MAX_MIB = 320;
-    private static final int DEFAULT_COARSE_DRAINAGE_CACHE_MAX_ENTRIES = 4;
+    private static final int DEFAULT_COARSE_DRAINAGE_CACHE_MAX_ENTRIES = 32;
     private static final boolean DEFAULT_COARSE_DRAINAGE_DISK_CACHE_ENABLED = true;
     private static final boolean DEFAULT_SURFACE_FEATURES_ENABLED = true;
     private static final boolean DEFAULT_OCEAN_ISLANDS_ENABLED = true;

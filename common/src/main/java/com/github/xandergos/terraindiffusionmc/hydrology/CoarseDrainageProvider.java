@@ -19,12 +19,14 @@ import java.nio.file.StandardCopyOption;
 import java.util.Arrays;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
+import java.util.function.BooleanSupplier;
 
 /**
  * Low-resolution drainage tiles that carry river load across canonical hydrology tile
@@ -138,8 +140,30 @@ public final class CoarseDrainageProvider {
     private long retainedBytes;
     private final ConcurrentHashMap<TileKey, Object> generationLocks = new ConcurrentHashMap<>();
 
+    /** Super-tiles worth building before something asks for them. Guarded by itself. */
+    private final LinkedHashSet<TileKey> warmQueue = new LinkedHashSet<>();
+    private final boolean prefetchEnabled;
+    private final BooleanSupplier generationIdle;
+    private volatile Thread warmThread;
+
+    /** Candidates kept: a player only ever crosses into a neighbour of where they are. */
+    private static final int MAX_WARM_QUEUE = 8;
+    /** How often the warmer looks for idle time. */
+    private static final long WARM_POLL_MS = 2000L;
+
     public CoarseDrainageProvider(TileGenerator generator) {
+        this(generator, () -> false);
+    }
+
+    /**
+     * @param generationIdle whether no fine tile is being generated right now. A super-tile is
+     *                       minutes of inference on some machines, so warming only ever runs in
+     *                       gaps where the GPU would otherwise be doing nothing.
+     */
+    public CoarseDrainageProvider(TileGenerator generator, BooleanSupplier generationIdle) {
         this.generator = generator;
+        this.generationIdle = generationIdle;
+        this.prefetchEnabled = TerrainDiffusionConfig.coarseDrainagePrefetchEnabled();
         this.tileSize = TerrainDiffusionConfig.hydrologyTileSize();
         this.maxEntries = TerrainDiffusionConfig.coarseDrainageCacheMaxEntries();
         this.maxBytes = TerrainDiffusionConfig.coarseDrainageCacheMaxBytes();
@@ -198,10 +222,97 @@ public final class CoarseDrainageProvider {
         return computeBoundaryInflow(tile, scale, winI0, winJ0, winH, winW, fineElevation, fineDownstream);
     }
 
+    /**
+     * Notes the super-tiles bordering a just-generated fine window as warming candidates.
+     *
+     * <p>Entering a fresh super-tile costs one whole drainage pass, and it lands on whichever
+     * chunk asks first -- a stall in the middle of play. The work itself is unavoidable and its
+     * result is identical whenever it runs, so the only thing left to improve is <em>when</em>:
+     * a player who is about to leave a super-tile has usually just stopped generating terrain,
+     * and that idle GPU is free. Nothing is computed here; this only records the candidate.
+     */
+    public void queueNeighbourWarm(long seed, int scale, int winI0, int winJ0, int winH, int winW) {
+        if (!prefetchEnabled) return;
+        int k = fineTilesPerSuperTile(scale);
+        int kI = fineTileIndex(winI0 + (winH - 1) / 2);
+        int kJ = fineTileIndex(winJ0 + (winW - 1) / 2);
+        int superI = Math.floorDiv(kI, k);
+        int superJ = Math.floorDiv(kJ, k);
+        int withinI = kI - superI * k;
+        int withinJ = kJ - superJ * k;
+        synchronized (warmQueue) {
+            if (withinI == 0) offerWarm(new TileKey(seed, scale, superI - 1, superJ));
+            if (withinI == k - 1) offerWarm(new TileKey(seed, scale, superI + 1, superJ));
+            if (withinJ == 0) offerWarm(new TileKey(seed, scale, superI, superJ - 1));
+            if (withinJ == k - 1) offerWarm(new TileKey(seed, scale, superI, superJ + 1));
+        }
+        startWarmThread();
+    }
+
+    /** Caller holds {@code warmQueue}. Newest wins: the player's current edge is the likely one. */
+    private void offerWarm(TileKey key) {
+        synchronized (this) {
+            if (cache.containsKey(key)) return;
+        }
+        warmQueue.remove(key);
+        warmQueue.add(key);
+        while (warmQueue.size() > MAX_WARM_QUEUE) {
+            Iterator<TileKey> iterator = warmQueue.iterator();
+            iterator.next();
+            iterator.remove();
+        }
+    }
+
+    private void startWarmThread() {
+        if (warmThread != null) return;
+        synchronized (warmQueue) {
+            if (warmThread != null) return;
+            Thread thread = new Thread(this::warmLoop, "terrain-diffusion-coarse-drainage-warmer");
+            thread.setDaemon(true);
+            thread.setPriority(Thread.MIN_PRIORITY);
+            warmThread = thread;
+            thread.start();
+        }
+    }
+
+    private void warmLoop() {
+        while (true) {
+            try {
+                Thread.sleep(WARM_POLL_MS);
+            } catch (InterruptedException interrupted) {
+                Thread.currentThread().interrupt();
+                return;
+            }
+            if (!generationIdle.getAsBoolean()) continue;
+            TileKey key;
+            synchronized (warmQueue) {
+                Iterator<TileKey> iterator = warmQueue.iterator();
+                if (!iterator.hasNext()) continue;
+                key = iterator.next();
+                iterator.remove();
+            }
+            synchronized (this) {
+                if (cache.containsKey(key)) continue;
+            }
+            try {
+                long t0 = System.nanoTime();
+                getTile(key.seed(), key.scale(), key.superI(), key.superJ());
+                LOG.info("Warmed coarse drainage super-tile ({}, {}) scale {} while idle in {} ms",
+                        key.superI(), key.superJ(), key.scale(), (System.nanoTime() - t0) / 1_000_000L);
+            } catch (RuntimeException failure) {
+                // Warming is best-effort: whatever asks for this tile later will generate it.
+                LOG.debug("Coarse drainage warm of ({}, {}) failed", key.superI(), key.superJ(), failure);
+            }
+        }
+    }
+
     /** Clears only the memory cache. Persisted coarse tiles intentionally survive restarts. */
     public synchronized void clear() {
         cache.clear();
         retainedBytes = 0L;
+        synchronized (warmQueue) {
+            warmQueue.clear();
+        }
     }
 
     // =========================================================================

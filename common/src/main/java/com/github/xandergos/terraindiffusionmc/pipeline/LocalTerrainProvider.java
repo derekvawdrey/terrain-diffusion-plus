@@ -22,6 +22,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.FutureTask;
 import java.util.concurrent.ThreadFactory;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
@@ -222,6 +223,21 @@ public final class LocalTerrainProvider {
      */
     private static final ReentrantReadWriteLock SEED_LOCK = new ReentrantReadWriteLock();
 
+    /**
+     * Terrain generation activity, for background work that must not compete with it.
+     * A tile in flight, or one finished less than {@link #GENERATION_QUIET_NANOS} ago, counts as
+     * busy: chunk requests arrive in bursts, and a gap inside a burst is not idle time.
+     */
+    private static final AtomicInteger ACTIVE_TILE_BUILDS = new AtomicInteger();
+    private static volatile long lastTileFinishNanos = System.nanoTime();
+    private static final long GENERATION_QUIET_NANOS = TimeUnit.SECONDS.toNanos(5);
+
+    /** True when nothing has generated terrain recently, so the GPU is free for warming. */
+    public static boolean generationIdle() {
+        return ACTIVE_TILE_BUILDS.get() == 0
+                && System.nanoTime() - lastTileFinishNanos > GENERATION_QUIET_NANOS;
+    }
+
     private static volatile LocalTerrainProvider INSTANCE;
     private static long instanceSeed;
 
@@ -235,7 +251,8 @@ public final class LocalTerrainProvider {
         this.pipeline = new WorldPipeline(seed, models);
         this.hydrologyProvider = new HydrologyProvider(this::computeHydrologyTile);
         this.coarseDrainageProvider = new CoarseDrainageProvider(
-                (s, scale, li0, lj0, latentSize) -> buildCoarseTile(scale, li0, lj0, latentSize));
+                (s, scale, li0, lj0, latentSize) -> buildCoarseTile(scale, li0, lj0, latentSize),
+                LocalTerrainProvider::generationIdle);
     }
 
     /** Coarse drainage super-tile contents: latent-resolution elevation and climate, then the shared flood pass. */
@@ -565,6 +582,18 @@ public final class LocalTerrainProvider {
     private HydrologyProvider.HydrologyTile computeHydrologyTile(
             int coreI0, int coreJ0, int coreSize, int halo, int scale,
             boolean blockLowAltitudeSources) {
+        ACTIVE_TILE_BUILDS.incrementAndGet();
+        try {
+            return computeHydrologyTileTracked(coreI0, coreJ0, coreSize, halo, scale, blockLowAltitudeSources);
+        } finally {
+            lastTileFinishNanos = System.nanoTime();
+            ACTIVE_TILE_BUILDS.decrementAndGet();
+        }
+    }
+
+    private HydrologyProvider.HydrologyTile computeHydrologyTileTracked(
+            int coreI0, int coreJ0, int coreSize, int halo, int scale,
+            boolean blockLowAltitudeSources) {
         int analysisI0 = coreI0 - halo;
         int analysisJ0 = coreJ0 - halo;
         int analysisI1 = coreI0 + coreSize + halo;
@@ -650,6 +679,9 @@ public final class LocalTerrainProvider {
                 millis(tSampleStart, tSample), millis(tSample, tRiverBuild), millis(tRiverBuild, tCarve),
                 millis(tCarve, tCrop), millis(tCrop, tClassify), millis(tClassify, tRiverBiomes),
                 millis(tRiverBiomes, tCompact), millis(tSampleStart, tCompact));
+        // The drainage pass for the super-tile this one sits in is now warm; the next one over
+        // is not, and crossing into it would otherwise stall a chunk. Queue it for idle time.
+        coarseDrainageProvider.queueNeighbourWarm(instanceSeed, scale, coreI0, coreJ0, coreSize, coreSize);
         return new HydrologyProvider.HydrologyTile(
                 coreI0,
                 coreJ0,

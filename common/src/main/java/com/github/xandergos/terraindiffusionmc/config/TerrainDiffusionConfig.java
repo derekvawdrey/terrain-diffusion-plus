@@ -34,6 +34,7 @@ public final class TerrainDiffusionConfig {
     private static final int DEFAULT_COARSE_DRAINAGE_CACHE_MAX_MIB = 320;
     private static final int DEFAULT_COARSE_DRAINAGE_CACHE_MAX_ENTRIES = 32;
     private static final boolean DEFAULT_COARSE_DRAINAGE_DISK_CACHE_ENABLED = true;
+    private static final boolean DEFAULT_COARSE_DRAINAGE_PREFETCH_ENABLED = true;
     private static final boolean DEFAULT_SURFACE_FEATURES_ENABLED = true;
     /**
      * Whole world by default: Sengoku Jidai rethemes the 64 vanilla biomes globally, so confining
@@ -296,6 +297,17 @@ public final class TerrainDiffusionConfig {
         return readBoolean("coarse_drainage.disk_cache.enabled", DEFAULT_COARSE_DRAINAGE_DISK_CACHE_ENABLED);
     }
 
+    /**
+     * Whether coarse drainage super-tiles for neighbouring regions are built during idle time.
+     *
+     * <p>Entering a fresh super-tile costs one drainage pass, and without this it lands on
+     * whichever chunk asks for it first. Warming runs only when no tile is being generated, so it
+     * spends GPU time that would otherwise be idle. The generated terrain is the same either way.
+     */
+    public static boolean coarseDrainagePrefetchEnabled() {
+        return readBoolean("coarse_drainage.prefetch", DEFAULT_COARSE_DRAINAGE_PREFETCH_ENABLED);
+    }
+
     /** Namespace used to invalidate disk tiles when custom terrain models are replaced. */
     public static String coarseDrainageDiskCacheNamespace() {
         return readString("coarse_drainage.disk_cache.namespace", "default");
@@ -355,6 +367,7 @@ public final class TerrainDiffusionConfig {
             PROPERTIES.setProperty("coarse_drainage.cache.max_entries", String.valueOf(DEFAULT_COARSE_DRAINAGE_CACHE_MAX_ENTRIES));
             PROPERTIES.setProperty("coarse_drainage.disk_cache.enabled", String.valueOf(DEFAULT_COARSE_DRAINAGE_DISK_CACHE_ENABLED));
             PROPERTIES.setProperty("coarse_drainage.disk_cache.namespace", "default");
+            PROPERTIES.setProperty("coarse_drainage.prefetch", String.valueOf(DEFAULT_COARSE_DRAINAGE_PREFETCH_ENABLED));
             PROPERTIES.setProperty("surface_features.enabled", String.valueOf(DEFAULT_SURFACE_FEATURES_ENABLED));
             PROPERTIES.setProperty("biome.japan_region_share", String.valueOf(DEFAULT_JAPAN_REGION_SHARE));
             PROPERTIES.setProperty("biome.sengoku_surface_rules", String.valueOf(DEFAULT_SENGOKU_SURFACE_RULES));

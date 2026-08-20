@@ -29,17 +29,33 @@ public final class WorldPipeline implements AutoCloseable {
     static final int DECODER_TILE_SIZE  = 256;
 
     /**
+     * Latent pixels covered by one coarse cell. The coarse stage is defined at one pixel per
+     * 32 latent pixels ({@code 32 * LATENT_COMPRESSION} native pixels, the stride used by
+     * {@link #computeClimate}), and the latent stage's conditioning window walks the coarse
+     * tensor in whole cells, so every latent window geometry has to be a multiple of this.
+     */
+    static final int LATENT_PX_PER_COARSE_CELL = 32;
+
+    /**
      * Window strides for the two expensive stages. The default overlap generates each latent
      * pixel four times and each decoder pixel about twice, and blends the copies; the reduced
-     * setting trades some of that blending margin for roughly a third less inference. See
+     * setting trades some of that blending margin for less inference. See
      * {@link TerrainDiffusionConfig#windowOverlap()} -- the choice changes generated terrain, so
      * it is read once here and belongs to a world for its lifetime.
+     *
+     * <p>Only the decoder stride is configurable. A latent tile is addressed by window index and
+     * its coarse conditioning window advances by whole coarse cells per index (see
+     * {@link #buildLatentStage()}), so a latent stride that is not a multiple of
+     * {@link #LATENT_PX_PER_COARSE_CELL} slides the conditioning away from the terrain it
+     * describes, cumulatively with distance from the origin. 48 did exactly that: half a coarse
+     * cell (3.8 km at scale 1) per tile index, so far-out terrain was conditioned on an entirely
+     * different part of the coarse map. The only other legal value is 64, which removes latent
+     * blending altogether.
      */
-    static final int LATENT_TILE_STRIDE;
+    static final int LATENT_TILE_STRIDE = 32;
     static final int DECODER_TILE_STRIDE;
     static {
         boolean reduced = TerrainDiffusionConfig.windowOverlap() == TerrainDiffusionConfig.WindowOverlap.REDUCED;
-        LATENT_TILE_STRIDE = reduced ? 48 : 32;
         DECODER_TILE_STRIDE = reduced ? 224 : 192;
     }
 
@@ -239,9 +255,18 @@ public final class WorldPipeline implements AutoCloseable {
     // =========================================================================
 
     private InfiniteTensor buildLatentStage() {
-        int S = LATENT_TILE_SIZE, ST = LATENT_TILE_STRIDE;
+        int S = LATENT_TILE_SIZE, ST = LATENT_TILE_STRIDE, cell = LATENT_PX_PER_COARSE_CELL;
+        // A latent window is indexed, not located: InfiniteTensor feeds window index w to the
+        // coarse dependency window as well, so the conditioning cells must advance in step with
+        // the tile itself. The 4x4 window is centred on the tile's own two cells by offset -1.
+        if (ST % cell != 0 || S != 2 * cell) {
+            throw new IllegalStateException("Latent window geometry must be cell-aligned: size "
+                    + S + " must be 2 * " + cell + " and stride " + ST + " a multiple of " + cell);
+        }
+        int coarseStride = ST / cell;
         TensorWindow outWin = new TensorWindow(new int[]{6, S, S}, new int[]{6, ST, ST});
-        TensorWindow coarseWin = new TensorWindow(new int[]{7, 4, 4}, new int[]{7, 1, 1}, new int[]{0, -1, -1});
+        TensorWindow coarseWin = new TensorWindow(
+                new int[]{7, 4, 4}, new int[]{7, coarseStride, coarseStride}, new int[]{0, -1, -1});
         float[] ww = linearWeightWindow(S);
         float tInit = (float) Math.atan(EDMScheduler.SIGMA_MAX / SIGMA_DATA);
 
@@ -394,6 +419,12 @@ public final class WorldPipeline implements AutoCloseable {
 
     private InfiniteTensor buildDecoderStage() {
         int S = DECODER_TILE_SIZE, ST = DECODER_TILE_STRIDE, lc = LATENT_COMPRESSION;
+        // Same indexed-window trap as the latent stage: the decoder reads latents through a
+        // window derived by integer division, so both size and stride must divide evenly.
+        if (S % lc != 0 || ST % lc != 0) {
+            throw new IllegalStateException("Decoder window geometry must be latent-aligned: size "
+                    + S + " and stride " + ST + " must both be multiples of " + lc);
+        }
         TensorWindow outWin  = new TensorWindow(new int[]{2, S, S},  new int[]{2, ST, ST});
         TensorWindow inpWin  = new TensorWindow(new int[]{6, S/lc, S/lc}, new int[]{6, ST/lc, ST/lc});
         float[] ww = linearWeightWindow(S);

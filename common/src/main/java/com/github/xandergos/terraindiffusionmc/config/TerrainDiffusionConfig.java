@@ -35,9 +35,6 @@ public final class TerrainDiffusionConfig {
     private static final int DEFAULT_COARSE_DRAINAGE_CACHE_MAX_ENTRIES = 32;
     private static final boolean DEFAULT_COARSE_DRAINAGE_DISK_CACHE_ENABLED = true;
     private static final boolean DEFAULT_SURFACE_FEATURES_ENABLED = true;
-    private static final boolean DEFAULT_OCEAN_ISLANDS_ENABLED = true;
-    private static final float DEFAULT_OCEAN_ISLAND_DENSITY = 1.0f;
-    private static final float DEFAULT_OCEAN_ISLAND_RELIEF = 1.0f;
     /**
      * Whole world by default: Sengoku Jidai rethemes the 64 vanilla biomes globally, so confining
      * its own 15 biomes to a sub-region would read as an inconsistency (Japanese-looking forests
@@ -150,9 +147,9 @@ public final class TerrainDiffusionConfig {
 
     /** How far the pipeline's sliding windows overlap each other. */
     public enum WindowOverlap {
-        /** Every latent pixel is generated four times and blended; the shipped behaviour. */
+        /** Every decoder pixel is generated about twice and blended; the shipped behaviour. */
         FULL,
-        /** Wider strides: roughly half as much duplicated inference, at some blending margin. */
+        /** Wider decoder stride: less duplicated inference, at some blending margin. */
         REDUCED
     }
 
@@ -160,10 +157,11 @@ public final class TerrainDiffusionConfig {
      * Overlap between neighbouring model windows.
      *
      * <p>Each stage generates overlapping windows and blends them, which is what keeps window
-     * boundaries invisible -- and also what makes the latent stage generate every pixel four
-     * times over. {@code reduced} widens the strides (latent 32 -> 48, decoder 192 -> 224), which
-     * measured about 1.45x faster generation on an RTX 3090 Ti, with less margin for the blend to
-     * hide a seam.
+     * boundaries invisible -- and also what makes the decoder generate every pixel about twice.
+     * {@code reduced} widens the decoder stride (192 -> 224), with less margin for the blend to
+     * hide a seam. The latent stride is not configurable: the latent stage's coarse conditioning
+     * window advances in whole coarse cells per tile index, so any other latent stride would
+     * slide the conditioning off the terrain it describes (see {@code WorldPipeline}).
      *
      * <p>This changes generated terrain. Treat it like {@code hydrology.tile_size}: choose it
      * before creating a world, keep it for that world's lifetime, and keep it the same across
@@ -301,26 +299,6 @@ public final class TerrainDiffusionConfig {
     /** Namespace used to invalidate disk tiles when custom terrain models are replaced. */
     public static String coarseDrainageDiskCacheNamespace() {
         return readString("coarse_drainage.disk_cache.namespace", "default");
-    }
-
-    /**
-     * Whether open ocean gets islands. The trained elevation distribution is Earth's, whose deep
-     * ocean is a featureless 3-5 km plain, so islands are stamped into the conditioning map
-     * rather than emerging from it. Changing any {@code oceans.islands.*} value moves coastlines,
-     * so pick them before creating a world and keep them for that world's lifetime.
-     */
-    public static boolean oceanIslandsEnabled() {
-        return readBoolean("oceans.islands.enabled", DEFAULT_OCEAN_ISLANDS_ENABLED);
-    }
-
-    /** Multiplier on how many islands each stretch of ocean gets. 0 disables them. */
-    public static float oceanIslandDensity() {
-        return readFloatInRange("oceans.islands.density", DEFAULT_OCEAN_ISLAND_DENSITY, 0f, 8f);
-    }
-
-    /** Multiplier on island summit heights: below 1 for low atolls, above 1 for taller peaks. */
-    public static float oceanIslandRelief() {
-        return readFloatInRange("oceans.islands.relief", DEFAULT_OCEAN_ISLAND_RELIEF, 0f, 4f);
     }
 
     /** Global kill switch for procedural surface structures (boulders, hoodoos, arches, ...). */

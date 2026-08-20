@@ -117,8 +117,8 @@ inference.device=gpu
 # 0.8 s per generated tile. "true" always offloads (peak 1.5-2 GB), "false" never does.
 inference.offload_models=auto
 
-# Overlap between neighbouring model windows: "full" (default) generates every latent
-# pixel four times and blends the copies, "reduced" widens the strides for about 1.45x
+# Overlap between neighbouring model windows: "full" (default) generates every decoder
+# pixel about twice and blends the copies, "reduced" widens the decoder stride for
 # faster generation with less margin for the blend to hide a window boundary.
 # This changes generated terrain, so pick it before creating a world and keep it.
 inference.window_overlap=full

@@ -48,7 +48,7 @@ public final class CoarseDrainageProvider {
     private static final Logger LOG = LoggerFactory.getLogger(CoarseDrainageProvider.class);
 
     /** Increment when the coarse drainage output becomes semantically incompatible. */
-    private static final int ALGORITHM_VERSION = 2;
+    private static final int ALGORITHM_VERSION = 3;
     private static final int DISK_FORMAT_VERSION = 1;
     private static final int DISK_MAGIC = 0x54444344; // TDCD
     private static final int IO_BUFFER_SIZE = 4 * 1024 * 1024;

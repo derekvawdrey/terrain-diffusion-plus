@@ -1011,8 +1011,8 @@
     if (ci === null || !detailRaw) return;
     _lastDetailClick = { row, col };
     const scale = state.coordScale;
-    const centerI = ci * 256 * scale + pi;
-    const centerJ = cj * 256 * scale + pj;
+    const centerI = ci * 256 * scale + 128 * scale + pi;
+    const centerJ = cj * 256 * scale + 128 * scale + pj;
     const i1x = centerI - detailRaw.h / 2 + row;
     const j1x = centerJ - detailRaw.w / 2 + col;
     const mcX = Math.round(j1x);
@@ -1393,8 +1393,8 @@
   function detailViewportCoarse() {
     if (state.detailCI === null) return null;
     const scale = state.coordScale || 1;
-    const centerI = state.detailCI + state.detailPanI / (256.0 * scale);
-    const centerJ = state.detailCJ + state.detailPanJ / (256.0 * scale);
+    const centerI = state.detailCI + 0.5 + state.detailPanI / (256.0 * scale);
+    const centerJ = state.detailCJ + 0.5 + state.detailPanJ / (256.0 * scale);
     const half = DETAIL_SIZE / (512.0 * scale);
     return {
       centerI, centerJ,

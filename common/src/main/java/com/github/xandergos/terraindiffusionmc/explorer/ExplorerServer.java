@@ -416,8 +416,10 @@ public final class ExplorerServer {
             String mode    = q.getOrDefault("mode", "relief");
 
             int scale = WorldScaleManager.getCurrentScale();
-            int centerI = ci * 256 * scale + panI;
-            int centerJ = cj * 256 * scale + panJ;
+            // Anchored on the middle of the clicked coarse cell, not its corner, so the detail
+            // view is centred on the cell the user picked off the coarse map.
+            int centerI = ci * 256 * scale + 128 * scale + panI;
+            int centerJ = cj * 256 * scale + 128 * scale + panJ;
             int half    = detailSize / 2;
 
             int H = detailSize, W = detailSize;
@@ -481,8 +483,10 @@ public final class ExplorerServer {
             int panJ       = getInt(q, "pan_j", 0);
 
             int scale = WorldScaleManager.getCurrentScale();
-            int centerI = ci * 256 * scale + panI;
-            int centerJ = cj * 256 * scale + panJ;
+            // Anchored on the middle of the clicked coarse cell, not its corner, so the detail
+            // view is centred on the cell the user picked off the coarse map.
+            int centerI = ci * 256 * scale + 128 * scale + panI;
+            int centerJ = cj * 256 * scale + 128 * scale + panJ;
             int half    = detailSize / 2;
             int H = detailSize, W = detailSize;
 

@@ -10,7 +10,6 @@ import com.mojang.serialization.JsonOps;
 import net.minecraft.core.Holder;
 import net.minecraft.core.Registry;
 import net.minecraft.core.RegistryAccess;
-import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.core.registries.Registries;
 import net.minecraft.resources.RegistryOps;
 import net.minecraft.resources.ResourceKey;
@@ -335,13 +334,16 @@ public final class ScaledCarvers {
      * @return the rebuilt carver, or null to use the original
      */
     private static ConfiguredWorldCarver<?> liftDeclaredAltitudes(ConfiguredWorldCarver<?> carver, int scale) {
-        Identifier type = BuiltInRegistries.CARVER.getKey(carver.worldCarver());
+        RegistryAccess access = registries;
+        if (access == null) return null;
+        // Through the world's registries rather than BuiltInRegistries, whose statics Forge
+        // deprecates on 1.20.1; the carver registry is the same object either way.
+        Registry<WorldCarver<?>> carverTypes = access.lookup(Registries.CARVER).orElse(null);
+        if (carverTypes == null) return null;
+        Identifier type = carverTypes.getKey(carver.worldCarver());
         if (type == null) return null;
         Set<String> altitudeKeys = CarverAltitudeRules.altitudeKeys(type.toString());
         if (altitudeKeys.isEmpty()) return null;
-
-        RegistryAccess access = registries;
-        if (access == null) return null;
 
         RegistryOps<JsonElement> ops = RegistryOps.create(JsonOps.INSTANCE, access);
         JsonElement encoded = ConfiguredWorldCarver.DIRECT_CODEC.encodeStart(ops, carver)

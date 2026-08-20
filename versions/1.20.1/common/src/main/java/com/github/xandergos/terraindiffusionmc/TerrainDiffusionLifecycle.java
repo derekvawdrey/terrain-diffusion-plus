@@ -2,6 +2,7 @@ package com.github.xandergos.terraindiffusionmc;
 
 import com.github.xandergos.terraindiffusionmc.explorer.ExplorerServer;
 import com.github.xandergos.terraindiffusionmc.pipeline.LocalTerrainProvider;
+import com.github.xandergos.terraindiffusionmc.platform.PlatformMods;
 import com.github.xandergos.terraindiffusionmc.platform.PlatformPaths;
 import com.github.xandergos.terraindiffusionmc.pipeline.ModelAssetManager;
 import com.github.xandergos.terraindiffusionmc.pipeline.PipelineModels;
@@ -106,10 +107,28 @@ public final class TerrainDiffusionLifecycle {
                 // Before the first chunk is carved: lifting another mod's carver means rebuilding
                 // its config through its own codec, which needs this world's registries.
                 ScaledCarvers.bindWorld(world);
+                warnAboutThreadedWorldGen();
                 LocalTerrainProvider.init(world.getSeed());
                 TerraBlenderSurfaceCompat.apply(world.getChunkSource().getGenerator());
             }
         }
+    }
+
+    /**
+     * Warns about the one combination that visibly breaks the caves this build bundles.
+     *
+     * <p>On 1.20.1, YUNG's Better Caves decides its water and lava regions from state that C2ME's
+     * threaded chunk generation races on, and the symptom is lava pockets generated inside water
+     * regions. 1.21.1 is unaffected. Better Caves is bundled here, so a player has no way to know
+     * that a mod they installed for speed is what broke their caves unless we say so.</p>
+     */
+    private static void warnAboutThreadedWorldGen() {
+        // Not isLoaded: that answers "yes" when the loader's mod list is unavailable, which
+        // would put this warning in front of players who do not have C2ME at all.
+        if (!PlatformMods.loadedModIds().contains("c2me")) return;
+        LOG.warn("C2ME is installed. On Minecraft 1.20.1 its threaded world generation races with"
+                + " the bundled YUNG's Better Caves and generates lava inside water regions."
+                + " Set threadedWorldGen.enabled=false in C2ME's config.");
     }
 
     /**

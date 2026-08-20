@@ -224,6 +224,7 @@ subprojects { subproject ->
             maven { name = 'NeoForge'; url = uri('https://maven.neoforged.net/releases') }
             maven { name = 'Forge'; url = uri('https://maven.minecraftforge.net') }
             maven { name = 'ParchmentMC'; url = uri('https://maven.parchmentmc.org') }
+            maven { name = 'Modrinth'; url = uri('https://api.modrinth.com/maven') }
             flatDir { dirs rootProject.file('libs') }
         }
 
@@ -296,6 +297,21 @@ subprojects { subproject ->
                 def onnxNotation = rootProject.ext.terrainDiffusionOnnxNotation(subproject.ext.terrainDiffusionBuildVariant)
                 implementation onnxNotation
                 include onnxNotation
+
+                // YUNG's Better Caves (LGPL-3.0) + its required YUNG's API, bundled jar-in-jar so caves
+                // work out of the box, as on 1.21.1. See NOTICE-THIRD-PARTY.md for attribution.
+                // It is bundled, not overridden: whatever a pack or the player configures for it is
+                // what generates, and its carver altitudes are moved into our taller world at
+                // runtime rather than by shipping a file over its config -- see ScaledCarvers.
+                modImplementation 'maven.modrinth:yungs-api:1.20-Fabric-4.0.6'
+                include 'maven.modrinth:yungs-api:1.20-Fabric-4.0.6'
+                modImplementation 'maven.modrinth:yungs-better-caves:1.20.1-Fabric-2.0.6'
+                include 'maven.modrinth:yungs-better-caves:1.20.1-Fabric-2.0.6'
+                // Better Caves' Fabric build hard-depends on Cloth Config (config screen).
+                // A nested mod whose dependencies are unsatisfied is silently dropped by Fabric
+                // Loader, so without this Better Caves never loads and its carvers never register.
+                modImplementation 'maven.modrinth:cloth-config:11.1.136+fabric'
+                include 'maven.modrinth:cloth-config:11.1.136+fabric'
             }
 
             subproject.tasks.named('build') {
@@ -330,6 +346,26 @@ subprojects { subproject ->
                     version {
                         strictly "[${onnxModule.version}]"
                         prefer onnxModule.version
+                    }
+                }
+
+                if (subproject.name == 'forge') {
+                    // YUNG's Better Caves (LGPL-3.0) + its required YUNG's API, bundled jar-in-jar,
+                    // as on 1.21.1. See NOTICE-THIRD-PARTY.md for attribution.
+                    // Nested only, not put on the development runtime classpath: a published Forge
+                    // 1.20.1 jar is SRG-mapped and would not run against a mojmap development
+                    // classpath. The distribution jar is what carries it.
+                    jarJar(implementation('maven.modrinth:yungs-api')) {
+                        version {
+                            strictly '[1.20-Forge-4.0.6]'
+                            prefer '1.20-Forge-4.0.6'
+                        }
+                    }
+                    jarJar(implementation('maven.modrinth:yungs-better-caves')) {
+                        version {
+                            strictly '[1.20.1-Forge-2.0.6]'
+                            prefer '1.20.1-Forge-2.0.6'
+                        }
                     }
                 }
             }

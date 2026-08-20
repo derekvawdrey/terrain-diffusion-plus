@@ -6,8 +6,11 @@
   "compatibilityLevel": "JAVA_17",
   "mixins": [
     "BiomeMixin",
+    "CaveCarverConfigurationAccessor",
     "ChunkGeneratorMixin",
-    "MinecraftServerMixin"
+    "MinecraftServerMixin",
+    "NoiseBasedChunkGeneratorMixin",
+    "UniformHeightAccessor"
   ],
   "client": [],
   "server": [],

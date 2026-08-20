@@ -15,6 +15,7 @@ That single change pulls several systems with it:
 - **Hydrology.** Rivers are traced by a fluvial network over the generated elevation, so they run downhill, gather tributaries, and reach the sea.
 - **Tall worlds.** The terrain uses build heights well beyond vanilla's, scaled by the `World Scale` setting — up to 2032 blocks.
 - **Surface features.** Procedural boulders, hoodoos, arches, sea stacks and similar structures are placed against the real slope and material of the terrain under them.
+- **Caves that reach the terrain.** The 1.20.1 and 1.21.1 builds ship YUNG's Better Caves; on every build, each carver's altitudes and spawn rate are moved into the taller world so caves fill the mountains instead of a band near bedrock. See [Caves](#caves).
 - **A terrain explorer.** `/td-explore` opens a browser map of the generated world for scouting and debugging.
 
 Generation runs a neural network, so it needs a GPU to be comfortable — see [Requirements](#requirements).
@@ -98,6 +99,108 @@ Nothing from another mod is copied or redistributed; this reads only what is alr
 
 Note that such a mod's own surface rule lives in the vanilla overworld noise settings, which this mod replaces, so the ground blocks stay this mod's own.
 
+### Caves
+
+Caves come from **carvers**: the per-biome list every cave mod, biome mod and datapack already
+writes to. That list is run unchanged here, so installing a cave mod does what you would expect.
+Two things are done to it, and nothing else.
+
+**Altitudes are moved to where the terrain is.** A carver is authored for a world whose surface
+sits around y=64..140, so it says things like "anywhere between the world floor and y=180". This
+mod's dimension is up to 2032 blocks tall and `World Scale` stretches everything above sea level,
+so an untouched carver would cut a band near the bottom of the world and leave every mountain
+above it solid. Each carver's altitudes are therefore multiplied by the same factor the terrain
+was, and nothing else about it — shape, size, radius, block choice — is changed. Nothing happens
+at `World Scale` 1, where the two heights are the same. The underground below sea level is never
+stretched at any scale, so deep carvers keep their authored depth exactly.
+
+**Cave frequency is kept per slab of world.** A carver that starts one cave system per chunk with
+some probability and drops it anywhere in its range would, over a range several times taller,
+produce the same number of caves spread much thinner — most visibly as far fewer cave mouths on a
+mountainside. Its spawn chance is raised by the same factor its range grew by. Carvers that fill a
+chunk from noise instead, such as YUNG's Better Caves, already scale with the band they are given
+and are left alone.
+
+Both can be turned off in `config/terrain-diffusion-mc.properties` (`caves.lift_carvers`,
+`caves.density_compensation`).
+
+#### YUNG's Better Caves
+
+The 1.20.1 and 1.21.1 builds bundle [YUNG's Better Caves](https://modrinth.com/mod/yungs-better-caves)
+jar-in-jar, so the overhauled caves, underground lakes and lava oceans are there out of the box —
+nothing to install. Nothing is overridden: whatever a pack or the player configures for it is what
+generates, and its cave and cavern bands are moved into our taller world at runtime rather than by
+shipping a file over its config. There is no Better Caves release for 1.21.11, so those builds use
+vanilla's carvers unless you install a cave mod yourself.
+
+Because it is bundled it cannot be removed from the mods folder. To run a different cave overhaul,
+set `caves.bundled_cave_mod=false`: its carvers are dropped from every biome and vanilla's caves
+are put back — unless another cave mod's carver is already there, in which case that mod's caves
+are the ones that generate.
+
+> On Minecraft 1.20.1 with [C2ME](https://modrinth.com/mod/c2me-fabric), set
+> `threadedWorldGen.enabled=false` in C2ME's config. Better Caves places its water and lava regions
+> from state that threaded chunk generation races on, and the symptom is lava pockets inside water
+> regions. 1.21.1 is unaffected.
+
+#### Teaching this mod about your carver
+
+A carver whose configuration is a mod's own class is passed through untouched, because there is no
+general way to know which of its numbers are altitudes. A mod or pack can say so, and get the same
+altitude lifting vanilla's carvers get, by dropping `config/terrain-diffusion-mc/carver_altitudes.json`:
+
+```json
+{
+  "altitudeKeys": {
+    "somemod:crystal_cavern": ["min_height", "max_height"]
+  },
+  "excluded": [
+    "othermod:vertical_shaft"
+  ]
+}
+```
+
+`altitudeKeys` is keyed by carver **type** id — the `"type"` of a configured carver JSON — and
+lists the keys of that type's config that hold an absolute y. Any such key, at any depth in the
+configuration, is lifted; every other number in it is left exactly as authored, because the
+configuration is rebuilt by the mod's own codec rather than by field-poking. An empty list disables
+a built-in entry. The mod ships one entry, for Better Caves' `bottom_y`/`top_y`.
+
+`excluded` lists **configured** carver ids that are never rewritten at all, even vanilla-shaped
+ones — the escape hatch for a mod or pack that has already tuned its carver for a tall world.
+
+A mod that replaces the carving step outright is never touched by any of this: it has taken over
+cave generation, and this mod stays out of its way.
+
+#### Noise caves
+
+Some cave overhauls do not use carvers at all — they cut caves in the density function, by editing
+`minecraft:overworld`'s noise settings. Those edits cannot reach this dimension, which has noise
+settings of its own; nothing is lost, but nothing is gained either.
+
+There is a place to put them. This mod's `final_density` ends in a named density function that is
+constant zero:
+
+```
+final_density = (terrain + beardifier) + terrain-diffusion-mc:cave_density
+```
+
+Override `data/terrain-diffusion-mc/worldgen/density_function/cave_density.json` in a datapack and
+whatever you put there is added to the terrain everywhere — negative where you want air. That is
+one small file, not a copy of the whole noise settings, so it keeps working when this mod's terrain
+changes. The default is `{"type": "minecraft:constant", "argument": 0.0}`, which changes nothing.
+
+Remember that this dimension is up to 2032 blocks tall: a density function written for a 384-block
+world will want its y scales adjusted by the same `World Scale` factor everything else moves by.
+
+#### Cave biomes
+
+Cave biomes are not a separate system in Minecraft — lush caves, dripstone caves and the deep dark
+are ordinary rows in the same climate table as surface biomes, reached at depths this mod's own
+biome rules never produce. Rather than guessing, the underground is asked of whatever overworld
+biome source the pack loaded, so a mod's own cave biomes arrive with no configuration, in bands
+that follow the terrain above them.
+
 ## Configuration
 
 Edit `config/terrain-diffusion-mc.properties`, created automatically on first launch:
@@ -139,6 +242,13 @@ spawn_search.max_size=128
 # Procedural surface structures (boulders, hoodoos, arches, ...) placed on top of the terrain.
 # Disable if you only want vanilla features.
 surface_features.enabled=true
+
+# Caves. See the "Caves" section above for what these do; all three change which caves
+# are generated, so pick them before creating a world.
+caves.lift_carvers=true
+caves.density_compensation=true
+# 1.20.1 and 1.21.1 only, where YUNG's Better Caves is bundled inside this jar.
+caves.bundled_cave_mod=true
 ```
 
 ### Per-world settings

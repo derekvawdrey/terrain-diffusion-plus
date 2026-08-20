@@ -14,7 +14,7 @@ import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.core.registries.Registries;
 import net.minecraft.resources.RegistryOps;
 import net.minecraft.resources.ResourceKey;
-import net.minecraft.resources.ResourceLocation;
+import net.minecraft.resources.Identifier;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.level.levelgen.VerticalAnchor;
 import net.minecraft.world.level.levelgen.carver.CanyonCarverConfiguration;
@@ -113,8 +113,8 @@ public final class ScaledCarvers {
      */
     public static void bindWorld(ServerLevel level) {
         registries = level.registryAccess();
-        worldMinY = level.getMinBuildHeight();
-        worldMaxY = level.getMaxBuildHeight() - 1;
+        worldMinY = level.getMinY();
+        worldMaxY = level.getMaxY();
         LIFTED.clear();
         WARNED.clear();
     }
@@ -162,8 +162,8 @@ public final class ScaledCarvers {
     /** Whether this is one of the carvers of the cave mod this mod bundles. */
     private static boolean isBundledCaveMod(Holder<ConfiguredWorldCarver<?>> holder) {
         return holder.unwrapKey()
-                .map(key -> BUNDLED_CAVE_MOD.equals(key.location().getNamespace()))
-                .orElse(false);
+                .map(key -> BUNDLED_CAVE_MOD.equals(key.identifier().getNamespace()))
+                .orElse(Boolean.FALSE);
     }
 
     /**
@@ -181,12 +181,12 @@ public final class ScaledCarvers {
     private static List<Holder<ConfiguredWorldCarver<?>>> vanillaCaveCarvers(int scale) {
         RegistryAccess access = registries;
         if (access == null) return List.of();
-        Registry<ConfiguredWorldCarver<?>> registry = access.registry(Registries.CONFIGURED_CARVER).orElse(null);
+        Registry<ConfiguredWorldCarver<?>> registry = access.lookup(Registries.CONFIGURED_CARVER).orElse(null);
         if (registry == null) return List.of();
 
         List<Holder<ConfiguredWorldCarver<?>>> restored = new ArrayList<>(2);
         for (String name : List.of("cave", "cave_extra_underground")) {
-            ResourceLocation id = ResourceLocation.withDefaultNamespace(name);
+            Identifier id = Identifier.withDefaultNamespace(name);
             ConfiguredWorldCarver<?> carver = registry
                     .getOptional(ResourceKey.create(Registries.CONFIGURED_CARVER, id)).orElse(null);
             if (carver == null) continue;
@@ -213,8 +213,8 @@ public final class ScaledCarvers {
     /** Whether a pack asked for this configured carver to be run exactly as authored. */
     private static boolean isExcluded(Holder<ConfiguredWorldCarver<?>> holder) {
         return holder.unwrapKey()
-                .map(key -> CarverAltitudeRules.isExcluded(key.location().toString()))
-                .orElse(false);
+                .map(key -> CarverAltitudeRules.isExcluded(key.identifier().toString()))
+                .orElse(Boolean.FALSE);
     }
 
     /** The configuration with lifted altitudes, or null when it should be used as it is. */
@@ -335,7 +335,7 @@ public final class ScaledCarvers {
      * @return the rebuilt carver, or null to use the original
      */
     private static ConfiguredWorldCarver<?> liftDeclaredAltitudes(ConfiguredWorldCarver<?> carver, int scale) {
-        ResourceLocation type = BuiltInRegistries.CARVER.getKey(carver.worldCarver());
+        Identifier type = BuiltInRegistries.CARVER.getKey(carver.worldCarver());
         if (type == null) return null;
         Set<String> altitudeKeys = CarverAltitudeRules.altitudeKeys(type.toString());
         if (altitudeKeys.isEmpty()) return null;
@@ -355,7 +355,7 @@ public final class ScaledCarvers {
         return rebuilt;
     }
 
-    private static ConfiguredWorldCarver<?> warnOnce(ResourceLocation type, String what) {
+    private static ConfiguredWorldCarver<?> warnOnce(Identifier type, String what) {
         if (WARNED.add(type.toString())) {
             LOG.warn("Carver {} {}; running it at its authored altitudes. Its caves will stop where"
                     + " a vanilla-height world ends.", type, what);

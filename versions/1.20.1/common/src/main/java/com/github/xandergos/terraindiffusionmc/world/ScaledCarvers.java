@@ -186,7 +186,7 @@ public final class ScaledCarvers {
 
         List<Holder<ConfiguredWorldCarver<?>>> restored = new ArrayList<>(2);
         for (String name : List.of("cave", "cave_extra_underground")) {
-            ResourceLocation id = ResourceLocation.withDefaultNamespace(name);
+            ResourceLocation id = new ResourceLocation(name);
             ConfiguredWorldCarver<?> carver = registry
                     .getOptional(ResourceKey.create(Registries.CONFIGURED_CARVER, id)).orElse(null);
             if (carver == null) continue;

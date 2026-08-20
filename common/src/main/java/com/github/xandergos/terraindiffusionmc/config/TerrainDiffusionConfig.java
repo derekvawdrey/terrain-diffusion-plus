@@ -36,6 +36,9 @@ public final class TerrainDiffusionConfig {
     private static final boolean DEFAULT_COARSE_DRAINAGE_DISK_CACHE_ENABLED = true;
     private static final boolean DEFAULT_COARSE_DRAINAGE_PREFETCH_ENABLED = true;
     private static final boolean DEFAULT_SURFACE_FEATURES_ENABLED = true;
+    private static final boolean DEFAULT_LIFT_CARVERS = true;
+    private static final boolean DEFAULT_CAVE_DENSITY_COMPENSATION = true;
+    private static final boolean DEFAULT_BUNDLED_CAVE_MOD_ENABLED = true;
     /**
      * Whole world by default: Sengoku Jidai rethemes the 64 vanilla biomes globally, so confining
      * its own 15 biomes to a sub-region would read as an inconsistency (Japanese-looking forests
@@ -316,6 +319,45 @@ public final class TerrainDiffusionConfig {
     /** Global kill switch for procedural surface structures (boulders, hoodoos, arches, ...). */
     public static boolean surfaceFeaturesEnabled() {
         return readBoolean("surface_features.enabled", DEFAULT_SURFACE_FEATURES_ENABLED);
+    }
+
+    /**
+     * Whether carver altitudes are moved from the vanilla-height world they were authored for into
+     * our scaled one, so that another mod's or pack's caves reach our terrain instead of stopping
+     * in a band near the world floor. Turn off to run every carver exactly as it was written, which
+     * leaves the terrain above roughly y=180 solid at world scales above 1.
+     *
+     * <p>Never has any effect at world scale 1, where the two heights are the same.</p>
+     */
+    public static boolean liftCarversToTerrain() {
+        return readBoolean("caves.lift_carvers", DEFAULT_LIFT_CARVERS);
+    }
+
+    /**
+     * Whether a carver whose altitude range was stretched also gets its per-chunk spawn chance
+     * raised by the same factor, so that caves stay as frequent per vertical slab of world as the
+     * author intended. Without it a tall world gets vanilla's <i>number</i> of cave systems spread
+     * over several times the height, and cave entrances become correspondingly rare.
+     *
+     * <p>Applies only to carvers that place discrete cave systems from a spawn chance -- vanilla's
+     * caves and canyons and anything reusing their configuration. Carvers that fill a whole chunk
+     * from noise, such as YUNG's Better Caves, already scale with the band they are given.</p>
+     */
+    public static boolean caveDensityCompensation() {
+        return readBoolean("caves.density_compensation", DEFAULT_CAVE_DENSITY_COMPENSATION);
+    }
+
+    /**
+     * Whether the cave mod bundled with this jar (YUNG's Better Caves) generates. It is bundled
+     * jar-in-jar, so a player who prefers a different cave overhaul cannot simply remove it; this
+     * is how they turn it off.
+     *
+     * <p>Turning it off drops its carvers from every biome and puts vanilla's back, unless another
+     * mod's cave carver is already there -- in which case that mod's caves are the ones that
+     * generate. See {@code ScaledCarvers}.</p>
+     */
+    public static boolean bundledCaveModEnabled() {
+        return readBoolean("caves.bundled_cave_mod", DEFAULT_BUNDLED_CAVE_MOD_ENABLED);
     }
 
     /**

@@ -503,7 +503,7 @@ public final class FluvialRiverNetwork {
         float flow0 = accumulation[idx];
         float flow1 = accumulation[down];
         float downstreamSurface = Math.min(surface[idx], surface[down]);
-        float distance = (float) Math.hypot(
+        float distance = hypotFloat(
                 geometry.row()[down] - geometry.row()[idx],
                 geometry.col()[down] - geometry.col()[idx]);
         int samples = Math.max(1, (int) Math.ceil(distance / CHANNEL_SAMPLE_STEP_PX));
@@ -666,8 +666,7 @@ public final class FluvialRiverNetwork {
         float normalizedLoad = normalizedLoad(flow);
         for (int r = minR; r <= maxR; r++) {
             for (int c = minC; c <= maxC; c++) {
-                float distance = (float) Math.hypot(
-                        (r + 0.5f) - centerR, (c + 0.5f) - centerC);
+                float distance = hypotFloat((r + 0.5f) - centerR, (c + 0.5f) - centerC);
                 if (distance > radius + 0.50f) continue;
                 float x = clamp01(1.0f - distance / Math.max(0.55f, radius + 0.35f));
                 if (x <= 0.0f) continue;
@@ -787,25 +786,56 @@ public final class FluvialRiverNetwork {
             }
         }
         int orderSize = 0;
+        int lastRow = height - 1;
+        int lastCol = width - 1;
         while (!queue.isEmpty()) {
             int idx = (int) queue.poll();
             order[orderSize++] = idx;
+            // filled[idx] cannot change under us: idx is already visited, and only unvisited
+            // neighbours are ever written, so hoisting the load out of the neighbour loop is exact.
+            float here = filled[idx];
             int r = idx / width;
             int c = idx - r * width;
-            for (int k = 0; k < 8; k++) {
-                int nr = r + DR[k];
-                int nc = c + DC[k];
-                if (nr < 0 || nr >= height || nc < 0 || nc >= width) continue;
-                int ni = nr * width + nc;
-                if (visited[ni]) continue;
-                visited[ni] = true;
-                downstream[ni] = idx;
-                float fill = Math.max(elevation[ni], filled[idx]);
-                filled[ni] = fill;
-                queue.add(packFloodKey(fill, ni));
+            if (r > 0 && r < lastRow && c > 0 && c < lastCol) {
+                // Interior cell: all eight neighbours are in range and are exactly the k=0..7
+                // indices in the same order, so the bounds checks and DR/DC loads are pure
+                // overhead. This is the hottest loop in the flood.
+                int up = idx - width;
+                int down = idx + width;
+                visitFloodNeighbor(up - 1, idx, here, elevation, filled, downstream, visited, queue);
+                visitFloodNeighbor(up, idx, here, elevation, filled, downstream, visited, queue);
+                visitFloodNeighbor(up + 1, idx, here, elevation, filled, downstream, visited, queue);
+                visitFloodNeighbor(idx - 1, idx, here, elevation, filled, downstream, visited, queue);
+                visitFloodNeighbor(idx + 1, idx, here, elevation, filled, downstream, visited, queue);
+                visitFloodNeighbor(down - 1, idx, here, elevation, filled, downstream, visited, queue);
+                visitFloodNeighbor(down, idx, here, elevation, filled, downstream, visited, queue);
+                visitFloodNeighbor(down + 1, idx, here, elevation, filled, downstream, visited, queue);
+            } else {
+                for (int k = 0; k < 8; k++) {
+                    int nr = r + DR[k];
+                    int nc = c + DC[k];
+                    if (nr < 0 || nr >= height || nc < 0 || nc >= width) continue;
+                    visitFloodNeighbor(nr * width + nc, idx, here, elevation, filled, downstream, visited, queue);
+                }
             }
         }
         return new PriorityFlood(filled, downstream, order, orderSize);
+    }
+
+    /**
+     * Claims one unvisited neighbour for the flood. Split out of
+     * {@link #runPriorityFloodFast} only so the interior and border paths can share it; the
+     * body is the original loop body verbatim, {@link Math#max} included -- the ternary form
+     * differs from it when {@code elevation[ni]} is NaN.
+     */
+    private static void visitFloodNeighbor(int ni, int idx, float here, float[] elevation, float[] filled,
+                                           int[] downstream, boolean[] visited, LongMinHeap queue) {
+        if (visited[ni]) return;
+        visited[ni] = true;
+        downstream[ni] = idx;
+        float fill = Math.max(elevation[ni], here);
+        filled[ni] = fill;
+        queue.add(packFloodKey(fill, ni));
     }
 
     /**
@@ -818,6 +848,35 @@ public final class FluvialRiverNetwork {
         int bits = Float.floatToIntBits(priority);
         bits ^= (bits >> 31) & 0x7FFFFFFF;
         return ((long) bits << 32) | (index & 0xFFFFFFFFL);
+    }
+
+    /**
+     * Guard half-width, in ulps of the double result, around the float rounding boundary.
+     *
+     * <p>{@code sqrt(dx*dx + dy*dy)} is correctly rounded to a double, so it differs from the
+     * infinitely precise hypotenuse by at most ~2.5 ulps for the operand range this class uses
+     * (coordinate differences, so the squares are exact at &lt;=48 bits and the sum carries a
+     * single 2^-53 relative rounding). A window of 2^20 ulps is 400000x that bound, so whenever
+     * the two disagree about which float to round to, we are inside the window and fall back.</p>
+     */
+    private static final int HYPOT_GUARD_ULPS = 1 << 20;
+
+    /**
+     * Exactly {@code (float) Math.hypot(dx, dy)} for this class's operands, but computed with a
+     * hardware sqrt except within {@link #HYPOT_GUARD_ULPS} of a float rounding boundary, where it
+     * defers to {@link Math#hypot}. {@code Math.hypot} is a software routine an order of magnitude
+     * slower than sqrt and it is called once per channel-disc cell, which is the single hottest
+     * line in the river rasteriser.
+     */
+    static float hypotFloat(float dx, float dy) {
+        double squared = (double) dx * dx + (double) dy * dy;
+        double q = Math.sqrt(squared);
+        int low = (int) (Double.doubleToRawLongBits(q) & 0x1FFFFFFFL);
+        int delta = low - 0x10000000;
+        if (delta > -HYPOT_GUARD_ULPS && delta < HYPOT_GUARD_ULPS) {
+            return (float) Math.hypot(dx, dy);
+        }
+        return (float) q;
     }
 
     /**
@@ -876,6 +935,12 @@ public final class FluvialRiverNetwork {
      */
     private static final int MAX_FLOOD_STRIPS = 16;
 
+    /**
+     * Row blocks the flat-identification pass splits into. Fixed rather than CPU-derived so the
+     * flat numbering -- and therefore the generated drainage -- is the same on every machine.
+     */
+    private static final int MAX_FLAT_BLOCKS = 64;
+
 
     /**
      * Replaces the drainage directions the flood assigned inside flat surfaces.
@@ -904,24 +969,79 @@ public final class FluvialRiverNetwork {
         int[] downstream = flood.downstream();
         int n = height * width;
 
+        // Flat identification, in two parallel row-block passes with a sequential prefix between
+        // them. flatId numbering is defined as "ascending cell index over flat cells"; contiguous
+        // row blocks taken in ascending block order, offset by the exclusive prefix of their
+        // counts, reproduce exactly that enumeration for any block count, so the numbering is
+        // independent of how the work is split. hasNeighborAtSameLevel is a pure read of `filled`.
+        // The block count is derived from the grid, never from the CPU count, so the result is
+        // machine-independent like the rest of the pipeline.
         int[] flatId = new int[n];
-        Arrays.fill(flatId, -1);
-        int flatCount = 0;
-        for (int idx = 0; idx < n; idx++) {
-            if (elevation[idx] <= SEA_LEVEL_METERS) continue;
-            if (hasNeighborAtSameLevel(filled, idx, height, width)) flatId[idx] = flatCount++;
-        }
+        int blocks = Math.max(1, Math.min(MAX_FLAT_BLOCKS, height / 8));
+        int[] blockRowStart = new int[blocks + 1];
+        for (int b = 0; b <= blocks; b++) blockRowStart[b] = (int) ((long) height * b / blocks);
+        int[] blockCount = new int[blocks];
+        HydrologyParallel.forEachTask(blocks, b -> {
+            int count = 0;
+            int to = blockRowStart[b + 1] * width;
+            for (int idx = blockRowStart[b] * width; idx < to; idx++) {
+                boolean flat = elevation[idx] > SEA_LEVEL_METERS
+                        && hasNeighborAtSameLevel(filled, idx, height, width);
+                flatId[idx] = flat ? 1 : -1;
+                if (flat) count++;
+            }
+            blockCount[b] = count;
+        });
+        int[] blockBase = new int[blocks + 1];
+        for (int b = 0; b < blocks; b++) blockBase[b + 1] = blockBase[b] + blockCount[b];
+        int flatCount = blockBase[blocks];
         if (flatCount == 0) return;
 
         int[] flatCell = new int[flatCount];
-        for (int idx = 0; idx < n; idx++) {
-            if (flatId[idx] >= 0) flatCell[flatId[idx]] = idx;
-        }
+        HydrologyParallel.forEachTask(blocks, b -> {
+            int at = blockBase[b];
+            int to = blockRowStart[b + 1] * width;
+            for (int idx = blockRowStart[b] * width; idx < to; idx++) {
+                if (flatId[idx] > 0) {
+                    flatCell[at] = idx;
+                    flatId[idx] = at++;
+                }
+            }
+        });
 
+        // Seed detection for both distance fields in one parallel 8-neighbour sweep. The original
+        // per-field loops each asked "is there any in-range neighbour strictly lower / strictly
+        // higher than me"; both answers come out of the same sweep, and both are pure functions of
+        // (filled, flatCell[f]).
+        boolean[] seedSpill = new boolean[flatCount];
+        boolean[] seedInflow = new boolean[flatCount];
+        HydrologyParallel.forEachIndex(0, flatCount, f -> {
+            int idx = flatCell[f];
+            int r = idx / width;
+            int c = idx - r * width;
+            float here = filled[idx];
+            boolean lower = false;
+            boolean higher = false;
+            for (int k = 0; k < 8; k++) {
+                int nr = r + DR[k];
+                int nc = c + DC[k];
+                if (nr < 0 || nr >= height || nc < 0 || nc >= width) continue;
+                float neighbor = filled[nr * width + nc];
+                if (neighbor < here) lower = true;
+                else if (neighbor > here) higher = true;
+            }
+            seedSpill[f] = lower;
+            seedInflow[f] = higher;
+        });
+
+        // The two breadth-first passes write disjoint arrays and read only immutable inputs, so
+        // running them at the same time cannot make them interact. Each stays single-threaded and
+        // FIFO internally, which is what keeps its hop counts exact.
         int[] distanceToSpill = new int[flatCount];
         int[] distanceFromInflow = new int[flatCount];
-        seedAndSpread(filled, flatId, flatCell, distanceToSpill, height, width, true);
-        seedAndSpread(filled, flatId, flatCell, distanceFromInflow, height, width, false);
+        HydrologyParallel.forEachTask(2, s -> spreadFlatDistance(filled, flatId, flatCell,
+                s == 0 ? distanceToSpill : distanceFromInflow,
+                s == 0 ? seedSpill : seedInflow, height, width));
 
         // The weights are what make this safe rather than merely plausible. Neighbouring cells'
         // distances differ by at most one step each, so giving the spill distance a weight of 3
@@ -938,50 +1058,34 @@ public final class FluvialRiverNetwork {
         // the cell's coordinates: too small to reorder the gradient, big enough to keep the
         // metric's diagonal seams from becoming channels in their own right.
         int[] potential = new int[flatCount];
-        int minPotential = Integer.MAX_VALUE;
-        int maxPotential = Integer.MIN_VALUE;
-        for (int f = 0; f < flatCount; f++) {
-            if (distanceToSpill[f] == UNREACHABLE) continue;
+        HydrologyParallel.forEachIndex(0, flatCount, f -> {
+            if (distanceToSpill[f] == UNREACHABLE) return;
             int idx = flatCell[f];
             int inflow = distanceFromInflow[f] == UNREACHABLE ? 0 : distanceFromInflow[f];
-            int jitter = flatJitter(idx / width, idx - (idx / width) * width);
-            potential[f] = FLAT_POTENTIAL_STEPS * (3 * distanceToSpill[f] - inflow) + jitter;
-            if (potential[f] < minPotential) minPotential = potential[f];
-            if (potential[f] > maxPotential) maxPotential = potential[f];
-        }
-        if (minPotential > maxPotential) return;
+            int r = idx / width;
+            potential[f] = FLAT_POTENTIAL_STEPS * (3 * distanceToSpill[f] - inflow)
+                    + flatJitter(r, idx - r * width);
+        });
 
-        // Counting sort by potential; within one potential, ascending cell index. Sorting keeps
-        // the assignment loop able to test "already settled" as a plain comparison.
-        int span = maxPotential - minPotential + 1;
-        int[] bucketStart = new int[span + 1];
-        int sortable = 0;
-        for (int f = 0; f < flatCount; f++) {
-            if (distanceToSpill[f] == UNREACHABLE) continue;
-            bucketStart[potential[f] - minPotential + 1]++;
-            sortable++;
-        }
-        for (int b = 0; b < span; b++) bucketStart[b + 1] += bucketStart[b];
-        int[] sorted = new int[sortable];
-        int[] cursor = bucketStart.clone();
-        for (int f = 0; f < flatCount; f++) {
-            if (distanceToSpill[f] == UNREACHABLE) continue;
-            sorted[cursor[potential[f] - minPotential]++] = f;
-        }
-
-        for (int position = 0; position < sortable; position++) {
-            int f = sorted[position];
+        // No sort. The assignment below reads only immutable arrays plus downstream[idx], and
+        // writes only downstream[idx]; flatCell is injective, so no two iterations touch the same
+        // cell and none can observe another's write. The acyclicity test compares the immutable
+        // `potential` values, never a loop position, so the ordering the counting sort used to
+        // impose was never load-bearing -- it only made the "strictly earlier" test look like a
+        // statement about visit order.
+        HydrologyParallel.forEachIndex(0, flatCount, f -> {
+            if (distanceToSpill[f] == UNREACHABLE) return;
             int idx = flatCell[f];
             int current = downstream[idx];
             // Only sideways links are the problem. A cell the flood already sent downhill, and a
             // root, are both left exactly as they were: this pass must not become a second,
             // weaker flow router for terrain that never needed one.
-            if (current < 0 || filled[current] < filled[idx]) continue;
+            if (current < 0 || filled[current] < filled[idx]) return;
 
             int spill = lowestLowerNeighbor(filled, idx, height, width);
             if (spill >= 0) {
                 downstream[idx] = spill;
-                continue;
+                return;
             }
             int best = -1;
             int bestPotential = 0;
@@ -1005,7 +1109,7 @@ public final class FluvialRiverNetwork {
             // Keeping the flood's link when nothing better exists matters: dropping it would turn
             // the cell into a root and silently truncate every river draining through it.
             if (best >= 0) downstream[idx] = best;
-        }
+        });
 
         flood.setOrderSize(buildTopologicalOrder(downstream, n, flood.order()));
     }
@@ -1063,26 +1167,15 @@ public final class FluvialRiverNetwork {
      * the edges higher ground drains into. Steps never leave a cell's own level, so each flat is
      * measured independently without a separate component search.
      */
-    private static void seedAndSpread(float[] filled, int[] flatId, int[] flatCell,
-                                      int[] distance, int height, int width, boolean towardsSpill) {
+    private static void spreadFlatDistance(float[] filled, int[] flatId, int[] flatCell,
+                                          int[] distance, boolean[] seeds, int height, int width) {
         int flatCount = flatCell.length;
         Arrays.fill(distance, UNREACHABLE);
         int[] queue = new int[flatCount];
         int head = 0;
         int tail = 0;
         for (int f = 0; f < flatCount; f++) {
-            int idx = flatCell[f];
-            int r = idx / width;
-            int c = idx - r * width;
-            boolean seed = false;
-            for (int k = 0; k < 8 && !seed; k++) {
-                int nr = r + DR[k];
-                int nc = c + DC[k];
-                if (nr < 0 || nr >= height || nc < 0 || nc >= width) continue;
-                float neighbor = filled[nr * width + nc];
-                seed = towardsSpill ? neighbor < filled[idx] : neighbor > filled[idx];
-            }
-            if (seed) {
+            if (seeds[f]) {
                 distance[f] = 0;
                 queue[tail++] = f;
             }
@@ -1744,7 +1837,7 @@ public final class FluvialRiverNetwork {
     }
 
     private static float invLength(float r, float c) {
-        float length = (float) Math.hypot(r, c);
+        float length = hypotFloat(r, c);
         return length > EPS ? 1.0f / length : 0.0f;
     }
 

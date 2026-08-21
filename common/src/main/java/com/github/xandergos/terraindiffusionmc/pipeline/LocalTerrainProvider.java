@@ -12,6 +12,7 @@ import com.github.xandergos.terraindiffusionmc.worldgen.surface.SurfaceNoise;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.util.Arrays;
 import java.util.Map;
 import java.util.Random;
 import java.util.Comparator;
@@ -229,6 +230,12 @@ public final class LocalTerrainProvider {
      * busy: chunk requests arrive in bursts, and a gap inside a burst is not idle time.
      */
     private static final AtomicInteger ACTIVE_TILE_BUILDS = new AtomicInteger();
+
+    /**
+     * Region generations a chunk-generation thread is currently waiting on. Background warming
+     * checks this rather than {@link #ACTIVE_TILE_BUILDS}, which also counts warming's own work.
+     */
+    private static final AtomicInteger ACTIVE_FOREGROUND_BUILDS = new AtomicInteger();
     private static volatile long lastTileFinishNanos = System.nanoTime();
     private static final long GENERATION_QUIET_NANOS = TimeUnit.SECONDS.toNanos(5);
 
@@ -236,6 +243,18 @@ public final class LocalTerrainProvider {
     public static boolean generationIdle() {
         return ACTIVE_TILE_BUILDS.get() == 0
                 && System.nanoTime() - lastTileFinishNanos > GENERATION_QUIET_NANOS;
+    }
+
+    /**
+     * True when no chunk request is blocked on terrain generation right now.
+     *
+     * <p>This, not {@link #generationIdle()}, is the gate background warming wants. A player who
+     * is moving generates a tile every few seconds, so "nothing generated for five seconds" is
+     * almost never true while exploring -- which is exactly when the next tile is most worth
+     * having ready. What actually matters is that warming never runs while a chunk is waiting.</p>
+     */
+    public static boolean foregroundQuiet() {
+        return ACTIVE_FOREGROUND_BUILDS.get() == 0;
     }
 
     private static volatile LocalTerrainProvider INSTANCE;
@@ -252,7 +271,7 @@ public final class LocalTerrainProvider {
         this.hydrologyProvider = new HydrologyProvider(this::computeHydrologyTile);
         this.coarseDrainageProvider = new CoarseDrainageProvider(
                 (s, scale, li0, lj0, latentSize) -> buildCoarseTile(scale, li0, lj0, latentSize),
-                LocalTerrainProvider::generationIdle);
+                LocalTerrainProvider::foregroundQuiet);
     }
 
     /** Coarse drainage super-tile contents: latent-resolution elevation and climate, then the shared flood pass. */
@@ -271,11 +290,22 @@ public final class LocalTerrainProvider {
             INSTANCE = new LocalTerrainProvider(seed, models);
             instanceSeed = seed;
         } else if (instanceSeed != seed) {
-            INSTANCE.pipeline.setSeed(seed);
-            INSTANCE.hydrologyProvider.clear();
-            INSTANCE.coarseDrainageProvider.clear();
-            instanceSeed = seed;
-            clearRegionCaches();
+            // Exclusive: a build that started under the old seed reads instanceSeed and the
+            // pipeline's own seed while it runs, and persists its result keyed by the seed it was
+            // asked for. Changing either one underneath it would write a tile built with seed B to
+            // disk under seed A, where the version/scale/origin checks would all pass on a later
+            // session. Waiting for in-flight builds and blocking new ones is what makes background
+            // warming safe to run at all.
+            SEED_LOCK.writeLock().lock();
+            try {
+                INSTANCE.pipeline.setSeed(seed);
+                INSTANCE.hydrologyProvider.clear();
+                INSTANCE.coarseDrainageProvider.clear();
+                instanceSeed = seed;
+                clearRegionCaches();
+            } finally {
+                SEED_LOCK.writeLock().unlock();
+            }
         }
     }
 
@@ -357,6 +387,9 @@ public final class LocalTerrainProvider {
             LocalTerrainProvider provider = getInstance();
             provider.pipeline.setSeed(newSeed);
             provider.hydrologyProvider.clear();
+            // The coarse drainage cache is keyed by seed but its contents come from the pipeline,
+            // whose seed just changed: anything left in it belongs to the old world.
+            provider.coarseDrainageProvider.clear();
             instanceSeed = newSeed;
             clearRegionCaches();
             return null;
@@ -410,13 +443,67 @@ public final class LocalTerrainProvider {
             return cached.data;
         }
 
-        return this.genHeightmap(key, i1, j1, i2, j2);
+        // Fast path: every canonical tile this region needs is already in memory, so the region is
+        // a pure copy out of them. Doing it here keeps the ~4 unaligned per-chunk decorator windows
+        // off INFERENCE_EXECUTOR, where they would otherwise queue behind a multi-second tile build
+        // even though they need no inference at all. Same tiles, same copy, same bytes.
+        HeightmapData resident = residentHeightmap(key, i1, j1, i2, j2);
+        if (resident != null) {
+            cacheHeightmap(key, resident);
+            noteTerrainInterest(key, i1, j1, i2, j2);
+            return resident;
+        }
+
+        HeightmapData generated = this.genHeightmap(key, i1, j1, i2, j2);
+        noteTerrainInterest(key, i1, j1, i2, j2);
+        return generated;
+    }
+
+    /**
+     * Records where terrain is being asked for, so the warmer can have the neighbouring canonical
+     * tiles ready before the player reaches them.
+     *
+     * <p>Cheap enough for the per-chunk path: it converts the request's centre to a tile index and
+     * returns immediately unless that index has changed since the last call.</p>
+     */
+    private void noteTerrainInterest(CacheKey key, int i1, int j1, int i2, int j2) {
+        if (!WARM_TERRAIN_TILES) return;
+        int centreI = i1 + (i2 - i1 - 1) / 2;
+        int centreJ = j1 + (j2 - j1 - 1) / 2;
+        int tileI = hydrologyProvider.tileIndexForBlock(centreI);
+        int tileJ = hydrologyProvider.tileIndexForBlock(centreJ);
+        long packed = ((long) tileI << 32) ^ (tileJ & 0xFFFFFFFFL);
+        if (packed == lastInterestPacked) return;
+        lastInterestPacked = packed;
+        warmer.focus(key.seed(), key.scale(), key.blockLowAltitudeSources(), tileI, tileJ);
+    }
+
+    /**
+     * Assembles a region from canonical hydrology tiles that are already resident in memory, or
+     * returns {@code null} if any of them would have to be generated or read from disk.
+     */
+    private HeightmapData residentHeightmap(CacheKey key, int i1, int j1, int i2, int j2) {
+        // Shared lock, exactly as the generating path takes: this reads the tile cache, and a
+        // world change empties it. Holding it keeps the seed the key was built from and the tiles
+        // the region is copied out of the same seed, which is the whole point of the lock.
+        SEED_LOCK.readLock().lock();
+        try {
+            if (instanceSeed != key.seed()) return null;
+            HydrologyProvider.HydrologyRegion hydrology = hydrologyProvider.getRegionIfResident(
+                    key.seed(), i1, j1, i2, j2, key.scale(), key.blockLowAltitudeSources(), true);
+            if (hydrology == null) return null;
+            return buildHeightmapData(hydrology.adjustedElevation(), hydrology.biomeIndexes(),
+                    hydrology.waterMask(), hydrology.waterSurface(), hydrology.height(), hydrology.width());
+        } finally {
+            SEED_LOCK.readLock().unlock();
+        }
     }
 
     private HeightmapData genHeightmap(CacheKey key, int i1, int j1, int i2, int j2) {
         int scale = key.scale();
         FutureTask<HeightmapData> task = new FutureTask<>(() -> {
             SEED_LOCK.readLock().lock();
+            ACTIVE_FOREGROUND_BUILDS.incrementAndGet();
             try {
                 long computedWindowCountBefore = pipeline.getTotalComputedWindowCount();
                 HeightmapData data = scale <= 1
@@ -427,13 +514,14 @@ public final class LocalTerrainProvider {
                 long newlyComputedWindowCount = computedWindowCountAfter - computedWindowCountBefore;
                 int regionWidth = j2 - j1;
                 int regionHeight = i2 - i1;
-                LOG.info(
+                LOG.debug(
                         "Terrain Diffusion ({}) finished generating region {}x{} ({} newly computed windows)",
                         OnnxModel.getResolvedInferenceProvider(), regionWidth, regionHeight, newlyComputedWindowCount);
                 cacheHeightmap(key, data);
                 PENDING.remove(key);
                 return data;
             } finally {
+                ACTIVE_FOREGROUND_BUILDS.decrementAndGet();
                 SEED_LOCK.readLock().unlock();
             }
         });
@@ -442,7 +530,7 @@ public final class LocalTerrainProvider {
         if (existing == null) {
             int regionWidth = j2 - j1;
             int regionHeight = i2 - i1;
-            LOG.info(
+            LOG.debug(
                     "Terrain Diffusion ({}) uncached region requested: ({}, {})-({}, {}) size {}x{}",
                     OnnxModel.getResolvedInferenceProvider(), j1, i1, j2, i2, regionWidth, regionHeight);
             INFERENCE_EXECUTOR.submit(toRun);
@@ -452,6 +540,165 @@ public final class LocalTerrainProvider {
         } catch (Exception e) {
             PENDING.remove(key);
             throw new RuntimeException("Terrain tile failed: " + key, e);
+        }
+    }
+
+    /** Whether canonical tiles around the player are built ahead of the request that needs them. */
+    private static final boolean WARM_TERRAIN_TILES = TerrainDiffusionConfig.terrainTilePrefetchEnabled();
+
+    /** Last tile index {@link #noteTerrainInterest} saw, so the common case is one comparison. */
+    private volatile long lastInterestPacked = Long.MIN_VALUE;
+
+    private final TerrainWarmer warmer = new TerrainWarmer();
+
+    /**
+     * Builds the canonical hydrology tiles around wherever terrain is currently being requested,
+     * on one background thread, in whatever time chunk generation is not using.
+     *
+     * <p>Why this exists: a canonical tile covers 2048 blocks, and building one takes roughly two
+     * seconds -- longer if its coarse drainage super-tile is also missing. Whichever chunk happens
+     * to be the first into a new tile pays that whole cost while the player watches. The work and
+     * its result are identical whenever it runs, so the only thing worth changing is when: during
+     * play the GPU sits idle almost all the time (chunk generation is bound by Minecraft's own
+     * per-chunk work, not by inference), and crossing 2048 blocks takes minutes even by elytra.
+     * That is far more slack than the eight neighbours of a tile need.</p>
+     *
+     * <p>Correctness rests on three things. A canonical tile is a pure function of its key, so
+     * building it early cannot change it. {@link HydrologyProvider#ensureTile} goes through the
+     * same per-key generation lock as a foreground request, so the two can never both build the
+     * same tile. And the whole build runs under {@link #SEED_LOCK}'s read lock with the seed
+     * re-checked inside it, so a world change cannot leave a tile built under one seed cached --
+     * or persisted -- under another.</p>
+     */
+    private final class TerrainWarmer {
+        /**
+         * How many crossings of the same axis are needed before that axis counts as the heading.
+         * A player loading chunks across a wide front touches tiles to the side of their path as
+         * well as ahead of it, so a heading taken from the last focus change alone flips around
+         * and sends warming after tiles nobody is going to enter.
+         */
+        private static final int HEADING_CONFIDENCE = 2;
+        /** Poll interval while waiting for chunk generation to stop asking for terrain. */
+        private static final long POLL_MS = 250L;
+        /** Consecutive quiet polls required before a warm build starts. */
+        private static final int QUIET_POLLS = 4;
+
+        private volatile Thread thread;
+        /** The tile terrain is currently being requested around; null when nothing is known yet. */
+        private volatile Focus focus;
+        /** Direction the focus has consistently been moving in, as a signum pair. */
+        private volatile int headingI;
+        private volatile int headingJ;
+        /** Running vote per axis, so one sideways step cannot redirect warming. */
+        private int voteI;
+        private int voteJ;
+        /** The focus already warmed for, so each crossing costs at most one extra tile build. */
+        private volatile Focus warmedFor;
+
+        private record Focus(long seed, int scale, boolean blockLowAltitudeSources, int tileI, int tileJ) {}
+
+        void focus(long seed, int scale, boolean blockLowAltitudeSources, int tileI, int tileJ) {
+            Focus previous = focus;
+            if (previous != null && previous.seed() == seed && previous.scale() == scale) {
+                int deltaI = tileI - previous.tileI();
+                int deltaJ = tileJ - previous.tileJ();
+                // Keep the last non-zero heading: a player wandering inside one tile produces no
+                // delta at all, and the direction they came from is still the best guess. Signum
+                // only -- the size of a jump (a teleport) says nothing useful about where next.
+                voteI = clampVote(voteI + Integer.signum(deltaI));
+                voteJ = clampVote(voteJ + Integer.signum(deltaJ));
+                headingI = Math.abs(voteI) >= HEADING_CONFIDENCE ? Integer.signum(voteI) : 0;
+                headingJ = Math.abs(voteJ) >= HEADING_CONFIDENCE ? Integer.signum(voteJ) : 0;
+            }
+            focus = new Focus(seed, scale, blockLowAltitudeSources, tileI, tileJ);
+            // Also arm the coarse drainage warmer from here. Its own trigger only fires when a
+            // fine tile is freshly *generated*, so a player crossing tiles that came from the
+            // disk cache -- or from this warmer -- used to arm nothing at all.
+            int tileSize = hydrologyProvider.tileSize();
+            coarseDrainageProvider.queueNeighbourWarm(seed, scale,
+                    hydrologyProvider.tileOriginForIndex(tileI),
+                    hydrologyProvider.tileOriginForIndex(tileJ), tileSize, tileSize);
+            start();
+        }
+
+        private static int clampVote(int vote) {
+            return Math.max(-HEADING_CONFIDENCE, Math.min(HEADING_CONFIDENCE, vote));
+        }
+
+        private void start() {
+            if (thread != null) return;
+            synchronized (this) {
+                if (thread != null) return;
+                Thread started = new Thread(this::loop, "terrain-diffusion-tile-warmer");
+                started.setDaemon(true);
+                started.setPriority(Thread.MIN_PRIORITY);
+                thread = started;
+                started.start();
+            }
+        }
+
+        private void loop() {
+            int quiet = 0;
+            while (true) {
+                try {
+                    Thread.sleep(POLL_MS);
+                } catch (InterruptedException interrupted) {
+                    Thread.currentThread().interrupt();
+                    return;
+                }
+                if (!foregroundQuiet()) {
+                    quiet = 0;
+                    continue;
+                }
+                if (++quiet < QUIET_POLLS) continue;
+                Focus current = focus;
+                if (current == null) continue;
+                if (!warmOne(current)) {
+                    // Nothing left to do around the current focus; wait for it to move.
+                    quiet = 0;
+                }
+            }
+        }
+
+        /**
+         * Builds the one tile the focus is heading into, if it is not already there. Returns false
+         * when there is nothing worth building.
+         *
+         * <p>Exactly one tile per crossing, and only the one directly ahead. Warming is not free:
+         * a tile build takes the hydrology worker pool and the GPU for a couple of seconds, and
+         * chunk generation is what those are needed for. Warming the eight-neighbour ring, or
+         * re-warming while the focus sat still, measured <em>slower</em> than no warming at all --
+         * it built several times as many tiles as the player ever entered and the contention cost
+         * more than the avoided stalls saved.</p>
+         */
+        private boolean warmOne(Focus target) {
+            if (target.equals(warmedFor)) return false;
+            int hi = headingI;
+            int hj = headingJ;
+            if (hi == 0 && hj == 0) return false;
+            int tileI = target.tileI() + hi;
+            int tileJ = target.tileJ() + hj;
+            warmedFor = target;
+            if (hydrologyProvider.isTileResident(target.seed(), target.scale(),
+                    target.blockLowAltitudeSources(), tileI, tileJ)) {
+                return false;
+            }
+            SEED_LOCK.readLock().lock();
+            try {
+                // Re-checked under the lock: outside it, init() may have swapped the world.
+                if (instanceSeed != target.seed() || !target.equals(focus)) return true;
+                long start = System.nanoTime();
+                hydrologyProvider.ensureTile(target.seed(), target.scale(),
+                        target.blockLowAltitudeSources(), tileI, tileJ);
+                LOG.debug("Warmed canonical hydrology tile ({}, {}) in {} ms",
+                        tileJ, tileI, (System.nanoTime() - start) / 1_000_000L);
+            } catch (RuntimeException failure) {
+                // Best effort: whatever asks for this tile later will build it itself.
+                LOG.debug("Hydrology tile warm of ({}, {}) failed", tileJ, tileI, failure);
+            } finally {
+                SEED_LOCK.readLock().unlock();
+            }
+            return true;
         }
     }
 
@@ -847,17 +1094,21 @@ public final class LocalTerrainProvider {
                                             int scale, int upH, int upW) {
         if (climNative == null) return null;
         float[] result = new float[4 * H * W];
+        // The channel views share one row-pointer array rebuilt per channel rather than a fresh
+        // nH x nW copy of the data: bilinearResizeWindow only reads through src[r][c], so pointing
+        // the rows at slices of the flat native array feeds it exactly the same values without
+        // copying 4 x nH x nW floats first. Only the cropped window is ever read, and it is the
+        // majority of the upsampled grid, so resizing the window rather than the whole plane
+        // avoids a second full-size array per channel as well.
         for (int ch = 0; ch < 4; ch++) {
-            int channel = ch;
-            float[][] chNative = new float[nH][nW];
-            HydrologyParallel.forEachRow(0, nH, nW, r ->
-                    System.arraycopy(climNative, channel * nH * nW + r * nW,
-                            chNative[r], 0, nW));
-            // Only the cropped window is ever read, and it is the majority of the upsampled grid:
-            // resizing all of it first meant a second full-size array and a second pass per channel.
+            float[][] chNative = new float[nH][];
+            int planeBase = ch * nH * nW;
+            for (int r = 0; r < nH; r++) {
+                chNative[r] = Arrays.copyOfRange(climNative, planeBase + r * nW, planeBase + (r + 1) * nW);
+            }
             float[] chUp = LaplacianUtils.bilinearResizeWindow(chNative, upH, upW,
                     cropI1, cropJ1, H, W);
-            System.arraycopy(chUp, 0, result, channel * H * W, H * W);
+            System.arraycopy(chUp, 0, result, ch * H * W, H * W);
         }
         return result;
     }

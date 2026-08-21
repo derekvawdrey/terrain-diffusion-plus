@@ -30,6 +30,25 @@ public final class BiomeClassifier {
     private static final TerrainBiomeRegistry REGISTRY = TerrainBiomeRegistry.instance();
     private static final BiomeRuleEngine ENGINE = new BiomeRuleEngine(REGISTRY);
 
+    /**
+     * The two registry predicates the smoothing passes ask about, flattened to arrays.
+     *
+     * <p>Each smoothing pass asks {@code isHardBoundary}/{@code isBlendableLandBiome} once per
+     * cell and again for all nine (or twenty-five) cells of every window it counts, which on a
+     * 2048x2048 tile is tens of millions of calls into a map lookup that boxes the index. The
+     * answers are fixed for a given catalog, so they belong in a table. Same answers, same order,
+     * same result -- only the lookup changes.</p>
+     */
+    private static final int BIOME_INDEX_BOUND = REGISTRY.indexUpperBound();
+    private static final boolean[] HARD_BOUNDARY = new boolean[BIOME_INDEX_BOUND];
+    private static final boolean[] BLENDABLE_LAND = new boolean[BIOME_INDEX_BOUND];
+    static {
+        for (int index = 0; index < BIOME_INDEX_BOUND; index++) {
+            HARD_BOUNDARY[index] = REGISTRY.isHardBoundary((short) index);
+            BLENDABLE_LAND[index] = REGISTRY.isBlendableLandBiome((short) index);
+        }
+    }
+
     // Fixed-seed noise instances (matching Python's module-level _TEMP_NOISE etc.)
     private static final FastNoiseLite TEMP_NOISE, TEMP_NOISE_FINE;
     private static final FastNoiseLite PRECIP_NOISE;
@@ -153,9 +172,10 @@ public final class BiomeClassifier {
                 float snowNoise = 3.0f * tnc + 2.0f * tnf;
 
                 float variantNoise = BIOME_VARIANT_NOISE.GetNoise(nx, ny);
-                float wx = nx + REGION_WARP_AMPLITUDE * REGION_WARP_X.GetNoise(nx, ny);
-                float wz = ny + REGION_WARP_AMPLITUDE * REGION_WARP_Z.GetNoise(nx, ny);
-                float regionNoise = REGION_NOISE.GetNoise(wx, wz);
+                // REGION_NOISE costs three noise fields (two warp octaves plus the region field)
+                // but only a handful of rules read it, so it joins the other rare fields on the
+                // engine's deferred sampler and is evaluated only for the pixels that ask.
+                float regionNoise = Float.NaN;
 
                 boolean coastline = isCoastlineCandidate(elev, H, W, r, c, elev[idx], slopeRatio[idx]);
                 out[idx] = classifyPixel(elev[idx], climate, H, W, idx, tempNoise,
@@ -181,12 +201,12 @@ public final class BiomeClassifier {
     private static void smoothIsolatedTransitions(short[] biomes, int H, int W) {
         short[] src = biomes.clone();
         HydrologyParallel.forEachRow(1, H - 1, W, r -> {
-            int[] counts = new int[REGISTRY.indexUpperBound()];
+            int[] counts = new int[BIOME_INDEX_BOUND];
             short[] touched = new short[9];
             for (int c = 1; c < W - 1; c++) {
                 int idx = r * W + c;
                 short current = src[idx];
-                if (REGISTRY.isHardBoundary(current)) continue;
+                if (HARD_BOUNDARY[current]) continue;
                 // Inside a biome nothing can change: all nine cells count as `current`, which is
                 // neither isolated nor outvoted. Most of a tile is interior, so testing for that
                 // first skips the counting entirely.
@@ -221,12 +241,12 @@ public final class BiomeClassifier {
         // less blocky transitions without touching coast/ocean/peak boundaries.
         short[] localSource = src;
         HydrologyParallel.forEachRow(1, H - 1, W, r -> {
-            int[] counts = new int[REGISTRY.indexUpperBound()];
+            int[] counts = new int[BIOME_INDEX_BOUND];
             short[] touched = new short[9];
             for (int c = 1; c < W - 1; c++) {
                 int idx = r * W + c;
                 short current = localSource[idx];
-                if (!REGISTRY.isBlendableLandBiome(current)) continue;
+                if (!BLENDABLE_LAND[current]) continue;
                 if (isUniform3x3(localSource, W, idx, current)) continue;
 
                 int touchedCount = collectBiomeCounts(
@@ -253,12 +273,16 @@ public final class BiomeClassifier {
         src = biomes.clone();
         short[] broadSource = src;
         HydrologyParallel.forEachRow(2, H - 2, W, r -> {
-            int[] counts = new int[REGISTRY.indexUpperBound()];
+            int[] counts = new int[BIOME_INDEX_BOUND];
             short[] touched = new short[25];
             for (int c = 2; c < W - 2; c++) {
                 int idx = r * W + c;
                 short current = broadSource[idx];
-                if (!REGISTRY.isBlendableLandBiome(current)) continue;
+                if (!BLENDABLE_LAND[current]) continue;
+                // Same reasoning as the 3x3 passes: a cell whose whole 5x5 window is one biome
+                // cannot be outvoted by it, so counting twenty-five cells only to reach
+                // best == current is wasted. Most of a tile is interior.
+                if (isUniform5x5(broadSource, W, idx, current)) continue;
 
                 int touchedCount = collectBiomeCounts(
                         broadSource, W, r, c, 2, true, counts, touched);
@@ -291,13 +315,24 @@ public final class BiomeClassifier {
                 && source[below - 1] == value && source[below] == value && source[below + 1] == value;
     }
 
+    /** Whether every cell of the 5x5 around {@code idx} already holds {@code value}. */
+    private static boolean isUniform5x5(short[] source, int width, int idx, short value) {
+        for (int dr = -2; dr <= 2; dr++) {
+            int row = idx + dr * width;
+            for (int dc = -2; dc <= 2; dc++) {
+                if (source[row + dc] != value) return false;
+            }
+        }
+        return true;
+    }
+
     private static int collectBiomeCounts(short[] source, int width, int row, int col, int radius,
                                           boolean blendableOnly, int[] counts, short[] touched) {
         int touchedCount = 0;
         for (int dr = -radius; dr <= radius; dr++) {
             for (int dc = -radius; dc <= radius; dc++) {
                 short candidate = source[(row + dr) * width + col + dc];
-                if (blendableOnly ? !REGISTRY.isBlendableLandBiome(candidate) : REGISTRY.isHardBoundary(candidate)) {
+                if (blendableOnly ? !BLENDABLE_LAND[candidate] : HARD_BOUNDARY[candidate]) {
                     continue;
                 }
                 if (counts[candidate]++ == 0) touched[touchedCount++] = candidate;
@@ -316,6 +351,7 @@ public final class BiomeClassifier {
             TerrainBiomeCondition.Variable.PALE_NOISE,
             TerrainBiomeCondition.Variable.CLEARING_NOISE,
             TerrainBiomeCondition.Variable.FLOWER_NOISE,
+            TerrainBiomeCondition.Variable.REGION_NOISE,
     };
 
     private static final BiomeRuleEngine.NoiseSampler RARE_NOISE_SAMPLER = (variable, x, z) ->
@@ -324,6 +360,7 @@ public final class BiomeClassifier {
                 case PALE_NOISE -> PALE_GARDEN_NOISE.GetNoise(x, z);
                 case CLEARING_NOISE -> FOREST_CLEARING_NOISE.GetNoise(x, z);
                 case FLOWER_NOISE -> FLOWER_PATCH_NOISE.GetNoise(x, z);
+                case REGION_NOISE -> sampleRegionNoise(x, z);
                 default -> Float.NaN;
             };
 

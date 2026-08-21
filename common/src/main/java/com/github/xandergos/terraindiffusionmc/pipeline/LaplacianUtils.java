@@ -94,6 +94,21 @@ public final class LaplacianUtils {
                                                 int row0, int col0, int h, int w) {
         int srcH = src.length, srcW = src[0].length;
         float[] dst = new float[h * w];
+        // The column terms depend only on the column, not on the row, yet the inner loop used to
+        // recompute all five of them for every output pixel -- and this method is called once per
+        // climate channel over the same geometry. Computing them once per column changes nothing
+        // about the arithmetic each pixel then does: same operands, same order, same floats.
+        int[] col0Index = new int[w];
+        int[] col1Index = new int[w];
+        float[] colWeight = new float[w];
+        for (int c = 0; c < w; c++) {
+            int dstCol = Math.max(0, Math.min(dstW - 1, col0 + c));
+            float srcC = ((dstCol + 0.5f) * srcW / dstW) - 0.5f;
+            int c0 = (int) Math.floor(srcC);
+            colWeight[c] = srcC - c0;
+            col0Index[c] = Math.max(0, Math.min(srcW - 1, c0));
+            col1Index[c] = Math.max(0, Math.min(srcW - 1, c0 + 1));
+        }
         HydrologyParallel.forEachRow(0, h, w, r -> {
             int dstRow = Math.max(0, Math.min(dstH - 1, row0 + r));
             float srcR = ((dstRow + 0.5f) * srcH / dstH) - 0.5f;
@@ -106,13 +121,9 @@ public final class LaplacianUtils {
             float[] srcRow1 = src[r1];
             int outBase = r * w;
             for (int c = 0; c < w; c++) {
-                int dstCol = Math.max(0, Math.min(dstW - 1, col0 + c));
-                float srcC = ((dstCol + 0.5f) * srcW / dstW) - 0.5f;
-                int c0 = (int) Math.floor(srcC);
-                int c1 = c0 + 1;
-                float wc = srcC - c0;
-                c0 = Math.max(0, Math.min(srcW - 1, c0));
-                c1 = Math.max(0, Math.min(srcW - 1, c1));
+                int c0 = col0Index[c];
+                int c1 = col1Index[c];
+                float wc = colWeight[c];
                 dst[outBase + c] = (1 - wr) * (1 - wc) * srcRow0[c0]
                         + (1 - wr) * wc * srcRow0[c1]
                         + wr * (1 - wc) * srcRow1[c0]

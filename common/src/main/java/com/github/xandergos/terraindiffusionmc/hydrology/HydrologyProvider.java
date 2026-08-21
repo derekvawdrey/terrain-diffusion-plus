@@ -102,14 +102,54 @@ public final class HydrologyProvider {
      */
     public HydrologyRegion getRegion(long seed, int i1, int j1, int i2, int j2, int scale,
                                      boolean blockLowAltitudeSources, boolean withBiomes) {
+        return assembleRegion(seed, i1, j1, i2, j2, scale, blockLowAltitudeSources, withBiomes, false);
+    }
+
+    /**
+     * Same as {@link #getRegion}, but returns {@code null} instead of generating (or reading from
+     * disk) when any canonical tile the region needs is not already resident in the memory cache.
+     *
+     * <p>This exists so a chunk-generation worker can assemble a region from tiles that are
+     * already there without queueing behind an unrelated multi-second tile build. The values are a
+     * pure copy out of the same canonical tiles the generating path would use, so a region
+     * assembled this way is byte-for-byte what {@link #getRegion} would have returned.</p>
+     */
+    public HydrologyRegion getRegionIfResident(long seed, int i1, int j1, int i2, int j2, int scale,
+                                               boolean blockLowAltitudeSources, boolean withBiomes) {
+        return assembleRegion(seed, i1, j1, i2, j2, scale, blockLowAltitudeSources, withBiomes, true);
+    }
+
+    /** True when every canonical tile covering the region is already in the memory cache. */
+    public boolean isRegionResident(long seed, int i1, int j1, int i2, int j2, int scale,
+                                    boolean blockLowAltitudeSources) {
+        int firstTileI = tileIndex(i1);
+        int lastTileI = tileIndex(i2 - 1);
+        int firstTileJ = tileIndex(j1);
+        int lastTileJ = tileIndex(j2 - 1);
+        for (int tileI = firstTileI; tileI <= lastTileI; tileI++) {
+            for (int tileJ = firstTileJ; tileJ <= lastTileJ; tileJ++) {
+                if (residentTile(seed, scale, blockLowAltitudeSources, tileI, tileJ) == null) return false;
+            }
+        }
+        return true;
+    }
+
+    private HydrologyRegion assembleRegion(long seed, int i1, int j1, int i2, int j2, int scale,
+                                           boolean blockLowAltitudeSources, boolean withBiomes,
+                                           boolean residentOnly) {
         RegionShape shape = validateRegion(i1, j1, i2, j2, scale);
+        if (residentOnly && !isRegionResident(seed, i1, j1, i2, j2, scale, blockLowAltitudeSources)) {
+            return null;
+        }
         short[] elevation = new short[shape.cells];
         byte[] waterMask = new byte[shape.cells];
         short[] waterSurface = new short[shape.cells];
         short[] biomeIndexes = withBiomes ? new short[shape.cells] : null;
 
-        copyTiles(seed, scale, blockLowAltitudeSources, i1, j1, i2, j2, shape.width,
-                elevation, waterMask, waterSurface, biomeIndexes);
+        if (!copyTiles(seed, scale, blockLowAltitudeSources, i1, j1, i2, j2, shape.width,
+                elevation, waterMask, waterSurface, biomeIndexes, residentOnly)) {
+            return null;
+        }
         return new HydrologyRegion(elevation, waterMask, waterSurface, biomeIndexes, shape.height, shape.width);
     }
 
@@ -121,6 +161,33 @@ public final class HydrologyProvider {
 
     public int tileSize() {
         return tileSize;
+    }
+
+    /** Canonical tile index containing a block coordinate, on the fixed world grid. */
+    public int tileIndexForBlock(int coordinate) {
+        return tileIndex(coordinate);
+    }
+
+    /** First block coordinate of a canonical tile index, on the fixed world grid. */
+    public int tileOriginForIndex(int index) {
+        return tileOrigin(index);
+    }
+
+    /** True when this canonical tile is already in the memory cache. */
+    public boolean isTileResident(long seed, int scale, boolean blockLowAltitudeSources,
+                                  int tileI, int tileJ) {
+        return residentTile(seed, scale, blockLowAltitudeSources, tileI, tileJ) != null;
+    }
+
+    /**
+     * Generates and caches one canonical tile if it is not already available, and returns whether
+     * it is now resident. Used by background warming; identical in effect to the first foreground
+     * request that would otherwise have had to build it, and deduplicated against that request
+     * through the same per-key generation lock.
+     */
+    public boolean ensureTile(long seed, int scale, boolean blockLowAltitudeSources,
+                              int tileI, int tileJ) {
+        return getTile(seed, scale, blockLowAltitudeSources, tileI, tileJ) != null;
     }
 
     public int analysisHalo() {
@@ -139,9 +206,10 @@ public final class HydrologyProvider {
         return new RegionShape(height, width, Math.multiplyExact(height, width));
     }
 
-    private void copyTiles(long seed, int scale, boolean blockLowAltitudeSources,
-                           int i1, int j1, int i2, int j2, int requestWidth,
-                           short[] elevation, byte[] waterMask, short[] waterSurface, short[] biomeIndexes) {
+    private boolean copyTiles(long seed, int scale, boolean blockLowAltitudeSources,
+                              int i1, int j1, int i2, int j2, int requestWidth,
+                              short[] elevation, byte[] waterMask, short[] waterSurface, short[] biomeIndexes,
+                              boolean residentOnly) {
         int firstTileI = tileIndex(i1);
         int lastTileI = tileIndex(i2 - 1);
         int firstTileJ = tileIndex(j1);
@@ -149,10 +217,23 @@ public final class HydrologyProvider {
 
         for (int tileI = firstTileI; tileI <= lastTileI; tileI++) {
             for (int tileJ = firstTileJ; tileJ <= lastTileJ; tileJ++) {
-                HydrologyTile tile = getTile(seed, scale, blockLowAltitudeSources, tileI, tileJ);
+                HydrologyTile tile = residentOnly
+                        ? residentTile(seed, scale, blockLowAltitudeSources, tileI, tileJ)
+                        : getTile(seed, scale, blockLowAltitudeSources, tileI, tileJ);
+                if (tile == null) return false;
                 copyIntersection(tile, i1, j1, i2, j2, requestWidth,
                         elevation, waterMask, waterSurface, biomeIndexes);
             }
+        }
+        return true;
+    }
+
+    /** Memory-cache probe only: never generates and never touches the disk cache. */
+    private HydrologyTile residentTile(long seed, int scale, boolean blockLowAltitudeSources,
+                                       int tileI, int tileJ) {
+        TileKey key = new TileKey(seed, scale, blockLowAltitudeSources, tileI, tileJ, ALGORITHM_VERSION);
+        synchronized (this) {
+            return cache.get(key);
         }
     }
 

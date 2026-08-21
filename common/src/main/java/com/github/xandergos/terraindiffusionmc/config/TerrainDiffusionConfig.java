@@ -28,13 +28,14 @@ public final class TerrainDiffusionConfig {
     private static final int MAX_INFERENCE_WORKER_THREADS = 16;
     private static final int DEFAULT_DECODER_BATCH_SIZE = 2;
     private static final int MAX_DECODER_BATCH_SIZE = 16;
-    private static final int DEFAULT_HYDROLOGY_CACHE_MAX_MIB = 160;
-    private static final int DEFAULT_HYDROLOGY_CACHE_MAX_ENTRIES = 5;
+    private static final int DEFAULT_HYDROLOGY_CACHE_MAX_MIB = 640;
+    private static final int DEFAULT_HYDROLOGY_CACHE_MAX_ENTRIES = 20;
     private static final boolean DEFAULT_HYDROLOGY_DISK_CACHE_ENABLED = true;
     private static final int DEFAULT_COARSE_DRAINAGE_CACHE_MAX_MIB = 320;
     private static final int DEFAULT_COARSE_DRAINAGE_CACHE_MAX_ENTRIES = 32;
     private static final boolean DEFAULT_COARSE_DRAINAGE_DISK_CACHE_ENABLED = true;
     private static final boolean DEFAULT_COARSE_DRAINAGE_PREFETCH_ENABLED = true;
+    private static final boolean DEFAULT_TERRAIN_TILE_PREFETCH_ENABLED = true;
     private static final boolean DEFAULT_SURFACE_FEATURES_ENABLED = true;
     private static final boolean DEFAULT_LIFT_CARVERS = true;
     private static final boolean DEFAULT_CAVE_DENSITY_COMPENSATION = true;
@@ -307,6 +308,20 @@ public final class TerrainDiffusionConfig {
      * whichever chunk asks for it first. Warming runs only when no tile is being generated, so it
      * spends GPU time that would otherwise be idle. The generated terrain is the same either way.
      */
+    /**
+     * Whether the canonical hydrology tiles around the player are built in the background before a
+     * chunk asks for them.
+     *
+     * <p>Building a tile takes a couple of seconds and covers 2048 blocks, so without this the
+     * first chunk to cross a tile boundary stalls for that long. The work is identical whenever it
+     * runs and chunk generation leaves the GPU idle most of the time, so doing it early costs
+     * nothing but memory for the tiles already in the cache budget. Generated terrain is identical
+     * either way.
+     */
+    public static boolean terrainTilePrefetchEnabled() {
+        return readBoolean("terrain_prefetch.enabled", DEFAULT_TERRAIN_TILE_PREFETCH_ENABLED);
+    }
+
     public static boolean coarseDrainagePrefetchEnabled() {
         return readBoolean("coarse_drainage.prefetch", DEFAULT_COARSE_DRAINAGE_PREFETCH_ENABLED);
     }

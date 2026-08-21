@@ -1,8 +1,6 @@
-# Terrain Diffusion Mod [[Modrinth]](https://modrinth.com/mod/terrain-diffusion)
+# Terrain Diffusion Plus
 
-#### UPDATE: The research behind this mod has been accepted to SIGGRAPH 2026, the world's premier graphics conference! That means the research was officially peer reviewed and recognized as a significant contribution to the field. Enjoy the mod!
-
-This is a Minecraft multiplatform mod integrating [Terrain Diffusion](https://github.com/xandergos/terrain-diffusion).
+A fork of the [Terrain Diffusion](https://github.com/xandergos/terrain-diffusion) mod, that implements dynamic biome selection, biome configs, increased speeds, rivers, and caves. It is not optimized and is suggested you use chunky to pre-generate your world & use borders. While the diffusion model runs rather quickly, calculating the fluvial network requires 30-60 seconds per super-tile. 
 
 ## What this mod does
 

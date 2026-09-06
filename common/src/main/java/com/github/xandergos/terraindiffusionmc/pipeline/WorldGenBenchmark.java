@@ -4,7 +4,11 @@ import com.github.xandergos.terraindiffusionmc.config.TerrainDiffusionConfig;
 import com.github.xandergos.terraindiffusionmc.hydrology.HydrologyParallel;
 import com.github.xandergos.terraindiffusionmc.hydrology.HydrologyProvider;
 
+import com.github.xandergos.terraindiffusionmc.biome.TerrainBiomeRegistry;
+
 import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.List;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutorService;
@@ -43,6 +47,9 @@ public final class WorldGenBenchmark {
         //           area. Unlike "walk" this revisits the row above, so it only reuses the window
         //           caches if they are large enough to hold more than one tile's windows.
         // "parN":   N tiles generated at once, i.e. several chunk workers wanting fresh terrain.
+        // "probe":  one tile at the block position given by the next two arguments (x z), with its
+        //           biome shares by elevation band -- for checking what a change did to a known
+        //           place (a warm belt, a mountain range) rather than how fast it was.
         String mode = args.length > 4 ? args[4].toLowerCase() : "cold";
         boolean walk = mode.equals("walk");
         boolean walk2d = mode.equals("walk2d");
@@ -64,6 +71,12 @@ public final class WorldGenBenchmark {
 
         if (parallelTiles > 1) {
             runConcurrent(provider, tiles, parallelTiles, tileSize, halo, scale, analysis);
+            return;
+        }
+        if (mode.equals("probe")) {
+            int blockX = args.length > 5 ? Integer.parseInt(args[5]) : 0;
+            int blockZ = args.length > 6 ? Integer.parseInt(args[6]) : 0;
+            runProbe(provider, blockX, blockZ, tileSize, halo, scale);
             return;
         }
 
@@ -149,6 +162,40 @@ public final class WorldGenBenchmark {
      * generated terrain visible immediately: an optimisation that keeps the numbers identical
      * keeps this identical too.
      */
+    /**
+     * Generates the tile whose core starts at ({@code blockX}, {@code blockZ}) and prints its
+     * checksum plus the biome shares of the land at and above a few elevations, so a change to
+     * climate, biome rules or rivers can be read off a known place.
+     */
+    private static void runProbe(LocalTerrainProvider provider, int blockX, int blockZ,
+                                 int tileSize, int halo, int scale) {
+        long start = System.nanoTime();
+        HydrologyProvider.HydrologyTile tile = provider.generateHydrologyTileUncached(
+                blockZ, blockX, tileSize, halo, scale, false);
+        System.out.printf("Probe tile at (%d, %d) size %d: %d ms  [checksum %d]%n",
+                blockX, blockZ, tileSize, millis(start, System.nanoTime()), checksum(tile));
+        TerrainBiomeRegistry registry = TerrainBiomeRegistry.instance();
+        int[] floors = {Integer.MIN_VALUE, 0, 1500, 2500, 3500};
+        for (int floor : floors) {
+            Map<String, Integer> shares = new HashMap<>();
+            int total = 0;
+            for (int index = 0; index < tile.biomeIndexes.length; index++) {
+                if (tile.adjustedElevation[index] < floor) continue;
+                total++;
+                shares.merge(registry.byIndex(tile.biomeIndexes[index]).key(), 1, Integer::sum);
+            }
+            if (total == 0) continue;
+            final int count = total;
+            System.out.printf("  elevation >= %s m: %d cells%n",
+                    floor == Integer.MIN_VALUE ? "any" : String.valueOf(floor), total);
+            shares.entrySet().stream()
+                    .sorted((a, b) -> b.getValue() - a.getValue())
+                    .limit(8)
+                    .forEach(entry -> System.out.printf("    %-42s %5.1f%%%n",
+                            entry.getKey(), 100.0 * entry.getValue() / count));
+        }
+    }
+
     private static long checksum(HydrologyProvider.HydrologyTile tile) {
         long hash = 1125899906842597L;
         for (short value : tile.adjustedElevation) hash = hash * 31 + value;

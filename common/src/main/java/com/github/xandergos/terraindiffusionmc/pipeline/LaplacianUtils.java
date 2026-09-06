@@ -1,5 +1,7 @@
 package com.github.xandergos.terraindiffusionmc.pipeline;
 
+import com.github.xandergos.terraindiffusionmc.config.TerrainDiffusionConfig;
+
 import com.github.xandergos.terraindiffusionmc.hydrology.HydrologyParallel;
 
 /**
@@ -235,7 +237,7 @@ public final class LaplacianUtils {
      * @return float[2][H - win + 1][W - win + 1]: [0] = T_sea, [1] = beta
      */
     public static float[][][] localBaselineTemperature(float[][] T, float[][] e, int win, float fallbackThreshold) {
-        return localBaselineTemperature(T, e, win, fallbackThreshold, 0, 0, 1);
+        return localBaselineTemperature(T, e, win, fallbackThreshold, 0, 0, 1f);
     }
 
     /**
@@ -245,20 +247,27 @@ public final class LaplacianUtils {
      * field used to gate rare biomes and river density). Everywhere else the clamp stays at 0,
      * preserving the normal "elevation never gets warmer" behavior.
      *
-     * @param originCoarseRow world-space coarse-grid row of {@code T[0]}/{@code e[0]}
-     * @param originCoarseCol world-space coarse-grid column of {@code T[0]}/{@code e[0]}
-     * @param coarseStride    native blocks per coarse grid cell
+     * <p>The region field is sampled in <em>block</em> coordinates, the same space
+     * {@link BiomeClassifier#classify} and the explorer's spawn overlay use, so a belt covers the
+     * same ground for every consumer regardless of the world scale.</p>
+     *
+     * @param originCoarseRow     world-space coarse-grid row of {@code T[0]}/{@code e[0]}
+     * @param originCoarseCol     world-space coarse-grid column of {@code T[0]}/{@code e[0]}
+     * @param blocksPerCoarseCell world blocks per coarse grid cell (native pixels per cell times
+     *                            blocks per native pixel)
      */
     public static float[][][] localBaselineTemperature(float[][] T, float[][] e, int win, float fallbackThreshold,
-                                                         int originCoarseRow, int originCoarseCol, int coarseStride) {
+                                                         int originCoarseRow, int originCoarseCol,
+                                                         float blocksPerCoarseCell) {
         int H = T.length, W = T[0].length;
         int outH = H - win + 1, outW = W - win + 1;
         float[][][] result = new float[2][outH][outW];
 
-        float fallbackBeta = -0.0065f;
+        float fallbackBeta = FALLBACK_LAPSE_BETA;
         float betaMin = -0.012f;
         float eps = 1e-6f;
         int pad = (win - 1) / 2;
+        float warmTarget = warmMountainTargetBeta();
 
         HydrologyParallel.forEachRow(0, outH, outW * win * win, r -> {
             for (int c = 0; c < outW; c++) {
@@ -281,18 +290,69 @@ public final class LaplacianUtils {
                 double covET = muET - muE * muT;
                 double beta = (varE < 1.0 || sumW < fallbackThreshold * n) ? fallbackBeta : (covET / (varE + eps));
 
-                float worldX = (originCoarseCol + c + pad) * (float) coarseStride;
-                float worldZ = (originCoarseRow + r + pad) * (float) coarseStride;
+                float worldX = (originCoarseCol + c + pad) * blocksPerCoarseCell;
+                float worldZ = (originCoarseRow + r + pad) * blocksPerCoarseCell;
                 float betaMax = warmRegionBetaMax(worldX, worldZ);
                 beta = Math.max(betaMin, Math.min(betaMax, beta));
 
                 float Tc = T[r + pad][c + pad];
                 float ec = e[r + pad][c + pad];
+                // The sea-level baseline always uses the regressed slope, so with the normal
+                // lapse rate the model's own temperature is reproduced at the window centre's
+                // elevation. Inside a warm-mountain belt the slope handed to the native stage is
+                // shallower while the baseline stays put, which warms terrain in proportion to
+                // its height above sea level and leaves sea level itself untouched.
                 result[0][r][c] = (float) (Tc - beta * ec);
-                result[1][r][c] = (float) beta;
+                result[1][r][c] = warmMountainBeta(worldX, worldZ, (float) beta, warmTarget);
             }
         });
         return result;
+    }
+
+    /** Lapse rate assumed where the regression has too little land or relief to fit one, C/m. */
+    public static final float FALLBACK_LAPSE_BETA = -0.0065f;
+
+    /** Below this regionNoise a position is outside every warm-mountain belt (weight 0). */
+    private static final float WARM_MOUNTAIN_NOISE_LOW = 0.20f;
+
+    /** At and above this regionNoise a warm-mountain belt is at full strength (weight 1). */
+    private static final float WARM_MOUNTAIN_NOISE_HIGH = 0.35f;
+
+    /**
+     * Lapse rate the warm-mountain belts ease towards, in C per metre, or NaN when the feature
+     * is disabled. Read per call rather than cached so the benchmarks and the explorer see the
+     * same configuration the world does.
+     */
+    public static float warmMountainTargetBeta() {
+        if (!TerrainDiffusionConfig.warmMountainsEnabled()) return Float.NaN;
+        return TerrainDiffusionConfig.warmMountainLapseCPerKm() / 1000f;
+    }
+
+    /**
+     * Membership (0..1) of this world position in a warm-mountain belt: a smoothstep over the
+     * positive tail of {@link BiomeClassifier#sampleRegionNoise}, zero below
+     * {@link #WARM_MOUNTAIN_NOISE_LOW} and one from {@link #WARM_MOUNTAIN_NOISE_HIGH} up. Measured
+     * over a 200 km square, regionNoise exceeds 0.20 on about a fifth of the world and 0.35 on
+     * about 7%, so belts are a minority of the map and their edges are several kilometres wide.
+     */
+    public static float warmMountainWeight(float worldX, float worldZ) {
+        float n = BiomeClassifier.sampleRegionNoise(worldX, worldZ);
+        float t = Math.max(0f, Math.min(1f,
+                (n - WARM_MOUNTAIN_NOISE_LOW) / (WARM_MOUNTAIN_NOISE_HIGH - WARM_MOUNTAIN_NOISE_LOW)));
+        return t * t * (3f - 2f * t);
+    }
+
+    /**
+     * Lapse rate the native elevation stage should apply at this position: the regressed slope
+     * outside the belts, eased towards {@code targetBeta} inside them. A target no warmer than
+     * the regression (or NaN, the feature disabled) leaves the slope alone, so belts never make
+     * a mountain colder than it would otherwise be.
+     */
+    public static float warmMountainBeta(float worldX, float worldZ, float regressedBeta, float targetBeta) {
+        if (Float.isNaN(targetBeta) || targetBeta <= regressedBeta) return regressedBeta;
+        float w = warmMountainWeight(worldX, worldZ);
+        if (w <= 0f) return regressedBeta;
+        return regressedBeta + w * (targetBeta - regressedBeta);
     }
 
     /**

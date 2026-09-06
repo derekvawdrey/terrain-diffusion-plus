@@ -122,7 +122,7 @@ public final class ScaledCarvers {
     public static Iterable<Holder<ConfiguredWorldCarver<?>>> lift(
             Iterable<Holder<ConfiguredWorldCarver<?>>> carvers, int scale) {
         boolean lifting = scale > 1 && TerrainDiffusionConfig.liftCarversToTerrain();
-        if (!lifting && TerrainDiffusionConfig.bundledCaveModEnabled()) return carvers;
+        if (!lifting && !rewritingBands() && TerrainDiffusionConfig.bundledCaveModEnabled()) return carvers;
         if (scale != liftedScale) {
             // A single server has one scale; this only fires when a world of a different scale is
             // loaded in the same process, which invalidates everything cached for the old one.
@@ -144,7 +144,7 @@ public final class ScaledCarvers {
                 dropped = true;
                 continue;
             }
-            lifted.add(scale > 1 ? lift(holder, scale) : holder);
+            lifted.add(scale > 1 || rewritingBands() ? lift(holder, scale) : holder);
             hasCaveCarver |= carvesCaves(holder);
         }
         // Better Caves takes vanilla's cave carvers out of every overworld biome and puts its own
@@ -189,7 +189,7 @@ public final class ScaledCarvers {
             ConfiguredWorldCarver<?> carver = registry
                     .getOptional(ResourceKey.create(Registries.CONFIGURED_CARVER, id)).orElse(null);
             if (carver == null) continue;
-            ConfiguredWorldCarver<?> lifted = scale > 1 && !CarverAltitudeRules.isExcluded(id.toString())
+            ConfiguredWorldCarver<?> lifted = (scale > 1 || rewritingBands()) && !CarverAltitudeRules.isExcluded(id.toString())
                     ? liftValue(carver, scale) : null;
             restored.add(Holder.direct(lifted == null ? carver : lifted));
         }
@@ -297,7 +297,8 @@ public final class ScaledCarvers {
         if (height instanceof UniformHeight uniform) {
             UniformHeightAccessor bounds = (UniformHeightAccessor) uniform;
             VerticalAnchor min = liftAnchor(bounds.terrainDiffusion$minInclusive(), scale);
-            VerticalAnchor max = liftAnchor(bounds.terrainDiffusion$maxInclusive(), scale);
+            VerticalAnchor max = reachSummit(bounds.terrainDiffusion$maxInclusive(),
+                    liftAnchor(bounds.terrainDiffusion$maxInclusive(), scale));
             if (min == bounds.terrainDiffusion$minInclusive() && max == bounds.terrainDiffusion$maxInclusive()) {
                 return height;
             }
@@ -310,6 +311,28 @@ public final class ScaledCarvers {
         // Trapezoid and the biased providers: unused by any carver the game ships, and there is
         // nothing to gain from guessing at one a mod wrote.
         return height;
+    }
+
+    /**
+     * Whether some band is rewritten even where lifting alone would leave it: the summit extension
+     * and the mountain cavern layer apply at every scale, because the terrain outgrows a
+     * vanilla-authored band even at scale 1.
+     */
+    private static boolean rewritingBands() {
+        return TerrainDiffusionConfig.carversReachSummits() || TerrainDiffusionConfig.mountainCavernsEnabled();
+    }
+
+    /**
+     * The top of a band, extended to the top of the world when the author meant it to reach the
+     * surface -- an absolute top above sea level -- and {@code caves.reach_summits} is on. A band
+     * that stays below sea level is a deep one and keeps its lifted top.
+     */
+    private static VerticalAnchor reachSummit(VerticalAnchor authoredTop, VerticalAnchor liftedTop) {
+        if (!TerrainDiffusionConfig.carversReachSummits()) return liftedTop;
+        if (!(authoredTop instanceof VerticalAnchor.Absolute absolute)) return liftedTop;
+        if (absolute.y() <= ScaledAltitude.SEA_LEVEL) return liftedTop;
+        if (resolve(liftedTop, worldMinY, worldMaxY) >= worldMaxY) return liftedTop;
+        return VerticalAnchor.absolute(worldMaxY);
     }
 
     private static VerticalAnchor liftAnchor(VerticalAnchor anchor, int scale) {
@@ -349,12 +372,38 @@ public final class ScaledCarvers {
         JsonElement encoded = ConfiguredWorldCarver.DIRECT_CODEC.encodeStart(ops, carver)
                 .result().orElse(null);
         if (encoded == null) return warnOnce(type, "could not be serialized");
-        if (!liftAltitudeKeys(encoded, altitudeKeys, scale)) return null;
+        boolean changed = liftAltitudeKeys(encoded, altitudeKeys, scale);
+        JsonElement withCaverns = mountainCaverns(type.toString(), encoded, scale);
+        if (withCaverns != null) {
+            ConfiguredWorldCarver<?> rebuilt = ConfiguredWorldCarver.DIRECT_CODEC.parse(ops, withCaverns)
+                    .result().orElse(null);
+            if (rebuilt != null) return rebuilt;
+            if (WARNED.add(type + "#mountain_caverns")) {
+                LOG.warn("Carver {} could not be read back with the mountain cavern layer added;"
+                        + " running it without one.", type);
+            }
+        }
+        if (!changed) return null;
 
         ConfiguredWorldCarver<?> rebuilt = ConfiguredWorldCarver.DIRECT_CODEC.parse(ops, encoded)
                 .result().orElse(null);
         if (rebuilt == null) return warnOnce(type, "could not be read back after lifting");
         return rebuilt;
+    }
+
+    /**
+     * A copy of the serialized carver with the mountain cavern layer appended, or null when the
+     * layer is off, the carver is not Better Caves', or its layout has nothing to clone. The band
+     * runs from the lifted {@link MountainCaverns#AUTHORED_BOTTOM_Y} to the top of the world.
+     */
+    private static JsonElement mountainCaverns(String type, JsonElement encoded, int scale) {
+        if (!TerrainDiffusionConfig.mountainCavernsEnabled()) return null;
+        if (!MountainCaverns.BETTER_CAVES_CARVER.equals(type)) return null;
+        JsonElement copy = encoded.deepCopy();
+        int bottomY = ScaledAltitude.worldY(MountainCaverns.AUTHORED_BOTTOM_Y, scale);
+        boolean added = MountainCaverns.addLayer(copy, bottomY, worldMaxY,
+                TerrainDiffusionConfig.mountainCavernChancePercent());
+        return added ? copy : null;
     }
 
     private static ConfiguredWorldCarver<?> warnOnce(Identifier type, String what) {
@@ -373,11 +422,17 @@ public final class ScaledCarvers {
     private static boolean liftAltitudeKeys(JsonElement element, Set<String> altitudeKeys, int scale) {
         boolean changed = false;
         if (element instanceof JsonObject object) {
+            String topKey = null;
+            int topAuthored = Integer.MIN_VALUE;
             for (String key : List.copyOf(object.keySet())) {
                 JsonElement value = object.get(key);
                 if (altitudeKeys.contains(key) && value != null && value.isJsonPrimitive()
                         && value.getAsJsonPrimitive().isNumber()) {
                     int authored = value.getAsInt();
+                    if (authored > topAuthored) {
+                        topAuthored = authored;
+                        topKey = key;
+                    }
                     int lifted = ScaledAltitude.worldY(authored, scale);
                     if (lifted != authored) {
                         object.addProperty(key, lifted);
@@ -386,6 +441,15 @@ public final class ScaledCarvers {
                 } else {
                     changed |= liftAltitudeKeys(value, altitudeKeys, scale);
                 }
+            }
+            // The highest altitude an object declares is its band's top. One authored above sea
+            // level was meant to reach the surface, and the surface is now much higher: run the
+            // band to the summit, as reachSummit does for the game's own configurations.
+            if (topKey != null && topAuthored > ScaledAltitude.SEA_LEVEL
+                    && TerrainDiffusionConfig.carversReachSummits()
+                    && object.get(topKey).getAsInt() < worldMaxY) {
+                object.addProperty(topKey, worldMaxY);
+                changed = true;
             }
         } else if (element instanceof JsonArray array) {
             for (JsonElement item : array) {

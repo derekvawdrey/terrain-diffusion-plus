@@ -40,6 +40,9 @@ public final class TerrainDiffusionConfig {
     private static final boolean DEFAULT_LIFT_CARVERS = true;
     private static final boolean DEFAULT_CAVE_DENSITY_COMPENSATION = true;
     private static final boolean DEFAULT_BUNDLED_CAVE_MOD_ENABLED = true;
+    private static final boolean DEFAULT_CARVERS_REACH_SUMMITS = true;
+    private static final boolean DEFAULT_MOUNTAIN_CAVERNS = true;
+    private static final float DEFAULT_MOUNTAIN_CAVERN_CHANCE_PERCENT = 30f;
     /**
      * Whole world by default: Sengoku Jidai rethemes the 64 vanilla biomes globally, so confining
      * its own 15 biomes to a sub-region would read as an inconsistency (Japanese-looking forests
@@ -47,6 +50,9 @@ public final class TerrainDiffusionConfig {
      */
     private static final float DEFAULT_JAPAN_REGION_SHARE = 1.0f;
     private static final boolean DEFAULT_SENGOKU_SURFACE_RULES = true;
+    private static final boolean DEFAULT_WARM_MOUNTAINS_ENABLED = true;
+    /** C per km the warm-mountain belts ease the lapse rate towards; -6.5 is the normal rate. */
+    private static final float DEFAULT_WARM_MOUNTAIN_LAPSE_C_PER_KM = -1.5f;
 
     static {
         loadDefaults();
@@ -376,6 +382,39 @@ public final class TerrainDiffusionConfig {
     }
 
     /**
+     * Whether a cave band authored to reach the surface is extended all the way to the top of
+     * the world instead of stopping where its lifted top lands. Lifting keeps a band's authored
+     * proportions, but the terrain does not: vanilla's caves stop at y=180 and Better Caves' at
+     * y=80 in a world whose peaks sit around y=200-300, and at world scale 2 those tops land at
+     * y=297 and y=97 under summits around y=400-550. With this on, every band whose authored top is
+     * above sea level runs to the summit, and a spawn-chance carver's density compensation covers
+     * the extra height. Bands that stay below sea level -- the deep caverns -- are never touched.
+     * Changes which caves generate: pick it before creating a world and keep it.
+     */
+    public static boolean carversReachSummits() {
+        return readBoolean("caves.reach_summits", DEFAULT_CARVERS_REACH_SUMMITS);
+    }
+
+    /**
+     * Whether the bundled Better Caves carver gets an extra cavern layer in the mountains: a clone
+     * of its own first cavern layer, so its caverns keep the mod's (or the pack's) tuning, with
+     * the band moved from the world floor to roughly y=177 (at scale 2) up to the summit. Lowland
+     * terrain never reaches the band. Does nothing without a Better Caves carver in the biome.
+     * Changes which caves generate: pick it before creating a world and keep it.
+     */
+    public static boolean mountainCavernsEnabled() {
+        return readBoolean("caves.mountain_caverns", DEFAULT_MOUNTAIN_CAVERNS);
+    }
+
+    /**
+     * Share of cavern regions in the mountain layer that actually hold caverns, 0..100; Better
+     * Caves' own deep layer ships at 23. Higher means larger, more connected mountain systems.
+     */
+    public static float mountainCavernChancePercent() {
+        return readFloatInRange("caves.mountain_caverns.chance", DEFAULT_MOUNTAIN_CAVERN_CHANCE_PERCENT, 0f, 100f);
+    }
+
+    /**
      * Whether to give diffusion terrain Sengoku Jidai's ground blocks by copying its loaded
      * surface rule onto our noise settings at server load. Ignored unless that mod is installed.
      * Turn off to keep the mod's own surface rule.
@@ -393,6 +432,27 @@ public final class TerrainDiffusionConfig {
      */
     public static float japanRegionShare() {
         return readUnitFloat("biome.japan_region_share", DEFAULT_JAPAN_REGION_SHARE);
+    }
+
+    /**
+     * Whether warm-mountain belts are active: regions where the temperature lapse rate is eased
+     * towards {@link #warmMountainLapseCPerKm()} so high terrain stays temperate or hot instead
+     * of always turning cold and snowy. Inside a belt this changes biomes and, through the
+     * runoff model's temperature term, river carving; nothing outside the belts moves. Like
+     * {@code tile_size}, pick it before creating a world and keep it.
+     */
+    public static boolean warmMountainsEnabled() {
+        return readBoolean("climate.warm_mountains.enabled", DEFAULT_WARM_MOUNTAINS_ENABLED);
+    }
+
+    /**
+     * Lapse rate inside a warm-mountain belt, in C per km. The normal rate is about -6.5; values
+     * closer to 0 keep more warmth at altitude, positive values make peaks hotter than the
+     * lowlands. Values colder than the regression at a position are ignored there.
+     */
+    public static float warmMountainLapseCPerKm() {
+        return readFloatInRange("climate.warm_mountains.lapse_c_per_km",
+                DEFAULT_WARM_MOUNTAIN_LAPSE_C_PER_KM, -12f, 12f);
     }
 
     private static void loadDefaults() {

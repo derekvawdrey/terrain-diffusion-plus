@@ -277,7 +277,8 @@ public final class LocalTerrainProvider {
     /** Coarse drainage super-tile contents: latent-resolution elevation and climate, then the shared flood pass. */
     private CoarseDrainageProvider.CoarseTile buildCoarseTile(int scale, int li0, int lj0, int latentSize) {
         float[] elevation = pipeline.getLatentElevation(li0, lj0, li0 + latentSize, lj0 + latentSize);
-        float[] climate = pipeline.getLatentClimate(li0, lj0, li0 + latentSize, lj0 + latentSize, elevation);
+        float[] climate = pipeline.getLatentClimate(li0, lj0, li0 + latentSize, lj0 + latentSize, elevation,
+                Math.max(1, scale));
         return CoarseDrainageProvider.buildCoarseTile(li0, lj0, latentSize, elevation, climate);
     }
 
@@ -972,7 +973,7 @@ public final class LocalTerrainProvider {
         int nativeWidth = j2p - j1p;
 
         long tStart = System.nanoTime();
-        float[][] raw = pipeline.get(i1p, j1p, i2p, j2p, true);
+        float[][] raw = pipeline.get(i1p, j1p, i2p, j2p, true, scale);
         long tPipeline = System.nanoTime();
         float[][] nativeElevation = to2D(raw[0], nativeHeight, nativeWidth);
         int upHeight = nativeHeight * scale;

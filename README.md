@@ -122,6 +122,22 @@ and are left alone.
 Both can be turned off in `config/terrain-diffusion-mc.properties` (`caves.lift_carvers`,
 `caves.density_compensation`).
 
+**Bands reach the summit.** Lifting keeps a band's proportions, but the terrain does not keep
+vanilla's: vanilla's caves stop at y=180 and Better Caves' tunnels at y=80, and at `World Scale` 2
+those tops land at y=297 and y=97 under summits around y=400-550, leaving most of every mountain solid.
+Every band whose authored top is above sea level is therefore run to the top of the world (a
+spawn-chance carver's density compensation covers the extra height); bands that stay below sea
+level, the deep caverns, keep their lifted top. `caves.reach_summits=false` stops caves where the
+lifted band ends.
+
+**Caverns in the mountains.** Better Caves keeps its large caverns near the world floor, so even
+with its tunnels reaching the summit a mountain holds nothing bigger than a tunnel. Its carver is
+given one more cavern layer: a clone of its own first cavern layer, so the caverns keep the mod's
+(or a pack's) tuning, with the band moved to about y=177 (at `World Scale` 2) up to the summit.
+Lowland terrain never reaches the band. `caves.mountain_caverns=false` turns it off;
+`caves.mountain_caverns.chance` (0..100, default 30) is the share of cavern regions in that layer
+that hold caverns.
+
 #### YUNG's Better Caves
 
 The 1.20.1 and 1.21.1 builds bundle [YUNG's Better Caves](https://modrinth.com/mod/yungs-better-caves)
@@ -241,12 +257,26 @@ spawn_search.max_size=128
 # Disable if you only want vanilla features.
 surface_features.enabled=true
 
-# Caves. See the "Caves" section above for what these do; all three change which caves
+# Warm mountain belts: in about a fifth of the world the temperature lapse rate above sea
+# level is eased towards lapse_c_per_km (normal is about -6.5), so high ranges there stay
+# temperate or hot instead of always turning snowy. Changes biomes and river carving inside
+# the belts only; pick it before creating a world and keep it.
+climate.warm_mountains.enabled=true
+climate.warm_mountains.lapse_c_per_km=-1.5
+
+# Caves. See the "Caves" section above for what these do; all of them change which caves
 # are generated, so pick them before creating a world.
 caves.lift_carvers=true
 caves.density_compensation=true
+# Run every surface-reaching cave band up to the summit instead of stopping where its lifted
+# top lands (y=97 for Better Caves' tunnels at world scale 2, under summits around y=400-550).
+caves.reach_summits=true
 # 1.20.1 and 1.21.1 only, where YUNG's Better Caves is bundled inside this jar.
 caves.bundled_cave_mod=true
+# Give Better Caves a cavern layer inside the mountains (from about y=177 at scale 2 to the
+# summit); chance is the share of cavern regions that hold caverns, 0..100.
+caves.mountain_caverns=true
+caves.mountain_caverns.chance=30
 ```
 
 ### Per-world settings

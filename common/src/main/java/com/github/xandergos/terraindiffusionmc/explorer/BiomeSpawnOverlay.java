@@ -4,6 +4,7 @@ import com.github.xandergos.terraindiffusionmc.biome.TerrainBiomeRule;
 import com.github.xandergos.terraindiffusionmc.biome.TerrainBiomeSettlement;
 import com.github.xandergos.terraindiffusionmc.hydrology.HydrologyParallel;
 import com.github.xandergos.terraindiffusionmc.pipeline.BiomeClassifier;
+import com.github.xandergos.terraindiffusionmc.pipeline.LaplacianUtils;
 
 /**
  * Per-coarse-cell "can this biome actually spawn here?" statuses for the explorer's exact-spawn
@@ -96,8 +97,16 @@ public final class BiomeSpawnOverlay {
     private static byte probe(TerrainBiomeSettlement settlement, short target,
                                float elevation, float temp, float tstd, float precip, float pcv,
                                float slope, float blockX, float blockZ) {
+        // The coarse map carries the model's temperature at the cell's own elevation. Inside a
+        // warm-mountain belt the pipeline eases the lapse rate above sea level, which lifts that
+        // cell-centre temperature by the slope difference times its height; mirror it here (with
+        // the fallback slope standing in for the pipeline's windowed regression) so the overlay
+        // agrees with what the world will actually generate there.
+        float warmBeta = LaplacianUtils.warmMountainBeta(blockX, blockZ,
+                LaplacianUtils.FALLBACK_LAPSE_BETA, LaplacianUtils.warmMountainTargetBeta());
+        float warmedTemp = temp + (warmBeta - LaplacianUtils.FALLBACK_LAPSE_BETA) * Math.max(0f, elevation);
         BiomeClassifier.CoarseProbe probe =
-                BiomeClassifier.probeCoarsePixel(elevation, temp, tstd, precip, pcv, slope, blockX, blockZ);
+                BiomeClassifier.probeCoarsePixel(elevation, warmedTemp, tstd, precip, pcv, slope, blockX, blockZ);
         if (probe.winner() == target) return WINS;
         return anyRuleMatches(settlement, probe) ? ELIGIBLE : NONE;
     }

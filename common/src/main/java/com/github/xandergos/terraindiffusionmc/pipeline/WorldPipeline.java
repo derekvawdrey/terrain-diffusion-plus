@@ -563,7 +563,8 @@ public final class WorldPipeline implements AutoCloseable {
      * @param latentElevation metres per latent pixel of the same window
      * @return flat array of 5 * (li1 - li0) * (lj1 - lj0)
      */
-    public float[] getLatentClimate(int li0, int lj0, int li1, int lj1, float[] latentElevation) {
+    public float[] getLatentClimate(int li0, int lj0, int li1, int lj1, float[] latentElevation,
+                                    int blocksPerNativePixel) {
         int H = li1 - li0, W = lj1 - lj0;
         int n = Math.multiplyExact(H, W);
         int lc = LATENT_COMPRESSION;
@@ -603,7 +604,7 @@ public final class WorldPipeline implements AutoCloseable {
         // (ci1 - pad + r + (win - 1) / 2, ...) = (ci1 + r - 1, cj1 + c - 1).
         float[][][] lbt = LaplacianUtils.localBaselineTemperature(
                 to2D(coarseMap[2], cH, cW), to2D(coarseElev, cH, cW), win, 0.02f,
-                ci1 - pad, cj1 - pad, S);
+                ci1 - pad, cj1 - pad, (float) S * Math.max(1, blocksPerNativePixel));
         int lH = lbt[0].length, lW = lbt[0][0].length;
 
         float[] climate = new float[5 * n];
@@ -633,11 +634,22 @@ public final class WorldPipeline implements AutoCloseable {
      * @return float[2]: [0] = elev (H*W flat), [1] = climate (5*H*W flat, or null)
      */
     public float[][] get(int i1, int j1, int i2, int j2, boolean withClimate) {
+        return get(i1, j1, i2, j2, withClimate, 1);
+    }
+
+    /**
+     * As {@link #get(int, int, int, int, boolean)}, for a world where one native pixel spans
+     * {@code blocksPerNativePixel} blocks. Elevation is unaffected; the climate stage needs it
+     * to sample the region field in block coordinates (see
+     * {@link LaplacianUtils#localBaselineTemperature}).
+     */
+    public float[][] get(int i1, int j1, int i2, int j2, boolean withClimate, int blocksPerNativePixel) {
         long start = System.nanoTime();
         float[] elevFlat = computeElev(i1, j1, i2, j2);
         long afterElev = System.nanoTime();
         int H = i2 - i1, W = j2 - j1;
-        float[] climate = withClimate ? computeClimate(i1, j1, i2, j2, elevFlat, H, W) : null;
+        float[] climate = withClimate
+                ? computeClimate(i1, j1, i2, j2, elevFlat, H, W, blocksPerNativePixel) : null;
         LOG.debug("WorldPipeline.get {}x{} (ms): elev(inference+laplacian)={} climate={}",
                 H, W, (afterElev - start) / 1_000_000L, (System.nanoTime() - afterElev) / 1_000_000L);
         return new float[][]{elevFlat, climate};
@@ -713,7 +725,7 @@ public final class WorldPipeline implements AutoCloseable {
     // =========================================================================
 
     private float[] computeClimate(int i1, int j1, int i2, int j2,
-                                    float[] elevFlat, int H, int W) {
+                                    float[] elevFlat, int H, int W, int blocksPerNativePixel) {
         int lc = LATENT_COMPRESSION;
         int S = 32 * lc;  // native pixels per coarse pixel in stride sense
 
@@ -750,7 +762,7 @@ public final class WorldPipeline implements AutoCloseable {
         // Windowed lapse-rate regression
         float[][][] lbt = LaplacianUtils.localBaselineTemperature(
                 to2D(coarseMap[2], cH, cW), to2D(coarseElev, cH, cW), win, 0.02f,
-                ci1 - pad, cj1 - pad, S);
+                ci1 - pad, cj1 - pad, (float) S * Math.max(1, blocksPerNativePixel));
         int lH = lbt[0].length, lW = lbt[0][0].length;
 
         // Central coarse (crop pad pixels from each side)

@@ -7,12 +7,14 @@ import com.github.xandergos.terraindiffusionmc.hydrology.FluvialRiverNetwork;
 import com.github.xandergos.terraindiffusionmc.hydrology.HydrologyParallel;
 import com.github.xandergos.terraindiffusionmc.hydrology.HydrologyProvider;
 import com.github.xandergos.terraindiffusionmc.infinitetensor.FloatTensor;
+import com.github.xandergos.terraindiffusionmc.world.HeightConverter;
 import com.github.xandergos.terraindiffusionmc.world.WorldScaleManager;
 import com.github.xandergos.terraindiffusionmc.worldgen.surface.SurfaceNoise;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.Arrays;
+import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Random;
 import java.util.Comparator;
@@ -455,6 +457,13 @@ public final class LocalTerrainProvider {
             return resident;
         }
 
+        // A structure search over unloaded terrain gets the coarse map's answer instead of a
+        // tile build per probed chunk; see beginFarLookup. Never cached with the real regions.
+        if (inFarLookup()) {
+            HeightmapData approximate = approximateHeightmap(key, i1, j1, i2, j2);
+            if (approximate != null) return approximate;
+        }
+
         HeightmapData generated = this.genHeightmap(key, i1, j1, i2, j2);
         noteTerrainInterest(key, i1, j1, i2, j2);
         return generated;
@@ -483,6 +492,138 @@ public final class LocalTerrainProvider {
      * Assembles a region from canonical hydrology tiles that are already resident in memory, or
      * returns {@code null} if any of them would have to be generated or read from disk.
      */
+    // ---------------------------------------------------------------------------------------
+    // Far lookups: structure searches over terrain nobody has generated
+    // ---------------------------------------------------------------------------------------
+
+    /**
+     * Depth of far-lookup scopes open on the current thread, plus when the outermost opened.
+     * A structure search ({@code /locate}, an explorer map from a cartographer, an eye of
+     * ender) probes hundreds of chunks that may be thousands of blocks from anything loaded,
+     * asking for the biome and the surface height of each. Answering every one with a real
+     * canonical tile build is seconds of GPU work per tile on the server thread, which is the
+     * freeze players report when a cartographer levels up. Inside a scope those probes are
+     * answered from the coarse map instead (see {@link #approximateHeightmap}).
+     */
+    private static final ThreadLocal<int[]> FAR_LOOKUP_DEPTH = ThreadLocal.withInitial(() -> new int[1]);
+    private static final ThreadLocal<long[]> FAR_LOOKUP_OPENED = ThreadLocal.withInitial(() -> new long[1]);
+    /** A scope left open by an exception in the search stops answering approximately after this. */
+    private static final long FAR_LOOKUP_STALE_NANOS = TimeUnit.SECONDS.toNanos(120);
+
+    /**
+     * Opens a far-lookup scope on the current thread: until the matching {@link #endFarLookup},
+     * terrain that is not already in memory is approximated from the coarse map rather than
+     * generated. Only structure searches should open one -- chunk generation must never run
+     * inside it, or chunks would be built on approximate terrain.
+     */
+    public static void beginFarLookup() {
+        int[] depth = FAR_LOOKUP_DEPTH.get();
+        if (depth[0] <= 0) {
+            depth[0] = 0;
+            FAR_LOOKUP_OPENED.get()[0] = System.nanoTime();
+        }
+        depth[0]++;
+    }
+
+    /** Closes the scope opened by {@link #beginFarLookup}. */
+    public static void endFarLookup() {
+        int[] depth = FAR_LOOKUP_DEPTH.get();
+        depth[0] = Math.max(0, depth[0] - 1);
+    }
+
+    /** Whether the current thread is inside a live far-lookup scope. */
+    public static boolean inFarLookup() {
+        int[] depth = FAR_LOOKUP_DEPTH.get();
+        if (depth[0] <= 0) return false;
+        if (System.nanoTime() - FAR_LOOKUP_OPENED.get()[0] > FAR_LOOKUP_STALE_NANOS) {
+            // The search that opened it threw past its end hook; do not let the thread answer
+            // approximately forever.
+            depth[0] = 0;
+            return false;
+        }
+        return true;
+    }
+
+    /** Native pixels per coarse map cell. */
+    private static final int COARSE_CELL_NATIVE_PX = 256;
+    /** Approximate regions kept for the duration of a search; ~130 KB each at the default 256 tile. */
+    private static final int APPROXIMATE_CACHE_ENTRIES = 96;
+    private static final Map<CacheKey, HeightmapData> APPROXIMATE_CACHE = new LinkedHashMap<>(64, 0.75f, true) {
+        @Override
+        protected boolean removeEldestEntry(Map.Entry<CacheKey, HeightmapData> eldest) {
+            return size() > APPROXIMATE_CACHE_ENTRIES;
+        }
+    };
+
+    /**
+     * The region's surface and biomes as the coarse map sees them: elevation interpolated
+     * between coarse cells (512 blocks at scale 2), one biome per cell from the same coarse
+     * probe the explorer's spawn overlay uses. No rivers, no carving, no sub-cell relief. Good
+     * enough to decide whether a structure could sit at a chunk, and cheap: a coarse window
+     * covers 48 cells and is usually already computed. Null only when the pipeline is unavailable.
+     */
+    private HeightmapData approximateHeightmap(CacheKey key, int i1, int j1, int i2, int j2) {
+        synchronized (APPROXIMATE_CACHE) {
+            HeightmapData cached = APPROXIMATE_CACHE.get(key);
+            if (cached != null) return cached;
+        }
+        int scale = Math.max(1, key.scale());
+        int cellBlocks = COARSE_CELL_NATIVE_PX * scale;
+        // One cell of margin on every side so the interpolation never reads past the slice.
+        int ci0 = Math.floorDiv(i1, cellBlocks) - 1;
+        int cj0 = Math.floorDiv(j1, cellBlocks) - 1;
+        int ci1 = Math.floorDiv(i2 - 1, cellBlocks) + 2;
+        int cj1 = Math.floorDiv(j2 - 1, cellBlocks) + 2;
+        int cH = ci1 - ci0, cW = cj1 - cj0, plane = cH * cW;
+        FloatTensor slice;
+        try {
+            slice = submitToInferenceThread(() -> pipeline.getCoarseSlice(ci0, cj0, ci1, cj1));
+        } catch (Exception e) {
+            LOG.warn("Far lookup could not read the coarse map at ({}, {}): {}", j1, i1, e.toString());
+            return null;
+        }
+        float[] elevationM = new float[plane];
+        short[] cellBiome = new short[plane];
+        for (int idx = 0; idx < plane; idx++) {
+            float w = slice.data[6 * plane + idx];
+            float elevRaw = w > 1e-8f ? slice.data[idx] / w : 0f;
+            // Channel 0 is signed-sqrt elevation, the same encoding the explorer decodes.
+            float elev = Math.signum(elevRaw) * elevRaw * elevRaw;
+            float temp = w > 1e-8f ? slice.data[2 * plane + idx] / w : 0f;
+            float tStd = w > 1e-8f ? slice.data[3 * plane + idx] / w : 0f;
+            float precip = w > 1e-8f ? slice.data[4 * plane + idx] / w : 0f;
+            float pCV = w > 1e-8f ? slice.data[5 * plane + idx] / w : 0f;
+            elevationM[idx] = elev;
+            int ci = ci0 + idx / cW, cj = cj0 + idx % cW;
+            float blockX = (cj + 0.5f) * cellBlocks, blockZ = (ci + 0.5f) * cellBlocks;
+            cellBiome[idx] = BiomeClassifier.probeCoarsePixel(elev, temp, tStd, precip, pCV, 0f, blockX, blockZ).winner();
+        }
+        int H = i2 - i1, W = j2 - j1;
+        short[][] heightmap = new short[H][W];
+        short[][] biomes = new short[H][W];
+        for (int r = 0; r < H; r++) {
+            float gz = (i1 + r + 0.5f) / cellBlocks - 0.5f - ci0;
+            int rz = (int) Math.floor(gz);
+            float tz = gz - rz;
+            int cellRow = Math.floorDiv(i1 + r, cellBlocks) - ci0;
+            for (int c = 0; c < W; c++) {
+                float gx = (j1 + c + 0.5f) / cellBlocks - 0.5f - cj0;
+                int rx = (int) Math.floor(gx);
+                float tx = gx - rx;
+                float e00 = elevationM[rz * cW + rx], e01 = elevationM[rz * cW + rx + 1];
+                float e10 = elevationM[(rz + 1) * cW + rx], e11 = elevationM[(rz + 1) * cW + rx + 1];
+                float e = (e00 * (1 - tx) + e01 * tx) * (1 - tz) + (e10 * (1 - tx) + e11 * tx) * tz;
+                heightmap[r][c] = (short) Math.max(Short.MIN_VALUE, Math.min(Short.MAX_VALUE, Math.round(e)));
+                biomes[r][c] = cellBiome[cellRow * cW + Math.floorDiv(j1 + c, cellBlocks) - cj0];
+            }
+        }
+        HeightmapData data = new HeightmapData(heightmap, biomes, W, H);
+        synchronized (APPROXIMATE_CACHE) {
+            APPROXIMATE_CACHE.put(key, data);
+        }
+        return data;
+    }
+
     private HeightmapData residentHeightmap(CacheKey key, int i1, int j1, int i2, int j2) {
         // Shared lock, exactly as the generating path takes: this reads the tile cache, and a
         // world change empties it. Holding it keeps the seed the key was built from and the tiles

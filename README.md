@@ -64,6 +64,12 @@ One of the following:
 4. The mod searches for a land spawn point near the world origin automatically. If the area around `(0, 0)` is entirely ocean, it may take a moment to find land.
 5. Use `/td-explore` to scout the generated world from a browser.
 
+Structure searches -- `/locate structure`, a cartographer's explorer maps, eyes of ender -- probe
+chunk after chunk over terrain nobody has generated yet. Those probes are answered from the
+model's coarse map (one value per 512 blocks at `World Scale` 2) rather than by generating each
+tile, so a search takes moments instead of freezing the server, at the cost of occasionally
+pointing at a spot where the exact terrain turns out not to fit the structure.
+
 ## Exploring the world
 
 The mod includes a built-in terrain explorer web UI. Run the `/td-explore` command in-game; it prints a clickable link, for example `http://localhost:19801`, which opens an interactive map in your browser.
@@ -151,6 +157,11 @@ Because it is bundled it cannot be removed from the mods folder. To run a differ
 set `caves.bundled_cave_mod=false`: its carvers are dropped from every biome and vanilla's caves
 are put back — unless another cave mod's carver is already there, in which case that mod's caves
 are the ones that generate.
+
+On 1.21.1 the mod also keeps Better Caves' aquifer context alive: its water and lava regions are
+placed from a per-thread context that was intermittently missing when many chunks of this
+dimension began generating at once (logged as *Failed to fetch the AquiferContext*), and those
+chunks then got no liquid regions. A fill that finds the context missing now has it re-established.
 
 > On Minecraft 1.20.1 with [C2ME](https://modrinth.com/mod/c2me-fabric), set
 > `threadedWorldGen.enabled=false` in C2ME's config. Better Caves places its water and lava regions

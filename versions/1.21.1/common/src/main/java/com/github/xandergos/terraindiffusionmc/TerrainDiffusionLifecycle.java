@@ -8,6 +8,7 @@ import com.github.xandergos.terraindiffusionmc.pipeline.PipelineModels;
 import com.github.xandergos.terraindiffusionmc.world.TerraBlenderSurfaceCompat;
 import com.github.xandergos.terraindiffusionmc.world.TerrainDiffusionBiomeSource;
 import com.github.xandergos.terraindiffusionmc.world.TerrainDiffusionDensityFunction;
+import com.github.xandergos.terraindiffusionmc.world.BetterCavesAquiferContext;
 import com.github.xandergos.terraindiffusionmc.world.ScaledCarvers;
 import com.github.xandergos.terraindiffusionmc.world.WorldScaleManager;
 import com.mojang.brigadier.CommandDispatcher;
@@ -106,6 +107,7 @@ public final class TerrainDiffusionLifecycle {
                 // Before the first chunk is carved: lifting another mod's carver means rebuilding
                 // its config through its own codec, which needs this world's registries.
                 ScaledCarvers.bindWorld(world);
+                BetterCavesAquiferContext.bind(world);
                 LocalTerrainProvider.init(world.getSeed());
                 TerraBlenderSurfaceCompat.apply(world.getChunkSource().getGenerator());
             }

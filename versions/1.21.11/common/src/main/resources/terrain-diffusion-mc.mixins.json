@@ -8,6 +8,7 @@
     "BiomeMixin",
     "CaveCarverConfigurationAccessor",
     "ChunkGeneratorMixin",
+    "FarLookupHeightMixin",
     "MinecraftServerMixin",
     "NoiseBasedChunkGeneratorMixin",
     "UniformHeightAccessor"

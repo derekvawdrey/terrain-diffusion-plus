@@ -5,6 +5,8 @@
   "refmap": "${mod_id}.refmap.json",
   "compatibilityLevel": "JAVA_21",
   "mixins": [
+    "FarLookupHeightMixin",
+    "AquiferContextGuardMixin",
     "BiomeMixin",
     "CaveCarverConfigurationAccessor",
     "ChunkGeneratorMixin",

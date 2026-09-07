@@ -1240,7 +1240,7 @@ public final class FluvialRiverNetwork {
         int[] downstream = new int[n];
         int[] order = new int[n];
         Arrays.fill(downstream, -1);
-        LongMinHeap queue = new LongMinHeap(Math.max(1024, 4 * (height + width)), n);
+        FloodFrontier queue = new FloodFrontier();
         for (int r = 0; r < height; r++) {
             for (int c = 0; c < width; c++) {
                 int idx = r * width + c;
@@ -1256,7 +1256,7 @@ public final class FluvialRiverNetwork {
         int lastRow = height - 1;
         int lastCol = width - 1;
         while (!queue.isEmpty()) {
-            int idx = (int) queue.poll();
+            int idx = queue.pollIndex();
             order[orderSize++] = idx;
             // filled[idx] cannot change under us: idx is already visited, and only unvisited
             // neighbours are ever written, so hoisting the load out of the neighbour loop is exact.
@@ -1296,7 +1296,7 @@ public final class FluvialRiverNetwork {
      * differs from it when {@code elevation[ni]} is NaN.
      */
     private static void visitFloodNeighbor(int ni, int idx, float here, float[] elevation, float[] filled,
-                                           int[] downstream, boolean[] visited, LongMinHeap queue) {
+                                           int[] downstream, boolean[] visited, FloodFrontier queue) {
         if (visited[ni]) return;
         visited[ni] = true;
         downstream[ni] = idx;
@@ -1683,8 +1683,13 @@ public final class FluvialRiverNetwork {
      * 2304x2304 window, against ~23s for the whole tile.</p>
      */
     static PriorityFlood runDrainage(float[] elevation, int height, int width) {
+        long t0 = System.nanoTime();
         PriorityFlood flood = runPriorityFloodFast(elevation, height, width);
+        long t1 = System.nanoTime();
         resolveFlatDrainage(elevation, flood, height, width);
+        long t2 = System.nanoTime();
+        LOG.info("FluvialRiverNetwork.runDrainage n={} phases (ms): flood={} flatDrainage={}",
+                elevation.length, millis(t0, t1), millis(t1, t2));
         return flood;
     }
 
@@ -2376,6 +2381,132 @@ public final class FluvialRiverNetwork {
      * grid arrays; the 4-ary layout roughly halves tree depth versus binary. Since keys are
      * unique, the poll order is the total key order regardless of heap arity.
      */
+    /**
+     * The flood's frontier: a monotone priority queue with exactly the pop order of a min-heap
+     * over {@link #packFloodKey} keys.
+     *
+     * <p>Priority flood never pushes a cell lower than the one it is spreading from
+     * ({@code filled = max(elevation, here)}), so the elevation part of the keys it pops only
+     * ever rises. That makes a radix heap possible: keys are binned by the highest bit in which
+     * their elevation differs from the last popped elevation, a push is an append, and a pop
+     * only has to open the lowest non-empty bin, which holds the next elevation. What the
+     * elevation part does not settle is the order among cells at the same elevation, which the
+     * heap decided by cell index -- and a flat can receive a lower index after a higher one has
+     * been popped. Cells at the current elevation therefore live in a small index-ordered heap
+     * of their own, which pops exactly the smallest index present, as the big heap did. Popping
+     * from a few thousand equal cells costs a short heap walk; everything else is sequential
+     * array traffic instead of a log-depth walk through a five-million-entry heap.</p>
+     */
+    private static final class FloodFrontier {
+        private static final int BUCKETS = 33;
+        /** Unsigned, order-preserving image of the elevation of the last popped key. */
+        private long lastElevation = 0L;
+        private final long[][] bucket = new long[BUCKETS][];
+        private final int[] bucketSize = new int[BUCKETS];
+        /** Min-heap of the indexes whose elevation equals {@code lastElevation}. */
+        private int[] equal = new int[256];
+        private int equalSize;
+        private int size;
+
+        boolean isEmpty() {
+            return size == 0;
+        }
+
+        private static long elevationOf(long key) {
+            return (key >>> 32) ^ 0x80000000L;
+        }
+
+        void add(long key) {
+            size++;
+            long elevation = elevationOf(key);
+            if (elevation == lastElevation) {
+                pushEqual((int) key);
+                return;
+            }
+            // elevation > lastElevation: the flood never pushes below what it is spreading from.
+            int bin = 64 - Long.numberOfLeadingZeros(elevation ^ lastElevation);
+            long[] keys = bucket[bin];
+            int count = bucketSize[bin];
+            if (keys == null) {
+                keys = new long[1024];
+                bucket[bin] = keys;
+            } else if (count == keys.length) {
+                keys = Arrays.copyOf(keys, count << 1);
+                bucket[bin] = keys;
+            }
+            keys[count] = key;
+            bucketSize[bin] = count + 1;
+        }
+
+        int pollIndex() {
+            if (equalSize == 0) refill();
+            size--;
+            return popEqual();
+        }
+
+        /** Opens the lowest non-empty bin: its smallest elevation is the next to pop. */
+        private void refill() {
+            int bin = 1;
+            while (bucketSize[bin] == 0) bin++;
+            long[] keys = bucket[bin];
+            int count = bucketSize[bin];
+            long lowest = Long.MAX_VALUE;
+            for (int i = 0; i < count; i++) {
+                long elevation = elevationOf(keys[i]);
+                if (elevation < lowest) lowest = elevation;
+            }
+            lastElevation = lowest;
+            bucketSize[bin] = 0;
+            // Every key here differs from the new last elevation below the bit this bin was
+            // keyed on, so all of them land in lower bins (or the equal heap): the bin can be
+            // emptied in place.
+            for (int i = 0; i < count; i++) {
+                long key = keys[i];
+                if (elevationOf(key) == lowest) {
+                    pushEqual((int) key);
+                } else {
+                    size--;
+                    add(key);
+                }
+            }
+        }
+
+        private void pushEqual(int index) {
+            if (equalSize == equal.length) equal = Arrays.copyOf(equal, equalSize << 1);
+            int position = equalSize++;
+            while (position > 0) {
+                int parent = (position - 1) >>> 1;
+                int parentIndex = equal[parent];
+                if (parentIndex <= index) break;
+                equal[position] = parentIndex;
+                position = parent;
+            }
+            equal[position] = index;
+        }
+
+        private int popEqual() {
+            int result = equal[0];
+            int replacement = equal[--equalSize];
+            if (equalSize == 0) return result;
+            int position = 0;
+            int half = equalSize >>> 1;
+            while (position < half) {
+                int child = (position << 1) + 1;
+                int childIndex = equal[child];
+                int right = child + 1;
+                if (right < equalSize && equal[right] < childIndex) {
+                    child = right;
+                    childIndex = equal[right];
+                }
+                if (replacement <= childIndex) break;
+                equal[position] = childIndex;
+                position = child;
+            }
+            equal[position] = replacement;
+            return result;
+        }
+    }
+
     private static final class LongMinHeap {
         private final int maximumSize;
         private long[] heap;

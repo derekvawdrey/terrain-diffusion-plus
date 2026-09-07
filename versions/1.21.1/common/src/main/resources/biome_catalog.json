@@ -9091,7 +9091,7 @@
     "rules": [
       {
         "zone": "lowland",
-        "rarity": 2.5,
+        "rarity": 4.0,
         "conditions": [
           {
             "variable": "temperatureC",
@@ -9288,7 +9288,7 @@
           {
             "variable": "moisture",
             "op": "between",
-            "value": 0.9,
+            "value": 0.6,
             "value2": 1.4
           },
           {
@@ -9306,7 +9306,7 @@
           {
             "variable": "variantNoise",
             "op": "lt",
-            "value": -0.5
+            "value": -0.3
           }
         ],
         "rarity": 10.0
@@ -9323,7 +9323,7 @@
           {
             "variable": "moisture",
             "op": "between",
-            "value": 0.85,
+            "value": 0.6,
             "value2": 1.5
           },
           {
@@ -9341,7 +9341,7 @@
           {
             "variable": "variantNoise",
             "op": "lt",
-            "value": -0.4
+            "value": -0.3
           }
         ],
         "rarity": 10.0
@@ -10143,12 +10143,12 @@
             "variable": "temperatureC",
             "op": "between",
             "value": -5,
-            "value2": 16
+            "value2": 20
           },
           {
             "variable": "moisture",
             "op": "gte",
-            "value": 0.25
+            "value": 0.15
           }
         ],
         "rarity": 10.0,
@@ -10325,8 +10325,8 @@
           {
             "variable": "moisture",
             "op": "between",
-            "value": 0.4,
-            "value2": 0.8
+            "value": 0.35,
+            "value2": 0.9
           },
           {
             "variable": "treeCoverage",
@@ -10344,7 +10344,7 @@
           {
             "variable": "flowerNoise",
             "op": "gt",
-            "value": 0.45
+            "value": 0.3
           }
         ],
         "rarity": 10.0
@@ -10651,13 +10651,13 @@
           {
             "variable": "moisture",
             "op": "between",
-            "value": 0.6,
-            "value2": 0.9
+            "value": 0.5,
+            "value2": 1.2
           },
           {
             "variable": "treeCoverage",
             "op": "lte",
-            "value": 0.35
+            "value": 0.62
           },
           {
             "variable": "snowy",
@@ -10838,14 +10838,14 @@
           {
             "variable": "moisture",
             "op": "between",
-            "value": 0.4,
-            "value2": 0.8
+            "value": 0.35,
+            "value2": 0.9
           },
           {
             "variable": "treeCoverage",
             "op": "between",
-            "value": 0.2,
-            "value2": 0.5
+            "value": 0.0,
+            "value2": 0.62
           },
           {
             "variable": "elevationM",
@@ -10862,7 +10862,7 @@
           {
             "variable": "clearingNoise",
             "op": "gt",
-            "value": 0.3968
+            "value": 0.3
           }
         ],
         "rarity": 10.0
@@ -10886,7 +10886,7 @@
     "rules": [
       {
         "zone": "lowland",
-        "rarity": 2.5,
+        "rarity": 6.0,
         "conditions": [
           {
             "variable": "snowy",
@@ -10896,12 +10896,12 @@
           {
             "variable": "treeCoverage",
             "op": "lte",
-            "value": 0.35
+            "value": 0.62
           },
           {
             "variable": "elevationM",
             "op": "lte",
-            "value": 900
+            "value": 1500
           }
         ],
         "noiseConditions": [
@@ -10942,14 +10942,14 @@
             "variable": "treeCoverage",
             "op": "between",
             "value": 0.0,
-            "value2": 0.01
+            "value2": 0.35
           }
         ],
         "noiseConditions": [
           {
             "variable": "paleNoise",
             "op": "gt",
-            "value": 0.75
+            "value": 0.3
           }
         ],
         "rarity": 10.0
@@ -10977,7 +10977,7 @@
           {
             "variable": "paleNoise",
             "op": "gt",
-            "value": 0.15
+            "value": 0.1
           }
         ],
         "rarity": 10.0
@@ -11010,7 +11010,7 @@
           {
             "variable": "paleNoise",
             "op": "gt",
-            "value": 0.15
+            "value": 0.1
           }
         ],
         "rarity": 10.0
@@ -11428,8 +11428,8 @@
           {
             "variable": "moisture",
             "op": "between",
-            "value": 0.6,
-            "value2": 1.0
+            "value": 0.5,
+            "value2": 1.3
           },
           {
             "variable": "treeCoverage",
@@ -11442,7 +11442,7 @@
             "bool": false
           }
         ],
-        "rarity": 1.2,
+        "rarity": 4.0,
         "noiseConditions": [
           {
             "variable": "regionNoise",
@@ -11651,7 +11651,7 @@
           {
             "variable": "elevationM",
             "op": "lte",
-            "value": 450
+            "value": 900
           },
           {
             "variable": "snowy",
@@ -11659,7 +11659,7 @@
             "bool": false
           }
         ],
-        "rarity": 2.0,
+        "rarity": 5.0,
         "noiseConditions": [
           {
             "variable": "regionNoise",
@@ -11703,7 +11703,7 @@
           {
             "variable": "treeCoverage",
             "op": "between",
-            "value": 0.3,
+            "value": 0.2,
             "value2": 0.7
           },
           {
@@ -11717,7 +11717,7 @@
           {
             "variable": "clearingNoise",
             "op": "gt",
-            "value": 0.3
+            "value": 0.2
           }
         ]
       }
@@ -11802,7 +11802,7 @@
           {
             "variable": "moisture",
             "op": "gte",
-            "value": 1.3
+            "value": 1.0
           },
           {
             "variable": "treeCoverage",
@@ -11812,7 +11812,7 @@
           {
             "variable": "slope",
             "op": "gte",
-            "value": 0.25
+            "value": 0.18
           },
           {
             "variable": "snowy",
@@ -11820,7 +11820,7 @@
             "bool": false
           }
         ],
-        "rarity": 1.5,
+        "rarity": 4.0,
         "noiseConditions": [
           {
             "variable": "regionNoise",
@@ -11964,7 +11964,7 @@
             "bool": false
           }
         ],
-        "rarity": 0.5
+        "rarity": 1.5
       }
     ],
     "requiredMods": [
@@ -12003,7 +12003,7 @@
             "bool": false
           }
         ],
-        "rarity": 0.8
+        "rarity": 2.0
       }
     ],
     "requiredMods": [

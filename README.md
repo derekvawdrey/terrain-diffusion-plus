@@ -113,6 +113,21 @@ The shipped catalog carries every supported integration in one file, and each en
 | Nothing extra | 65 vanilla |
 | [Biomes O' Plenty](https://modrinth.com/mod/biomes-o-plenty) | 124 |
 
+With Biomes O' Plenty the world is laid out in three continental provinces drawn by a 5 km
+region field, so related biomes generate as neighbours instead of as a random mix: a boreal and
+Old World province (tundra, snowy coniferous forest, bog, moor and marsh, birch, grassland,
+woodland, Mediterranean forest, highland and crag, wasteland), a New World province (muskeg,
+pine taiga, fir clearing, seasonal forest, aspen glade, prairie, the badlands, bayou, rainforest,
+redwoods, lush savanna) and an East and Pacific province (cold desert, maple woods and snowblossom
+grove, orchard, dryland, bamboo jungle, fungal jungle, tropics, volcano and jade cliffs). Within a
+province each biome takes the climate window the model actually produces for it; universal
+baselines (plains, forest, taiga, desert, savanna, jungle, swamp and the snowy pair) stay ungated
+so every climate keeps at least two candidates, and rare accents (jacaranda glade, lavender field,
+pumpkin patch, ominous woods, mystic grove, origin valley) are patchy noise-gated finds anywhere
+their climate fits. Every rule set is checked with `tools/biome-lab` against the model's real
+climate distributions: no dead conditions, no biome that can never spawn, and every Biomes O'
+Plenty biome except the two extra beaches above the encounterability bar.
+
 To add your own, drop a `biome_catalog.json` into `config/terrain-diffusion-mc/` — it replaces the bundled one. Entries may set `"requiredMods": ["some_mod"]` to gate themselves the same way.
 
 ### Total-conversion mods

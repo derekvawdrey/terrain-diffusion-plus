@@ -153,6 +153,13 @@ public final class HydrologyProvider {
         return new HydrologyRegion(elevation, waterMask, waterSurface, biomeIndexes, shape.height, shape.width);
     }
 
+    /** One line for {@code /td-status}: tiles in memory, their size, and the disk cache state. */
+    public synchronized String statusLine() {
+        return String.format("%d of up to %d (%d MiB of %d MiB), tile %d blocks, disk cache %s",
+                cache.size(), maxEntries, retainedBytes >> 20, maxBytes >> 20, tileSize,
+                diskCacheEnabled ? "on" : "off");
+    }
+
     /** Clears only the memory cache. Persisted canonical tiles intentionally survive restarts and seed changes. */
     public synchronized void clear() {
         cache.clear();

@@ -275,6 +275,19 @@ public final class CoarseDrainageProvider {
         }
     }
 
+    /** One line for {@code /td-status}: super-tiles in memory and how many are queued for warming. */
+    public String statusLine() {
+        int queued;
+        synchronized (warmQueue) {
+            queued = warmQueue.size();
+        }
+        synchronized (this) {
+            return String.format("%d of up to %d (%d MiB of %d MiB), %d queued for warming, prefetch %s, disk cache %s",
+                    cache.size(), maxEntries, retainedBytes >> 20, maxBytes >> 20, queued,
+                    prefetchEnabled ? "on" : "off", diskCacheEnabled ? "on" : "off");
+        }
+    }
+
     private void warmLoop() {
         while (true) {
             try {

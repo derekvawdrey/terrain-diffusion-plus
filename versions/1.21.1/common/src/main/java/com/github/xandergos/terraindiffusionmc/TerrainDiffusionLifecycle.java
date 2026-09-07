@@ -1,6 +1,7 @@
 package com.github.xandergos.terraindiffusionmc;
 
 import com.github.xandergos.terraindiffusionmc.explorer.ExplorerServer;
+import com.github.xandergos.terraindiffusionmc.pipeline.DiagnosticsReport;
 import com.github.xandergos.terraindiffusionmc.pipeline.LocalTerrainProvider;
 import com.github.xandergos.terraindiffusionmc.platform.PlatformPaths;
 import com.github.xandergos.terraindiffusionmc.pipeline.ModelAssetManager;
@@ -126,6 +127,20 @@ public final class TerrainDiffusionLifecycle {
      */
     public static void registerCommands(CommandDispatcher<CommandSourceStack> dispatcher) {
         dispatcher.register(Commands.literal("td-explore").executes(TerrainDiffusionLifecycle::executeExplore));
+        dispatcher.register(Commands.literal("td-status").executes(TerrainDiffusionLifecycle::executeStatus));
+    }
+
+    /** {@code /td-status}: what the mod is doing, in one screen, for players and bug reports. */
+    private static int executeStatus(CommandContext<CommandSourceStack> ctx) {
+        try {
+            for (String line : DiagnosticsReport.lines()) {
+                ctx.getSource().sendSuccess(() -> Component.literal(line), false);
+            }
+        } catch (Exception e) {
+            LOG.error("Failed to build terrain diffusion status", e);
+            ctx.getSource().sendFailure(Component.literal("Failed to build status: " + e.getMessage()));
+        }
+        return 1;
     }
 
     private static int executeExplore(CommandContext<CommandSourceStack> ctx) {

@@ -62,7 +62,30 @@ One of the following:
 2. Launch Minecraft at least once online to download the Terrain Diffusion models. The first model download is large, around 2.5 GB total.
 3. Create a world and select the **Terrain Diffusion** world type. Click **Customize** to set the `World Scale`.
 4. The mod searches for a land spawn point near the world origin automatically. If the area around `(0, 0)` is entirely ocean, it may take a moment to find land.
-5. Use `/td-explore` to scout the generated world from a browser.
+5. Use `/td-explore` to scout the generated world from a browser, and `/td-status` to see what the
+   mod is doing: the inference device the models landed on, the world scale, how much terrain is
+   cached or building, and the settings that change generated terrain. Paste its output into a bug report.
+
+### Installing the models by hand
+
+The models are fetched from Hugging Face on first launch into `terrain-diffusion-models/` inside
+the game directory (next to `mods/`). A dropped connection keeps what was received in a `.tmp`
+file and the next attempt resumes from there, with a few automatic retries, so a slow or flaky
+line just needs the game left running or relaunched. Behind a network that cannot reach Hugging
+Face, download the five files of the revision named in the log's *Direct download* line yourself
+and place them in that folder:
+
+```
+terrain-diffusion-models/
+  base_model.onnx
+  coarse_model.onnx
+  decoder_model.onnx
+  pipeline_data.json
+  world_pipeline_config.json
+```
+
+They are verified by SHA-256 at every launch (`validate_model=true`), so a wrong or truncated file
+is re-downloaded rather than used.
 
 Structure searches -- `/locate structure`, a cartographer's explorer maps, eyes of ender -- probe
 chunk after chunk over terrain nobody has generated yet. Those probes are answered from the

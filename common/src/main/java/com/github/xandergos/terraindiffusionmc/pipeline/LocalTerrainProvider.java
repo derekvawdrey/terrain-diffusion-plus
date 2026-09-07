@@ -13,8 +13,10 @@ import com.github.xandergos.terraindiffusionmc.worldgen.surface.SurfaceNoise;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Random;
 import java.util.Comparator;
@@ -340,6 +342,23 @@ public final class LocalTerrainProvider {
     // =========================================================================
     // Explorer API — all pipeline calls routed through INFERENCE_EXECUTOR
     // =========================================================================
+
+    /** Cache and activity summary for {@link DiagnosticsReport}; safe to call before init. */
+    public static List<String> statusLines() {
+        List<String> lines = new ArrayList<>();
+        LocalTerrainProvider provider = INSTANCE;
+        if (provider == null) {
+            lines.add("Terrain provider: not initialised yet (models still loading, or no Terrain Diffusion world)");
+            return lines;
+        }
+        lines.add(String.format("Terrain regions cached: %d (%d MiB), pending %d; tile builds active %d (foreground %d)",
+                CACHE.size(), CACHE_BYTES.get() >> 20, PENDING.size(),
+                ACTIVE_TILE_BUILDS.get(), ACTIVE_FOREGROUND_BUILDS.get()));
+        lines.add("Hydrology tiles resident: " + provider.hydrologyProvider.statusLine());
+        lines.add("Coarse drainage super-tiles: " + provider.coarseDrainageProvider.statusLine());
+        lines.add("Pipeline windows retained: " + provider.pipeline.cacheStatusLine());
+        return lines;
+    }
 
     /** Returns the current world seed used by the pipeline. */
     public static long getSeed() {

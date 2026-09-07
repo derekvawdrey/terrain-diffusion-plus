@@ -109,6 +109,28 @@ public final class MemoryTileStore {
         }
     }
 
+    /** One line per tensor for {@code /td-status}: windows retained and their size. */
+    public String statusLine() {
+        List<Map.Entry<String, CacheState>> states;
+        synchronized (this) {
+            states = new ArrayList<>(cacheStates.entrySet());
+        }
+        StringBuilder out = new StringBuilder();
+        long totalBytes = 0L;
+        int totalWindows = 0;
+        for (Map.Entry<String, CacheState> entry : states) {
+            CacheState state = entry.getValue();
+            synchronized (state) {
+                if (out.length() > 0) out.append(", ");
+                out.append(entry.getKey()).append(' ').append(state.windows.size());
+                totalWindows += state.windows.size();
+                totalBytes += state.sizeBytes;
+            }
+        }
+        return totalWindows + " windows (" + (totalBytes >> 20) + " MiB): " + out
+                + "; " + totalComputedWindowCount.get() + " computed since start";
+    }
+
     /** Returns how many windows have been newly computed and cached. */
     public long getTotalComputedWindowCount() {
         return totalComputedWindowCount.get();

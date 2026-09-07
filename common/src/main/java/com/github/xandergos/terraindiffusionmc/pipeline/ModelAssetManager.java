@@ -24,6 +24,8 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
+import java.nio.file.StandardOpenOption;
+import java.time.Duration;
 import java.security.DigestInputStream;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
@@ -114,35 +116,53 @@ public final class ModelAssetManager {
         downloadAndVerifyAsset(localAssetPath, assetMetadata, revision, offlineHelpUrl);
     }
 
-    private static void downloadAndVerifyAsset(Path localAssetPath, ManifestAsset assetMetadata, String revision, String offlineHelpUrl) throws IOException, InterruptedException {
+    /** Attempts per asset before giving up; the wait between them grows from the first entry. */
+    private static final int MAX_DOWNLOAD_ATTEMPTS = 6;
+    private static final long[] RETRY_DELAY_SECONDS = {3, 6, 12, 24, 45};
+    private static final int CONNECT_TIMEOUT_SECONDS = 30;
+
+    /**
+     * Downloads one asset into {@code <name>.tmp}, then verifies and renames it into place.
+     *
+     * <p>A dropped connection used to throw away everything received so far, and on the 2 GB
+     * base model that made a flaky line unable to finish at all -- the most common "failed to
+     * load models" report. The partial file is now kept and the next attempt asks the server
+     * for the remainder ({@code Range}); a server that ignores the range restarts from zero.
+     * Transient failures are retried with a growing pause; a response that says the file will
+     * never arrive (a 4xx other than 429) or a hash mismatch is not.</p>
+     */
+    static void downloadAndVerifyAsset(Path localAssetPath, ManifestAsset assetMetadata, String revision, String offlineHelpUrl) throws IOException, InterruptedException {
         Path temporaryAssetPath = localAssetPath.resolveSibling(localAssetPath.getFileName() + ".tmp");
-        HttpClient httpClient = HttpClient.newBuilder().followRedirects(HttpClient.Redirect.NORMAL).build();
-        HttpRequest request = HttpRequest.newBuilder(URI.create(assetMetadata.url)).GET().build();
+        HttpClient httpClient = HttpClient.newBuilder()
+                .followRedirects(HttpClient.Redirect.NORMAL)
+                .connectTimeout(Duration.ofSeconds(CONNECT_TIMEOUT_SECONDS))
+                .build();
 
-        try {
-            LOG.info("Downloading model asset '{}' ({})",
-                    localAssetPath.getFileName(), humanReadableBytes(assetMetadata.sizeBytes));
-            HttpResponse<InputStream> response = httpClient.send(request, HttpResponse.BodyHandlers.ofInputStream());
-            int statusCode = response.statusCode();
-            if (statusCode < HttpURLConnection.HTTP_OK || statusCode >= HttpURLConnection.HTTP_MULT_CHOICE) {
-                throw new IllegalStateException("Failed to download model asset from " + assetMetadata.url + " (HTTP " + statusCode + ")");
-            }
-
-            try (InputStream responseStream = response.body();
-                 OutputStream fileOutputStream = Files.newOutputStream(temporaryAssetPath)) {
-                copyWithProgress(responseStream, fileOutputStream, localAssetPath.getFileName().toString(), assetMetadata.sizeBytes);
-            }
-
-            String downloadedHash = sha256Hex(temporaryAssetPath);
-            if (!downloadedHash.equalsIgnoreCase(assetMetadata.sha256)) {
+        Exception lastFailure = null;
+        for (int attempt = 1; attempt <= MAX_DOWNLOAD_ATTEMPTS; attempt++) {
+            try {
+                downloadOnce(httpClient, localAssetPath, temporaryAssetPath, assetMetadata, attempt);
+                LOG.info("Downloaded and verified model asset '{}'", localAssetPath.getFileName());
+                return;
+            } catch (InterruptedException interrupted) {
+                throw interrupted;
+            } catch (PermanentDownloadFailure permanent) {
                 Files.deleteIfExists(temporaryAssetPath);
-                throw new IllegalStateException("SHA-256 mismatch for " + localAssetPath.getFileName()
-                        + ". Expected " + assetMetadata.sha256 + " but got " + downloadedHash);
+                lastFailure = permanent;
+                break;
+            } catch (Exception exception) {
+                lastFailure = exception;
+                if (attempt == MAX_DOWNLOAD_ATTEMPTS) break;
+                long delay = RETRY_DELAY_SECONDS[Math.min(attempt - 1, RETRY_DELAY_SECONDS.length - 1)];
+                LOG.warn("Downloading '{}' failed on attempt {} of {} ({}); retrying in {} s, keeping the {} received so far",
+                        localAssetPath.getFileName(), attempt, MAX_DOWNLOAD_ATTEMPTS, describe(exception), delay,
+                        humanReadableBytes(partialSize(temporaryAssetPath)));
+                Thread.sleep(delay * 1000L);
             }
-            Files.move(temporaryAssetPath, localAssetPath, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
-            LOG.info("Downloaded and verified model asset '{}'", localAssetPath.getFileName());
-        } catch (Exception exception) {
-            Files.deleteIfExists(temporaryAssetPath);
+        }
+
+        Exception exception = Objects.requireNonNull(lastFailure);
+        {
             if (isOfflineError(exception)) {
                 throw new IllegalStateException(
                         "Terrain Diffusion models are missing and must be downloaded while online. " +
@@ -158,6 +178,94 @@ public final class ModelAssetManager {
             }
             throw new IllegalStateException("Failed downloading model asset: " + localAssetPath.getFileName(), exception);
         }
+    }
+
+    /** A failure that another attempt cannot fix. */
+    private static final class PermanentDownloadFailure extends IOException {
+        PermanentDownloadFailure(String message) {
+            super(message);
+        }
+    }
+
+    private static void downloadOnce(HttpClient httpClient, Path localAssetPath, Path temporaryAssetPath,
+                                     ManifestAsset assetMetadata, int attempt) throws IOException, InterruptedException {
+        long resumeFrom = partialSize(temporaryAssetPath);
+        if (resumeFrom > 0 && assetMetadata.sizeBytes > 0 && resumeFrom > assetMetadata.sizeBytes) {
+            // Larger than the whole file: not a partial download of this revision.
+            Files.deleteIfExists(temporaryAssetPath);
+            resumeFrom = 0;
+        }
+        HttpRequest.Builder request = HttpRequest.newBuilder(URI.create(assetMetadata.url)).GET();
+        if (resumeFrom > 0) {
+            request.header("Range", "bytes=" + resumeFrom + "-");
+            LOG.info("Resuming model asset '{}' from {} of {} (attempt {})",
+                    localAssetPath.getFileName(), humanReadableBytes(resumeFrom),
+                    humanReadableBytes(assetMetadata.sizeBytes), attempt);
+        } else {
+            LOG.info("Downloading model asset '{}' ({}){}",
+                    localAssetPath.getFileName(), humanReadableBytes(assetMetadata.sizeBytes),
+                    attempt > 1 ? " (attempt " + attempt + ")" : "");
+        }
+
+        HttpResponse<InputStream> response = httpClient.send(request.build(), HttpResponse.BodyHandlers.ofInputStream());
+        int statusCode = response.statusCode();
+        boolean append;
+        if (statusCode == HttpURLConnection.HTTP_PARTIAL && resumeFrom > 0) {
+            append = true;
+        } else if (statusCode == HttpURLConnection.HTTP_OK) {
+            // Full body, whether or not a range was asked for: start over.
+            append = false;
+            resumeFrom = 0;
+        } else if (statusCode == 416 && resumeFrom == assetMetadata.sizeBytes) {
+            // Nothing left to fetch: the partial file is already complete.
+            response.body().close();
+            verifyAndInstall(localAssetPath, temporaryAssetPath, assetMetadata);
+            return;
+        } else if (statusCode >= 400 && statusCode < 500 && statusCode != 429 && statusCode != 408) {
+            response.body().close();
+            throw new PermanentDownloadFailure("Failed to download model asset from " + assetMetadata.url
+                    + " (HTTP " + statusCode + ")");
+        } else {
+            response.body().close();
+            throw new IOException("HTTP " + statusCode + " from " + assetMetadata.url);
+        }
+
+        try (InputStream responseStream = response.body();
+             OutputStream fileOutputStream = append
+                     ? Files.newOutputStream(temporaryAssetPath, StandardOpenOption.CREATE, StandardOpenOption.APPEND)
+                     : Files.newOutputStream(temporaryAssetPath)) {
+            copyWithProgress(responseStream, fileOutputStream, localAssetPath.getFileName().toString(),
+                    assetMetadata.sizeBytes, resumeFrom);
+        }
+        if (assetMetadata.sizeBytes > 0 && partialSize(temporaryAssetPath) < assetMetadata.sizeBytes) {
+            throw new IOException("connection closed after " + humanReadableBytes(partialSize(temporaryAssetPath))
+                    + " of " + humanReadableBytes(assetMetadata.sizeBytes));
+        }
+        verifyAndInstall(localAssetPath, temporaryAssetPath, assetMetadata);
+    }
+
+    private static void verifyAndInstall(Path localAssetPath, Path temporaryAssetPath, ManifestAsset assetMetadata) throws IOException {
+        String downloadedHash = sha256Hex(temporaryAssetPath);
+        if (!downloadedHash.equalsIgnoreCase(assetMetadata.sha256)) {
+            Files.deleteIfExists(temporaryAssetPath);
+            throw new PermanentDownloadFailure("SHA-256 mismatch for " + localAssetPath.getFileName()
+                    + ". Expected " + assetMetadata.sha256 + " but got " + downloadedHash);
+        }
+        Files.move(temporaryAssetPath, localAssetPath, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
+    }
+
+    private static long partialSize(Path temporaryAssetPath) {
+        try {
+            return Files.isRegularFile(temporaryAssetPath) ? Files.size(temporaryAssetPath) : 0L;
+        } catch (IOException e) {
+            return 0L;
+        }
+    }
+
+    private static String describe(Exception exception) {
+        Throwable root = exception;
+        while (root.getCause() != null) root = root.getCause();
+        return root.getClass().getSimpleName() + (root.getMessage() != null ? ": " + root.getMessage() : "");
     }
 
     private static boolean isOfflineError(Exception exception) {
@@ -194,12 +302,17 @@ public final class ModelAssetManager {
             InputStream responseStream,
             OutputStream fileOutputStream,
             String fileName,
-            long expectedSizeBytes
+            long expectedSizeBytes,
+            long alreadyDownloadedBytes
     ) throws IOException {
         boolean shouldLogProgress = expectedSizeBytes >= PROGRESS_LOG_THRESHOLD_BYTES;
         byte[] copyBuffer = new byte[256 * 1024];
-        long downloadedBytes = 0L;
+        long downloadedBytes = alreadyDownloadedBytes;
         int nextProgressPercent = 10;
+        if (expectedSizeBytes > 0) {
+            int completedPercent = (int) ((downloadedBytes * 100L) / expectedSizeBytes);
+            while (completedPercent >= nextProgressPercent && nextProgressPercent <= 100) nextProgressPercent += 10;
+        }
         int readCount;
         while ((readCount = responseStream.read(copyBuffer)) != -1) {
             fileOutputStream.write(copyBuffer, 0, readCount);
@@ -272,7 +385,7 @@ public final class ModelAssetManager {
         Map<String, ManifestAsset> assets;
     }
 
-    private static final class ManifestAsset {
+    static final class ManifestAsset {
         String sha256;
         long sizeBytes;
         String url;

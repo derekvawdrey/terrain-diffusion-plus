@@ -516,6 +516,11 @@ public final class WorldPipeline implements AutoCloseable {
         return tileStore.getTotalComputedWindowCount();
     }
 
+    /** Retained window counts per stage, for {@code /td-status}. */
+    public String cacheStatusLine() {
+        return tileStore.statusLine();
+    }
+
     /** Clears all retained tensor windows without unloading ONNX model sessions. */
     public void clearCaches() {
         tileStore.clearAllCaches();

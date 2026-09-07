@@ -10,6 +10,7 @@ import com.github.xandergos.terraindiffusionmc.pipeline.PipelineModels;
 import com.github.xandergos.terraindiffusionmc.world.TerraBlenderSurfaceCompat;
 import com.github.xandergos.terraindiffusionmc.world.TerrainDiffusionBiomeSource;
 import com.github.xandergos.terraindiffusionmc.world.TerrainDiffusionDensityFunction;
+import com.github.xandergos.terraindiffusionmc.world.NoiseCavesFlagDensityFunction;
 import com.github.xandergos.terraindiffusionmc.world.ScaledCarvers;
 import com.github.xandergos.terraindiffusionmc.world.WorldScaleManager;
 import com.mojang.brigadier.CommandDispatcher;
@@ -43,6 +44,7 @@ public final class TerrainDiffusionLifecycle {
     public static final String MOD_ID = "terrain-diffusion-mc";
     private static final Logger LOG = LoggerFactory.getLogger(TerrainDiffusionLifecycle.class);
     public static final ResourceLocation TERRAIN_DIFFUSION_ID = new ResourceLocation(MOD_ID, "terrain_diffusion");
+    public static final ResourceLocation NOISE_CAVES_ENABLED_ID = new ResourceLocation(MOD_ID, "noise_caves_enabled");
     private static boolean initialized;
 
     private TerrainDiffusionLifecycle() {
@@ -82,6 +84,7 @@ public final class TerrainDiffusionLifecycle {
      */
     public static void registerDensityFunctionCodecs(CodecRegistrar<Codec<? extends DensityFunction>> registrar) {
         registrar.register(TERRAIN_DIFFUSION_ID, TerrainDiffusionDensityFunction.CODEC.codec());
+        registrar.register(NOISE_CAVES_ENABLED_ID, NoiseCavesFlagDensityFunction.CODEC.codec());
     }
 
     @FunctionalInterface

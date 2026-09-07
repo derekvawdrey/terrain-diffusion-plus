@@ -222,12 +222,16 @@ cave generation, and this mod stays out of its way.
 
 #### Noise caves
 
-Some cave overhauls do not use carvers at all — they cut caves in the density function, by editing
-`minecraft:overworld`'s noise settings. Those edits cannot reach this dimension, which has noise
-settings of its own; nothing is lost, but nothing is gained either.
+Vanilla's caves are not carvers: since 1.18 the cheese caverns, spaghetti tunnels, noodle caves and
+cave entrances are cut in the density function of `minecraft:overworld`, which this dimension does
+not use. This mod ships the same caves in its own density function, composed exactly as vanilla
+composes them, with the noodle band extended from vanilla's y=320 to the full height of this
+world, so they reach the summits. `caves.noise_caves=auto` turns them on unless YUNG's Better
+Caves is present and enabled, since the two together would hollow the world out; on 1.21.11,
+which has no Better Caves, this is where the large caves come from. `true` and `false` force it.
 
-There is a place to put them. This mod's `final_density` ends in a named density function that is
-constant zero:
+Cave overhauls that edit `minecraft:overworld`'s noise settings cannot reach this dimension either
+way, but there is a place to put them. This mod's `final_density` ends in a named density function:
 
 ```
 final_density = (terrain + beardifier) + terrain-diffusion-mc:cave_density
@@ -236,10 +240,10 @@ final_density = (terrain + beardifier) + terrain-diffusion-mc:cave_density
 Override `data/terrain-diffusion-mc/worldgen/density_function/cave_density.json` in a datapack and
 whatever you put there is added to the terrain everywhere — negative where you want air. That is
 one small file, not a copy of the whole noise settings, so it keeps working when this mod's terrain
-changes. The default is `{"type": "minecraft:constant", "argument": 0.0}`, which changes nothing.
-
-Remember that this dimension is up to 2032 blocks tall: a density function written for a 384-block
-world will want its y scales adjusted by the same `World Scale` factor everything else moves by.
+changes. The shipped file is worth reading as a template: it references
+`terrain-diffusion-mc:terrain_diffusion` (the terrain's own signed density, +1 deep underground,
+-1 in the air, crossing 0 at the surface) so that caves can be combined with the terrain by
+`min` the way vanilla does, and it is switched by `terrain-diffusion-mc:noise_caves_enabled`.
 
 #### Cave biomes
 
@@ -311,6 +315,9 @@ caves.bundled_cave_mod=true
 # summit); chance is the share of cavern regions that hold caverns, 0..100.
 caves.mountain_caverns=true
 caves.mountain_caverns.chance=30
+# Vanilla-style noise caves in the density function, extended to the tall world. "auto" = on
+# unless Better Caves is present and enabled; the large caves on 1.21.11.
+caves.noise_caves=auto
 ```
 
 ### Per-world settings

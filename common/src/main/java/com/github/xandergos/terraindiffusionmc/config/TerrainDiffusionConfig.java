@@ -410,6 +410,29 @@ public final class TerrainDiffusionConfig {
      * Share of cavern regions in the mountain layer that actually hold caverns, 0..100; Better
      * Caves' own deep layer ships at 23. Higher means larger, more connected mountain systems.
      */
+    /**
+     * Whether the shipped noise caves -- vanilla's cheese caverns, spaghetti tunnels, noodle
+     * caves and cave entrances, cut in the density function and extended to the tall world --
+     * generate. {@code auto} (the default) turns them on unless YUNG's Better Caves is present
+     * and enabled, since the two together would hollow the world out; {@code true} and
+     * {@code false} force it. Changes which caves generate: pick it before creating a world.
+     */
+    public static boolean noiseCavesEnabled() {
+        String value = readString("caves.noise_caves", "auto");
+        if ("true".equals(value)) return true;
+        if ("false".equals(value)) return false;
+        return !(bundledCaveModEnabled() && classPresent("com.yungnickyoung.minecraft.bettercaves.BetterCavesCommon"));
+    }
+
+    private static boolean classPresent(String className) {
+        try {
+            Class.forName(className, false, TerrainDiffusionConfig.class.getClassLoader());
+            return true;
+        } catch (ClassNotFoundException | LinkageError absent) {
+            return false;
+        }
+    }
+
     public static float mountainCavernChancePercent() {
         return readFloatInRange("caves.mountain_caverns.chance", DEFAULT_MOUNTAIN_CAVERN_CHANCE_PERCENT, 0f, 100f);
     }

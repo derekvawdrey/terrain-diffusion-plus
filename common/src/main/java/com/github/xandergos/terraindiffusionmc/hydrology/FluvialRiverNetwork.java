@@ -22,9 +22,54 @@ public final class FluvialRiverNetwork {
     private static final float MIN_VISIBLE_FLOW = 0.18f;
     private static final float RILL_FLOW = 0.16f;
     private static final float LAKE_MIN_DEPTH_M = 0.75f;
+    // A standing body that is small, shallow and not river-fed is a puddle, not a lake.
+    private static final float LAKE_PUDDLE_AREA_M2 = 135_000.0f;
+    private static final float LAKE_PUDDLE_DEPTH_M = 15.0f;
+    private static final float LAKE_PUDDLE_FLOW_GATE = 0.5f;
+    // Lake beds are bowls: the extra excavation below the natural fill depth ramps from nothing at
+    // the shore to a share of the body's deepest point in its middle.
+    private static final float LAKE_BOWL_DEPTH_FRACTION = 0.9f;
+    private static final float LAKE_BOWL_MIN_BLOCKS = 2.0f;
+    private static final float LAKE_BOWL_MAX_BLOCKS = 12.0f;
+    private static final float LAKE_BOWL_RADIUS_FRACTION = 0.25f;
+    private static final float LAKE_BOWL_MIN_RADIUS_PX = 4.0f;
+    private static final float LAKE_BOWL_MAX_RADIUS_PX = 40.0f;
     private static final float MIN_CHANNEL_RADIUS_PX = 0.26f;
     private static final float MAX_CHANNEL_RADIUS_PX = 16.0f;
     private static final float MAX_CENTERLINE_DISPLACEMENT_PX = 0.48f;
+
+    // --- Reach shaping (valley confinement, meanders, bank-held water) -------------------------
+    // The reference surface for all of these is the smooth (pre-detail-noise) elevation when the
+    // caller has one, so a channel's valley is measured against real relief, not the dither.
+    /** A cross-valley scan stops where the ground has risen this much above the channel. */
+    private static final float VALLEY_FLOOR_RISE_M = 18.0f;
+    /** Farthest the cross-valley scan looks to either side, in metres (about 16 native pixels). */
+    private static final float VALLEY_FLOOR_SCAN_M = 480.0f;
+    /** A channel may take at most this share of its valley floor as width. */
+    private static final float CONFINEMENT_FRACTION = 0.72f;
+    /** Width lost to confinement comes back as depth, up to this factor. */
+    private static final float MAX_CONFINEMENT_DEPTH_BOOST = 2.0f;
+    /** Meander amplitude as a multiple of channel width, and its floor and ceiling. */
+    private static final float MEANDER_AMPLITUDE_WIDTHS = 2.4f;
+    private static final float MEANDER_MIN_AMPLITUDE_M = 78.0f;
+    private static final float MEANDER_SPACE_FRACTION = 0.42f;
+    /** Meander wavelength as a multiple of amplitude; the noise bands are blended to match it. */
+    private static final float MEANDER_ASPECT = 4.4f;
+    private static final float[] MEANDER_BAND_M = {240.0f, 720.0f, 2160.0f};
+    private static final long[] MEANDER_BAND_SALT = {0x51DEL, 0x51DFL, 0x51E0L};
+    /** A meander offset stops where the ground climbs this much above the channel cell. */
+    private static final float MEANDER_CLIMB_M = 3.0f;
+    /** Flow direction for the perpendicular is taken this far downstream, in metres. */
+    private static final float TANGENT_REACH_M = 240.0f;
+    /** The water surface sits at this quantile of the cross-section, minus freeboard. */
+    private static final float BANK_HOLD_QUANTILE = 0.15f;
+    private static final float BANK_HOLD_SPAN_RADII = 1.25f;
+    private static final float FREEBOARD_MIN_BLOCKS = 0.5f;
+    private static final float FREEBOARD_DEPTH_FRACTION = 0.35f;
+    /** Passes of the 0.5 self / 0.25 down / 0.25 mean-up relaxation of the water surface. */
+    private static final int LEVEL_SMOOTHING_PASSES = 6;
+    /** The valley influence mask reaches this many channel radii from the centreline. */
+    private static final float VALLEY_INFLUENCE_RADII = 2.5f;
     private static final float EPS = 1e-5f;
     private static final float CHANNEL_SAMPLE_STEP_PX = 0.20f;
     private static final int RIVER_BIOME_DILATION_BLOCKS = 2;
@@ -90,6 +135,19 @@ public final class FluvialRiverNetwork {
                                       int height, int width, float pixelSizeM,
                                       boolean blockSourcesBelowElevation, float minimumSourceElevationM,
                                       BoundaryInflowResolver boundaryInflowResolver) {
+        return build(seed, i0, j0, elevation, climate, height, width, pixelSizeM,
+                blockSourcesBelowElevation, minimumSourceElevationM, boundaryInflowResolver, null);
+    }
+
+    /**
+     * As above, with the smooth elevation the detail noise was added to. Valley widths, meander
+     * limits and bank heights are measured against it, so a channel's shape follows the real
+     * relief rather than the dither; null falls back to {@code elevation}.
+     */
+    public static RiverTopology build(long seed, int i0, int j0, float[] elevation, float[] climate,
+                                      int height, int width, float pixelSizeM,
+                                      boolean blockSourcesBelowElevation, float minimumSourceElevationM,
+                                      BoundaryInflowResolver boundaryInflowResolver, float[] smoothElevation) {
         int n = Math.multiplyExact(height, width);
         if (elevation.length != n) {
             throw new IllegalArgumentException("elevation length does not match grid shape");
@@ -122,10 +180,13 @@ public final class FluvialRiverNetwork {
         Arrays.fill(waterSurface, Float.NaN);
 
         rasterizeLakes(elevation, flood.filledSurface, accumulation, flood.downstream, flood.order,
-                flood.orderSize, lake, load, waterSurface);
+                flood.orderSize, lake, load, waterSurface, height, width, pixelSizeM);
         long t4 = System.nanoTime();
-        rasterizeHermiteChannels(seed, i0, j0, elevation, flood.filledSurface, flood.downstream, accumulation,
-                visible, profile, load, waterSurface, height, width, pixelSizeM);
+        float[] valleyInfluence = new float[n];
+        float[] depthBoost = new float[n];
+        float[] valleyReference = smoothElevation != null && smoothElevation.length == n ? smoothElevation : elevation;
+        rasterizeHermiteChannels(seed, i0, j0, elevation, valleyReference, flood, accumulation,
+                visible, lake, profile, load, waterSurface, valleyInfluence, depthBoost, height, width, pixelSizeM);
         long t5 = System.nanoTime();
 
         LOG.info("FluvialRiverNetwork.build ({}, {}) n={} phases (ms): priorityFlood={} accumulateRunoff={} "
@@ -133,7 +194,7 @@ public final class FluvialRiverNetwork {
                 j0, i0, n, millis(t0, t1), millis(t1, t2), millis(t2, t3), millis(t3, t4), millis(t4, t5),
                 millis(t0, t5));
 
-        return new RiverTopology(profile, load, lake, waterSurface, height, width);
+        return new RiverTopology(profile, load, lake, waterSurface, valleyInfluence, depthBoost, height, width);
     }
 
     private static long millis(long fromNanos, long toNanos) {
@@ -369,21 +430,84 @@ public final class FluvialRiverNetwork {
      */
     private static void rasterizeLakes(float[] elevation, float[] filledSurface, float[] accumulation,
                                        int[] downstream, int[] order, int orderSize,
-                                       float[] lake, float[] load, float[] waterSurface) {
+                                       float[] lake, float[] load, float[] waterSurface,
+                                       int height, int width, float pixelSizeM) {
         WaterBodies bodies = groupWaterBodies(elevation, filledSurface, accumulation,
                 downstream, order, orderSize);
+        float metres = Math.max(1.0f, pixelSizeM);
+        float cellAreaM2 = metres * metres;
+        int bodyCount = bodies.maxDepth.length;
+        boolean[] keep = new boolean[bodyCount];
+        float[] bowlBlocks = new float[bodyCount];
+        float[] bowlRadiusPx = new float[bodyCount];
+        for (int body = 0; body < bodyCount; body++) {
+            float flowGate = clamp01(bodies.throughflow[body] / MIN_VISIBLE_FLOW);
+            float maxDepth = bodies.maxDepth[body];
+            if (flowGate <= 0.05f && maxDepth < 3.0f) continue;
+            // Small, shallow and not river-fed: a puddle the fill found, not a lake.
+            if (flowGate <= LAKE_PUDDLE_FLOW_GATE && maxDepth < LAKE_PUDDLE_DEPTH_M
+                    && bodies.cellCount[body] * cellAreaM2 < LAKE_PUDDLE_AREA_M2) continue;
+            keep[body] = true;
+            bowlBlocks[body] = Math.max(LAKE_BOWL_MIN_BLOCKS, Math.min(LAKE_BOWL_MAX_BLOCKS,
+                    LAKE_BOWL_DEPTH_FRACTION * maxDepth / metres));
+            bowlRadiusPx[body] = Math.max(LAKE_BOWL_MIN_RADIUS_PX, Math.min(LAKE_BOWL_MAX_RADIUS_PX,
+                    LAKE_BOWL_RADIUS_FRACTION * (float) Math.sqrt(bodies.cellCount[body])));
+        }
+        int[] shoreDistance = shoreDistance(bodies.bodyOf, keep, elevation, filledSurface, height, width);
         HydrologyParallel.forEachIndex(0, elevation.length, idx -> {
             if (elevation[idx] <= SEA_LEVEL_METERS) return;
             float depth = filledSurface[idx] - elevation[idx];
             if (depth < LAKE_MIN_DEPTH_M) return;
             int body = bodies.bodyOf[idx];
-            if (body < 0) return;
+            if (body < 0 || !keep[body]) return;
             float flowGate = clamp01(bodies.throughflow[body] / MIN_VISIBLE_FLOW);
-            if (flowGate <= 0.05f && bodies.maxDepth[body] < 3.0f) return;
-            lake[idx] = depth * (0.35f + 0.65f * flowGate);
+            // The natural fill depth, plus a bowl that ramps in from the shore.
+            float shore = smoothstep(clamp01(shoreDistance[idx] / bowlRadiusPx[body]));
+            lake[idx] = depth * (0.35f + 0.65f * flowGate) + bowlBlocks[body] * metres * shore;
             load[idx] = Math.max(load[idx], flowGate);
             waterSurface[idx] = filledSurface[idx];
         });
+    }
+
+    /**
+     * Chebyshev distance, in cells, from every standing-water cell of a kept body to the nearest
+     * cell that is not standing water; 0 elsewhere. One multi-source BFS over the lake cells.
+     */
+    private static int[] shoreDistance(int[] bodyOf, boolean[] keep, float[] elevation, float[] filledSurface,
+                                       int height, int width) {
+        int n = height * width;
+        int[] distance = new int[n];
+        int[] queue = new int[n];
+        int head = 0, tail = 0;
+        for (int idx = 0; idx < n; idx++) {
+            int body = bodyOf[idx];
+            boolean wet = body >= 0 && keep[body] && filledSurface[idx] - elevation[idx] >= LAKE_MIN_DEPTH_M;
+            if (!wet) continue;
+            int r = idx / width, c = idx - r * width;
+            boolean shore = r == 0 || c == 0 || r == height - 1 || c == width - 1;
+            for (int k = 0; k < 8 && !shore; k++) {
+                int nb = (r + DR[k]) * width + (c + DC[k]);
+                int nbBody = bodyOf[nb];
+                shore = nbBody < 0 || !keep[nbBody] || filledSurface[nb] - elevation[nb] < LAKE_MIN_DEPTH_M;
+            }
+            distance[idx] = shore ? 1 : Integer.MAX_VALUE;
+            if (shore) queue[tail++] = idx;
+        }
+        while (head < tail) {
+            int idx = queue[head++];
+            int r = idx / width, c = idx - r * width;
+            int next = distance[idx] + 1;
+            for (int k = 0; k < 8; k++) {
+                int nr = r + DR[k], nc = c + DC[k];
+                if (nr < 0 || nr >= height || nc < 0 || nc >= width) continue;
+                int nb = nr * width + nc;
+                if (distance[nb] == Integer.MAX_VALUE) {
+                    distance[nb] = next;
+                    queue[tail++] = nb;
+                }
+            }
+        }
+        return distance;
     }
 
     /**
@@ -393,7 +517,7 @@ public final class FluvialRiverNetwork {
      * @param throughflow per body: the accumulation reaching its outlet
      * @param maxDepth   per body: its deepest point
      */
-    private record WaterBodies(int[] bodyOf, float[] throughflow, float[] maxDepth) {}
+    private record WaterBodies(int[] bodyOf, float[] throughflow, float[] maxDepth, int[] cellCount) {}
 
     /**
      * Groups submerged cells into water bodies in two linear passes over the flood order, with no
@@ -422,14 +546,16 @@ public final class FluvialRiverNetwork {
 
         float[] throughflow = new float[bodyCount];
         float[] maxDepth = new float[bodyCount];
+        int[] cellCount = new int[bodyCount];
         for (int idx = 0; idx < n; idx++) {
             int body = bodyOf[idx];
             if (body < 0) continue;
             if (accumulation[idx] > throughflow[body]) throughflow[body] = accumulation[idx];
             float depth = filledSurface[idx] - elevation[idx];
             if (depth > maxDepth[body]) maxDepth[body] = depth;
+            cellCount[body]++;
         }
-        return new WaterBodies(bodyOf, throughflow, maxDepth);
+        return new WaterBodies(bodyOf, throughflow, maxDepth, cellCount);
     }
 
     /** Ascending cell indexes of the visible channel network, so passes can skip empty terrain. */
@@ -447,11 +573,14 @@ public final class FluvialRiverNetwork {
     }
 
     private static void rasterizeHermiteChannels(long seed, int i0, int j0,
-                                                  float[] elevation, float[] surface, int[] downstream,
-                                                  float[] accumulation, boolean[] visible,
+                                                  float[] elevation, float[] valleyReference, PriorityFlood flood,
+                                                  float[] accumulation, boolean[] visible, float[] lake,
                                                   float[] profile, float[] load, float[] waterSurface,
+                                                  float[] valleyInfluence, float[] depthBoost,
                                                   int height, int width, float pixelSizeM) {
         int n = height * width;
+        float[] surface = flood.filledSurface;
+        int[] downstream = flood.downstream;
         long t0 = System.nanoTime();
         // A tile has millions of cells but only thousands of channel cells, so every pass here
         // walks the channel list instead of the grid; the grid-shaped arrays stay, since
@@ -463,11 +592,16 @@ public final class FluvialRiverNetwork {
             radius[idx] = radiusPixels(accumulation[idx], elevation[idx]);
         });
         long t1 = System.nanoTime();
+        ReachShape shape = shapeReaches(seed, i0, j0, valleyReference, downstream, accumulation, visible,
+                channelCells, radius, height, width, pixelSizeM);
+        long t2 = System.nanoTime();
+        float[] level = solveWaterLevels(surface, valleyReference, downstream, flood.order, flood.orderSize,
+                visible, lake, channelCells, shape, height, width, pixelSizeM);
+        long t3 = System.nanoTime();
         CenterlineGeometry geometry = smoothCenterlineGeometry(
                 seed, i0, j0, surface, downstream, accumulation, visible, channelCells,
-                height, width, pixelSizeM);
-        long t2 = System.nanoTime();
-
+                shape.offsetRow, shape.offsetCol, height, width, pixelSizeM);
+        long t4 = System.nanoTime();
         Object[] channelLocks = null;
         if (HydrologyParallel.isEnabled()) {
             channelLocks = new Object[CHANNEL_LOCK_COUNT];
@@ -477,26 +611,343 @@ public final class FluvialRiverNetwork {
         }
         Object[] locks = channelLocks;
         HydrologyParallel.forEachTask(channelCells.length, position -> rasterizeChannelSegment(
-                channelCells[position], surface, downstream, accumulation, visible, radius, geometry,
-                profile, load, waterSurface, height, width, locks));
-        long t3 = System.nanoTime();
-
+                channelCells[position], level, downstream, accumulation, visible, shape.radius, shape.depthBoost,
+                geometry, profile, load, waterSurface, valleyInfluence, depthBoost, height, width, locks));
+        long t5 = System.nanoTime();
         int visibleCount = channelCells.length;
         LOG.info("FluvialRiverNetwork.rasterizeHermiteChannels ({}, {}) n={} visible={} phases (ms): "
-                        + "radius={} centerlineGeometry={} stampChannels={} total={}",
-                j0, i0, n, visibleCount, millis(t0, t1), millis(t1, t2), millis(t2, t3), millis(t0, t3));
+                        + "radius={} reachShape={} waterLevels={} centerlineGeometry={} stampChannels={} total={}",
+                j0, i0, n, visibleCount, millis(t0, t1), millis(t1, t2), millis(t2, t3), millis(t3, t4),
+                millis(t4, t5), millis(t0, t5));
+    }
+
+    /** Per channel cell: confined radius, depth boost, and the meander offset of its centre. */
+    private record ReachShape(float[] radius, float[] depthBoost, float[] offsetRow, float[] offsetCol,
+                              float[] tangentRow, float[] tangentCol, float[] load) {
+        float loadOf(int idx) {
+            return load[idx];
+        }
+    }
+
+    /**
+     * Measures each reach's valley and shapes the channel to it.
+     *
+     * <p>Width: a channel is allowed at most {@link #CONFINEMENT_FRACTION} of its valley floor,
+     * the run of ground on either side of it that stays within {@link #VALLEY_FLOOR_RISE_M} of
+     * the channel; the width it loses comes back as depth. Rivers stop being wider than the
+     * gorge they sit in, and gorges get correspondingly deep.</p>
+     *
+     * <p>Meanders: the centre is pushed perpendicular to the flow by three noise bands whose
+     * wavelengths bracket {@link #MEANDER_ASPECT} times the amplitude, the amplitude being
+     * {@link #MEANDER_AMPLITUDE_WIDTHS} channel widths capped at {@link #MEANDER_SPACE_FRACTION}
+     * of the valley floor. The offset is then walked cell by cell and cut where the ground
+     * climbs {@link #MEANDER_CLIMB_M}: floodplain rivers wind, canyon rivers stay put. The noise
+     * is keyed by world position, so a reach shared by two analysis windows offsets the same
+     * way in both.</p>
+     */
+    private static ReachShape shapeReaches(long seed, int i0, int j0, float[] reference, int[] downstream,
+                                           float[] accumulation, boolean[] visible, int[] channelCells,
+                                           float[] radius, int height, int width, float pixelSizeM) {
+        int n = height * width;
+        int count = channelCells.length;
+        float metres = Math.max(1.0f, pixelSizeM);
+        int tangentSteps = Math.max(2, Math.min(24, Math.round(TANGENT_REACH_M / metres)));
+        int scanPx = Math.max(2, Math.min(48, Math.round(VALLEY_FLOOR_SCAN_M / metres)));
+        float[] bandPx = new float[MEANDER_BAND_M.length];
+        float[] bandLog = new float[MEANDER_BAND_M.length];
+        for (int k = 0; k < bandPx.length; k++) {
+            bandPx[k] = MEANDER_BAND_M[k] / metres;
+            bandLog[k] = (float) (Math.log(MEANDER_BAND_M[k]) / Math.log(2.0));
+        }
+
+        // Everything below is indexed by channel position, and the reach links are position
+        // links, so along-reach smoothing walks short arrays rather than the grid.
+        int[] positionOf = new int[n];
+        Arrays.fill(positionOf, -1);
+        for (int position = 0; position < count; position++) positionOf[channelCells[position]] = position;
+        int[] downPosition = new int[count];
+        int[] upPosition = new int[count];
+        Arrays.fill(upPosition, -1);
+        for (int position = 0; position < count; position++) {
+            int idx = channelCells[position];
+            int down = downstream[idx];
+            int downPos = down >= 0 && visible[down] ? positionOf[down] : -1;
+            downPosition[position] = downPos;
+            if (downPos >= 0) {
+                int current = upPosition[downPos];
+                if (current < 0 || accumulation[idx] > accumulation[channelCells[current]]) {
+                    upPosition[downPos] = position;
+                }
+            }
+        }
+
+        float[] tangentR = new float[count];
+        float[] tangentC = new float[count];
+        float[] floorRaw = new float[count];
+        float[][] bandNoise = new float[MEANDER_BAND_M.length][count];
+        HydrologyParallel.forEachTask(count, position -> {
+            int idx = channelCells[position];
+            int row = idx / width;
+            int col = idx - row * width;
+            // Flow direction from the cell a few reaches downstream, or from upstream at an outlet.
+            int target = idx;
+            int steps = 0;
+            while (steps < tangentSteps) {
+                int next = downstream[target];
+                if (next < 0 || !visible[next]) break;
+                target = next;
+                steps++;
+            }
+            float dr;
+            float dc;
+            if (steps == 0) {
+                dr = 0.0f;
+                dc = 0.0f;
+                for (int k = 0; k < 8; k++) {
+                    int nr = row + DR[k];
+                    int nc = col + DC[k];
+                    if (nr < 0 || nr >= height || nc < 0 || nc >= width) continue;
+                    int neighbour = nr * width + nc;
+                    if (visible[neighbour] && downstream[neighbour] == idx) {
+                        dr = -DR[k];
+                        dc = -DC[k];
+                        break;
+                    }
+                }
+                if (dr == 0.0f && dc == 0.0f) dr = 1.0f;
+            } else {
+                int targetRow = target / width;
+                dr = targetRow - row;
+                dc = (target - targetRow * width) - col;
+            }
+            float inverse = invLength(dr, dc);
+            tangentR[position] = dr * inverse;
+            tangentC[position] = dc * inverse;
+            float perpRow = -tangentC[position];
+            float perpCol = tangentR[position];
+            float centreRow = row + 0.5f;
+            float centreCol = col + 0.5f;
+            float ground = reference[idx];
+            int left = scanValleySide(reference, centreRow, centreCol, -perpRow, -perpCol, ground,
+                    VALLEY_FLOOR_RISE_M, scanPx, height, width);
+            int right = scanValleySide(reference, centreRow, centreCol, perpRow, perpCol, ground,
+                    VALLEY_FLOOR_RISE_M, scanPx, height, width);
+            floorRaw[position] = 1.0f + left + right;
+            for (int k = 0; k < bandPx.length; k++) {
+                bandNoise[k][position] = smoothValueNoise(seed ^ MEANDER_BAND_SALT[k],
+                        i0 + centreRow, j0 + centreCol, bandPx[k]);
+            }
+        });
+
+        // A valley's width is a property of the reach, not of one cell's scan.
+        float[] floorPx = smoothAlongReach(floorRaw, upPosition, downPosition, 5);
+
+        float[] confined = new float[n];
+        float[] boost = new float[n];
+        float[] loadOut = new float[n];
+        float[] offset = new float[count];
+        HydrologyParallel.forEachTask(count, position -> {
+            int idx = channelCells[position];
+            loadOut[idx] = normalizedLoad(accumulation[idx]);
+            float wanted = radius[idx];
+            float allowed = Math.max(MIN_CHANNEL_RADIUS_PX, 0.5f * CONFINEMENT_FRACTION * floorPx[position]);
+            float used = Math.min(wanted, allowed);
+            confined[idx] = used;
+            boost[idx] = Math.min(MAX_CONFINEMENT_DEPTH_BOOST, (float) Math.sqrt(wanted / Math.max(used, 1e-3f)));
+
+            float widthM = 2.0f * used * metres;
+            float amplitudeM = Math.max(MEANDER_MIN_AMPLITUDE_M, MEANDER_AMPLITUDE_WIDTHS * widthM);
+            amplitudeM = Math.min(amplitudeM, MEANDER_SPACE_FRACTION * floorPx[position] * metres);
+            float offsetPx = 0.0f;
+            if (amplitudeM > 0.5f * metres) {
+                float wavelengthLog = (float) (Math.log(MEANDER_ASPECT * amplitudeM) / Math.log(2.0));
+                float weightSum = 0.0f;
+                float mixed = 0.0f;
+                for (int k = 0; k < bandPx.length; k++) {
+                    float weight = Math.max(0.0f, 1.0f - Math.abs(wavelengthLog - bandLog[k]) / 1.585f);
+                    if (weight <= 0.0f) continue;
+                    mixed += weight * bandNoise[k][position];
+                    weightSum += weight;
+                }
+                if (weightSum > 0.0f) offsetPx = (amplitudeM / metres) * (mixed / weightSum);
+            }
+            // Walk the offset and stop where the valley side rises.
+            int row = idx / width;
+            int col = idx - row * width;
+            float perpRow = -tangentC[position];
+            float perpCol = tangentR[position];
+            float sign = offsetPx < 0.0f ? -1.0f : 1.0f;
+            int reach = scanValleySide(reference, row + 0.5f, col + 0.5f, sign * perpRow, sign * perpCol,
+                    reference[idx], MEANDER_CLIMB_M, (int) Math.floor(Math.abs(offsetPx)), height, width);
+            offset[position] = sign * Math.min(Math.abs(offsetPx), reach);
+        });
+        // Where the valley wall cut an offset short, its neighbours along the reach ease into it
+        // instead of the centreline jumping between cells.
+        float[] eased = smoothAlongReach(offset, upPosition, downPosition, 4);
+        float[] offsetRow = new float[n];
+        float[] offsetCol = new float[n];
+        float[] tangentRow = new float[n];
+        float[] tangentCol = new float[n];
+        for (int position = 0; position < count; position++) {
+            int idx = channelCells[position];
+            tangentRow[idx] = tangentR[position];
+            tangentCol[idx] = tangentC[position];
+            offsetRow[idx] = -tangentC[position] * eased[position];
+            offsetCol[idx] = tangentR[position] * eased[position];
+        }
+        return new ReachShape(confined, boost, offsetRow, offsetCol, tangentRow, tangentCol, loadOut);
+    }
+
+    /** {@code passes} rounds of 0.5 self / 0.25 up / 0.25 down along the reach links. */
+    private static float[] smoothAlongReach(float[] values, int[] upPosition, int[] downPosition, int passes) {
+        int count = values.length;
+        float[] current = values.clone();
+        float[] next = new float[count];
+        for (int pass = 0; pass < passes; pass++) {
+            for (int position = 0; position < count; position++) {
+                float self = current[position];
+                float up = upPosition[position] >= 0 ? current[upPosition[position]] : self;
+                float down = downPosition[position] >= 0 ? current[downPosition[position]] : self;
+                next[position] = 0.5f * self + 0.25f * up + 0.25f * down;
+            }
+            float[] swap = current;
+            current = next;
+            next = swap;
+        }
+        return current;
+    }
+
+    /**
+     * Steps from a centre along a direction, one pixel at a time, and returns how many steps the
+     * ground stays within {@code rise} of {@code ground} (at most {@code maxSteps}); the window
+     * edge counts as a stop.
+     */
+    private static int scanValleySide(float[] reference, float centreRow, float centreCol,
+                                      float dirRow, float dirCol, float ground, float rise,
+                                      int maxSteps, int height, int width) {
+        int steps = 0;
+        for (int step = 1; step <= maxSteps; step++) {
+            int r = (int) Math.floor(centreRow + dirRow * step);
+            int c = (int) Math.floor(centreCol + dirCol * step);
+            if (r < 0 || r >= height || c < 0 || c >= width) break;
+            if (reference[r * width + c] - ground > rise) break;
+            steps = step;
+        }
+        return steps;
+    }
+
+    /**
+     * The water surface of every channel cell.
+     *
+     * <p>The flood's filled surface puts water exactly at the ground of the channel cell, which
+     * on a dithered surface is a staircase of the dither. Instead each reach's level is what its
+     * banks can hold: the {@link #BANK_HOLD_QUANTILE} of the reference ground across the channel
+     * (over {@link #BANK_HOLD_SPAN_RADII} radii either side of the meandered centre) minus a
+     * freeboard that grows with the channel's depth, never above the filled surface. Levels are
+     * then made non-increasing downstream and relaxed toward their neighbours for a few passes
+     * so the longitudinal profile is continuous before it is snapped to blocks. Lake cells keep
+     * the lake's spill level exactly.</p>
+     */
+    private static float[] solveWaterLevels(float[] surface, float[] reference, int[] downstream,
+                                            int[] order, int orderSize, boolean[] visible, float[] lake,
+                                            int[] channelCells, ReachShape shape,
+                                            int height, int width, float pixelSizeM) {
+        int n = height * width;
+        float metres = Math.max(1.0f, pixelSizeM);
+        float[] level = new float[n];
+        float[] ceiling = new float[n];
+        Arrays.fill(level, Float.NaN);
+        HydrologyParallel.forEachTask(channelCells.length, position -> {
+            int idx = channelCells[position];
+            if (lake[idx] > 0.0f) {
+                level[idx] = surface[idx];
+                ceiling[idx] = surface[idx];
+                return;
+            }
+            int row = idx / width;
+            int col = idx - row * width;
+            float centreRow = row + 0.5f + shape.offsetRow[idx];
+            float centreCol = col + 0.5f + shape.offsetCol[idx];
+            float perpRow = -shape.tangentCol[idx];
+            float perpCol = shape.tangentRow[idx];
+            int span = Math.max(1, Math.round(BANK_HOLD_SPAN_RADII * shape.radius[idx]));
+            float[] samples = new float[2 * span + 1];
+            int count = 0;
+            for (int step = -span; step <= span; step++) {
+                int r = (int) Math.floor(centreRow + perpRow * step);
+                int c = (int) Math.floor(centreCol + perpCol * step);
+                if (r < 0 || r >= height || c < 0 || c >= width) continue;
+                samples[count++] = reference[r * width + c];
+            }
+            if (count == 0) {
+                level[idx] = surface[idx];
+                ceiling[idx] = surface[idx];
+                return;
+            }
+            Arrays.sort(samples, 0, count);
+            float hold = samples[Math.min(count - 1, (int) Math.floor(BANK_HOLD_QUANTILE * (count - 1)))];
+            float centreDepthBlocks = 1.20f + 4.65f * (float) Math.pow(clamp01(shape.loadOf(idx)), 0.58f);
+            float freeboard = Math.max(FREEBOARD_MIN_BLOCKS, FREEBOARD_DEPTH_FRACTION * centreDepthBlocks) * metres;
+            float held = hold - freeboard;
+            float floor = Math.min(surface[idx], reference[idx]) - 1.5f * metres;
+            float value = Math.min(surface[idx], Math.max(floor, held));
+            level[idx] = value;
+            ceiling[idx] = value;
+        });
+        enforceDownstreamLevels(level, downstream, order, orderSize, visible, lake);
+
+        float[] upSum = new float[n];
+        int[] upCount = new int[n];
+        float[] next = new float[n];
+        for (int pass = 0; pass < LEVEL_SMOOTHING_PASSES; pass++) {
+            Arrays.fill(upSum, 0.0f);
+            Arrays.fill(upCount, 0);
+            for (int idx : channelCells) {
+                int down = downstream[idx];
+                if (down < 0 || !visible[down]) continue;
+                upSum[down] += level[idx];
+                upCount[down]++;
+            }
+            for (int idx : channelCells) {
+                if (lake[idx] > 0.0f) {
+                    next[idx] = level[idx];
+                    continue;
+                }
+                int down = downstream[idx];
+                float value = level[idx];
+                float downValue = down >= 0 && visible[down] ? level[down] : value;
+                float upValue = upCount[idx] > 0 ? upSum[idx] / upCount[idx] : value;
+                float relaxed = 0.5f * value + 0.25f * downValue + 0.25f * upValue;
+                next[idx] = Math.min(ceiling[idx], relaxed);
+            }
+            for (int idx : channelCells) level[idx] = next[idx];
+            enforceDownstreamLevels(level, downstream, order, orderSize, visible, lake);
+        }
+        return level;
+    }
+
+    /** Walks the flood order upstream-first so no channel cell's level exceeds its upstream's. */
+    private static void enforceDownstreamLevels(float[] level, int[] downstream, int[] order, int orderSize,
+                                                boolean[] visible, float[] lake) {
+        for (int position = orderSize - 1; position >= 0; position--) {
+            int idx = order[position];
+            if (!visible[idx]) continue;
+            int down = downstream[idx];
+            if (down < 0 || !visible[down] || lake[down] > 0.0f) continue;
+            if (level[down] > level[idx]) level[down] = level[idx];
+        }
     }
 
     private static void rasterizeChannelSegment(
             int idx, float[] surface, int[] downstream, float[] accumulation, boolean[] visible,
-            float[] radius, CenterlineGeometry geometry, float[] profile, float[] load,
-            float[] waterSurface, int height, int width, Object[] locks) {
+            float[] radius, float[] boost, CenterlineGeometry geometry, float[] profile, float[] load,
+            float[] waterSurface, float[] valley, float[] depthBoost, int height, int width, Object[] locks) {
         if (!visible[idx]) return;
         int down = downstream[idx];
         if (down < 0 || !visible[down]) {
             stampChannelPoint(geometry.row()[idx], geometry.col()[idx],
-                    surface[idx], accumulation[idx], radius[idx],
-                    profile, load, waterSurface, height, width, locks);
+                    surface[idx], accumulation[idx], radius[idx], boost[idx],
+                    profile, load, waterSurface, valley, depthBoost, height, width, locks);
             return;
         }
 
@@ -516,8 +967,9 @@ public final class FluvialRiverNetwork {
             float flow = lerp(flow0, flow1, t);
             float level = lerp(surface[idx], downstreamSurface, t);
             float sectionRadius = lerp(radius[idx], radius[down], t);
-            stampChannelPoint(rr, cc, level, flow, sectionRadius,
-                    profile, load, waterSurface, height, width, locks);
+            float sectionBoost = lerp(boost[idx], boost[down], t);
+            stampChannelPoint(rr, cc, level, flow, sectionRadius, sectionBoost,
+                    profile, load, waterSurface, valley, depthBoost, height, width, locks);
         }
     }
 
@@ -528,6 +980,7 @@ public final class FluvialRiverNetwork {
     private static CenterlineGeometry smoothCenterlineGeometry(
             long seed, int i0, int j0, float[] surface, int[] downstream,
             float[] accumulation, boolean[] visible, int[] channelCells,
+            float[] offsetRow, float[] offsetCol,
             int height, int width, float pixelSizeM) {
         int n = height * width;
         int channelCount = channelCells.length;
@@ -550,8 +1003,8 @@ public final class FluvialRiverNetwork {
         HydrologyParallel.forEachTask(channelCount, position -> {
             int idx = channelCells[position];
             int row = idx / width;
-            rowA[idx] = row + 0.5f;
-            colA[idx] = idx - row * width + 0.5f;
+            rowA[idx] = Math.max(0.5f, Math.min(height - 0.5f, row + 0.5f + offsetRow[idx]));
+            colA[idx] = Math.max(0.5f, Math.min(width - 0.5f, idx - row * width + 0.5f + offsetCol[idx]));
         });
 
         float[] sourceRow = rowA;
@@ -575,7 +1028,7 @@ public final class FluvialRiverNetwork {
                     col = passSourceCol[idx] * 0.38f
                             + passSourceCol[up] * 0.31f + passSourceCol[down] * 0.31f;
                 }
-                setClampedCenter(passTargetRow, passTargetCol, idx, row, col, height, width);
+                setClampedCenter(passTargetRow, passTargetCol, idx, row, col, offsetRow, offsetCol, height, width);
             });
             float[] swap = sourceRow;
             sourceRow = targetRow;
@@ -600,7 +1053,7 @@ public final class FluvialRiverNetwork {
             float noise = smoothValueNoise(seed, i0 + sourceRow[idx], j0 + sourceCol[idx], 10.0f);
             float row = sourceRow[idx] - dc * inverseLength * noise * amplitude;
             float col = sourceCol[idx] + dr * inverseLength * noise * amplitude;
-            setClampedCenter(sourceRow, sourceCol, idx, row, col, height, width);
+            setClampedCenter(sourceRow, sourceCol, idx, row, col, offsetRow, offsetCol, height, width);
         }
 
         // After three passes targetRow/targetCol are the unused pair, so reuse them as tangents.
@@ -631,11 +1084,13 @@ public final class FluvialRiverNetwork {
         return new CenterlineGeometry(sourceRow, sourceCol, targetRow, targetCol);
     }
 
+    /** Keeps a centre within {@link #MAX_CENTERLINE_DISPLACEMENT_PX} of its meandered origin. */
     private static void setClampedCenter(float[] rows, float[] cols, int idx,
-                                         float row, float col, int height, int width) {
+                                         float row, float col, float[] offsetRow, float[] offsetCol,
+                                         int height, int width) {
         int originRowIndex = idx / width;
-        float originRow = originRowIndex + 0.5f;
-        float originCol = idx - originRowIndex * width + 0.5f;
+        float originRow = originRowIndex + 0.5f + offsetRow[idx];
+        float originCol = idx - originRowIndex * width + 0.5f + offsetCol[idx];
         float dr = row - originRow;
         float dc = col - originCol;
         float inverseLength = invLength(dr, dc);
@@ -657,34 +1112,41 @@ public final class FluvialRiverNetwork {
     }
 
     private static void stampChannelPoint(float centerR, float centerC, float surface, float flow,
-                                          float radius, float[] profile, float[] load,
-                                          float[] waterSurface, int height, int width, Object[] locks) {
-        int minR = Math.max(0, (int) Math.floor(centerR - radius - 0.75f));
-        int maxR = Math.min(height - 1, (int) Math.ceil(centerR + radius + 0.75f));
-        int minC = Math.max(0, (int) Math.floor(centerC - radius - 0.75f));
-        int maxC = Math.min(width - 1, (int) Math.ceil(centerC + radius + 0.75f));
+                                          float radius, float boost, float[] profile, float[] load,
+                                          float[] waterSurface, float[] valley, float[] depthBoost,
+                                          int height, int width, Object[] locks) {
+        float valleyRadius = radius * VALLEY_INFLUENCE_RADII;
+        int minR = Math.max(0, (int) Math.floor(centerR - valleyRadius - 0.75f));
+        int maxR = Math.min(height - 1, (int) Math.ceil(centerR + valleyRadius + 0.75f));
+        int minC = Math.max(0, (int) Math.floor(centerC - valleyRadius - 0.75f));
+        int maxC = Math.min(width - 1, (int) Math.ceil(centerC + valleyRadius + 0.75f));
         float normalizedLoad = normalizedLoad(flow);
         for (int r = minR; r <= maxR; r++) {
             for (int c = minC; c <= maxC; c++) {
                 float distance = hypotFloat((r + 0.5f) - centerR, (c + 0.5f) - centerC);
-                if (distance > radius + 0.50f) continue;
-                float x = clamp01(1.0f - distance / Math.max(0.55f, radius + 0.35f));
-                if (x <= 0.0f) continue;
-                float section = smoothstep(x);
+                if (distance > valleyRadius + 0.50f) continue;
                 int target = r * width + c;
-                // profile/load only ever increase during stamping, so when this sample can
-                // neither raise either nor tie the section (exact ties still update via a
+                float valleyValue = smoothstep(clamp01(1.0f - distance / Math.max(0.55f, valleyRadius + 0.35f)));
+                float section = 0.0f;
+                if (distance <= radius + 0.50f) {
+                    float x = clamp01(1.0f - distance / Math.max(0.55f, radius + 0.35f));
+                    section = x > 0.0f ? smoothstep(x) : 0.0f;
+                }
+                // profile/load/valley only ever increase during stamping, so when this sample can
+                // neither raise any nor tie the section (exact ties still update via a
                 // lower surface), the update is a guaranteed no-op. The unlocked reads are
                 // safe for the same monotonicity reason: a stale (smaller) value can only
                 // cause a redundant locked call, never a wrong skip.
-                if (section < profile[target] && normalizedLoad <= load[target]) continue;
+                boolean channelNoop = section <= 0.0f
+                        || (section < profile[target] && normalizedLoad <= load[target]);
+                if (channelNoop && valleyValue <= valley[target]) continue;
                 if (locks == null) {
-                    updateChannelCell(target, section, normalizedLoad, surface,
-                            profile, load, waterSurface);
+                    updateChannelCell(target, section, normalizedLoad, surface, boost, valleyValue,
+                            profile, load, waterSurface, valley, depthBoost);
                 } else {
                     synchronized (locks[target & (locks.length - 1)]) {
-                        updateChannelCell(target, section, normalizedLoad, surface,
-                                profile, load, waterSurface);
+                        updateChannelCell(target, section, normalizedLoad, surface, boost, valleyValue,
+                                profile, load, waterSurface, valley, depthBoost);
                     }
                 }
             }
@@ -692,7 +1154,11 @@ public final class FluvialRiverNetwork {
     }
 
     private static void updateChannelCell(int target, float section, float normalizedLoad, float surface,
-                                          float[] profile, float[] load, float[] waterSurface) {
+                                          float boost, float valleyValue,
+                                          float[] profile, float[] load, float[] waterSurface,
+                                          float[] valley, float[] depthBoost) {
+        valley[target] = Math.max(valley[target], valleyValue);
+        if (section <= 0.0f) return;
         int sectionOrder = Float.compare(section, profile[target]);
         boolean strongerSection = sectionOrder > 0;
         boolean exactTieWithLowerSurface = sectionOrder == 0
@@ -703,6 +1169,7 @@ public final class FluvialRiverNetwork {
         if (strongerSection || exactTieWithLowerSurface) {
             profile[target] = section;
             waterSurface[target] = surface;
+            depthBoost[target] = boost;
         }
     }
 
@@ -1989,13 +2456,22 @@ public final class FluvialRiverNetwork {
         void setOrderSize(int value) { this.orderSize = value; }
     }
 
+    /**
+     * @param valleyInfluence 0..1, how much a cell belongs to a channel's valley floor (1 on the
+     *                        centreline, fading to 0 at {@link #VALLEY_INFLUENCE_RADII} radii);
+     *                        the carve blends detail noise out of the terrain by it
+     * @param depthBoost      per-cell multiplier on channel depth, above 1 where valley
+     *                        confinement narrowed the channel; 0 where no channel was stamped
+     */
     public record RiverTopology(float[] channelProfile, float[] channelLoad, float[] lakeDepth,
-                                float[] waterSurface, int height, int width) {
+                                float[] waterSurface, float[] valleyInfluence, float[] depthBoost,
+                                int height, int width) {
         static RiverTopology empty(int height, int width) {
             int n = height * width;
             float[] surface = new float[n];
             Arrays.fill(surface, Float.NaN);
-            return new RiverTopology(new float[n], new float[n], new float[n], surface, height, width);
+            return new RiverTopology(new float[n], new float[n], new float[n], surface,
+                    new float[n], new float[n], height, width);
         }
     }
 }

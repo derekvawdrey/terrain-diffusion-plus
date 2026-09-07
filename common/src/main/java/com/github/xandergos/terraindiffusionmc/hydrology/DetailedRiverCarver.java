@@ -39,7 +39,9 @@ public final class DetailedRiverCarver {
 
             float depthBlocks;
             if (lakeDepth >= LAKE_MIN_DEPTH_M) {
-                depthBlocks = Math.min(8.0f, 2.0f + lakeDepth / Math.max(1.0f, metresPerBlock));
+                // The network already shaped the bed: natural fill depth plus a bowl that ramps
+                // in from the shore, so shorelines wade in instead of dropping two blocks.
+                depthBlocks = Math.min(20.0f, lakeDepth / Math.max(1.0f, metresPerBlock));
             } else if (profile > 0.0f) {
                 float load = clamp01(topology.channelLoad()[idx]);
                 float slope = channelSurfaceSlope(topology.waterSurface(), topology.channelProfile(),
@@ -48,6 +50,9 @@ public final class DetailedRiverCarver {
                 // Both width and depth now grow continuously with downstream accumulation.
                 float centreDepth = 1.20f + 4.65f * (float) Math.pow(load, 0.58f);
                 centreDepth = 1.0f + (centreDepth - 1.0f) * (1.0f - 0.70f * steepness);
+                // Width lost to valley confinement comes back as depth.
+                float boost = topology.depthBoost()[idx];
+                if (boost > 1.0f) centreDepth = 1.0f + (centreDepth - 1.0f) * boost;
                 float roundedProfile = smoothUnit(smoothUnit(profile));
                 float edgeDepth = 0.28f + 0.12f * (1.0f - steepness);
                 depthBlocks = edgeDepth + (centreDepth - edgeDepth) * roundedProfile;

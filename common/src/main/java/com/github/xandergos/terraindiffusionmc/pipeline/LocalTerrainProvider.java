@@ -1012,15 +1012,18 @@ public final class LocalTerrainProvider {
 
         long tSampleStart = System.nanoTime();
         float[] elevation;
+        float[] smoothElevation;
         float[] climate;
         if (scale <= 1) {
             float[][] raw = pipeline.get(analysisI0, analysisJ0, analysisI1, analysisJ1, true);
             elevation = raw[0];
+            smoothElevation = null;
             climate = raw[1];
         } else {
             UpsampledTerrainSample sample = sampleUpsampledTerrain(
                     analysisI0, analysisJ0, analysisI1, analysisJ1, scale);
-            elevation = addElevationNoise(sample.elevation(), sample.elevationWithBorder(),
+            smoothElevation = sample.elevation();
+            elevation = addElevationNoise(smoothElevation, sample.elevationWithBorder(),
                     analysisI0, analysisJ0, analysisHeight, analysisWidth, pixelSizeM);
             climate = sample.climate();
         }
@@ -1033,7 +1036,19 @@ public final class LocalTerrainProvider {
                 pixelSizeM, blockLowAltitudeSources, WorldScaleManager.MINIMUM_SOURCE_ELEVATION_METERS,
                 downstream -> coarseDrainageProvider.boundaryInflow(
                         instanceSeed, scale, analysisI0, analysisJ0,
-                        analysisHeight, analysisWidth, elevation, downstream));
+                        analysisHeight, analysisWidth, elevation, downstream),
+                smoothElevation);
+        // Inside a channel's valley the detail noise is blended back out, so beds and banks are
+        // shaped by the carve and the water surface the banks hold, not by the dither.
+        if (smoothElevation != null) {
+            float[] valley = topology.valleyInfluence();
+            float[] smooth = smoothElevation;
+            float[] noisy = elevation;
+            HydrologyParallel.forEachIndex(0, analysisHeight * analysisWidth, index -> {
+                float v = valley[index];
+                if (v > 0.0f) noisy[index] = smooth[index] + (noisy[index] - smooth[index]) * (1.0f - v);
+            });
+        }
         long tRiverBuild = System.nanoTime();
         DetailedRiverCarver.CarvedTerrain carved = DetailedRiverCarver.carve(
                 elevation, topology, analysisHeight, analysisWidth, pixelSizeM);

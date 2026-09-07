@@ -174,6 +174,7 @@ public final class WorldGenBenchmark {
                 blockZ, blockX, tileSize, halo, scale, false);
         System.out.printf("Probe tile at (%d, %d) size %d: %d ms  [checksum %d]%n",
                 blockX, blockZ, tileSize, millis(start, System.nanoTime()), checksum(tile));
+        writeProbeImage(tile, blockX, blockZ, tileSize);
         TerrainBiomeRegistry registry = TerrainBiomeRegistry.instance();
         int[] floors = {Integer.MIN_VALUE, 0, 1500, 2500, 3500};
         for (int floor : floors) {
@@ -193,6 +194,49 @@ public final class WorldGenBenchmark {
                     .limit(8)
                     .forEach(entry -> System.out.printf("    %-42s %5.1f%%%n",
                             entry.getKey(), 100.0 * entry.getValue() / count));
+        }
+    }
+
+    /**
+     * Writes {@code probe-<x>-<z>.png} in the working directory: hill-shaded carved elevation
+     * with water in blue (rivers by mask strength, deeper blue where the water is deeper), so
+     * a change to rivers, lakes or carving can be looked at rather than only checksummed.
+     */
+    private static void writeProbeImage(HydrologyProvider.HydrologyTile tile, int blockX, int blockZ, int tileSize) {
+        int w = tile.width, h = tile.height;
+        java.awt.image.BufferedImage image = new java.awt.image.BufferedImage(w, h, java.awt.image.BufferedImage.TYPE_INT_RGB);
+        int lo = Integer.MAX_VALUE, hi = Integer.MIN_VALUE;
+        for (short e : tile.adjustedElevation) { lo = Math.min(lo, e); hi = Math.max(hi, e); }
+        float range = Math.max(1, hi - Math.max(lo, 0));
+        for (int r = 0; r < h; r++) {
+            for (int c = 0; c < w; c++) {
+                int i = r * w + c;
+                int e = tile.adjustedElevation[i];
+                int ex = tile.adjustedElevation[r * w + Math.min(w - 1, c + 1)] - tile.adjustedElevation[r * w + Math.max(0, c - 1)];
+                int ez = tile.adjustedElevation[Math.min(h - 1, r + 1) * w + c] - tile.adjustedElevation[Math.max(0, r - 1) * w + c];
+                float shade = (float) (0.55 + 0.45 * Math.max(-1, Math.min(1, (-ex - ez) / 60.0)));
+                float tone = e <= 0 ? 0.35f : 0.45f + 0.55f * (e / range);
+                int base = Math.max(0, Math.min(255, Math.round(255 * tone * shade)));
+                int red = base, green = base, blue = base;
+                if (e <= 0) { red = 20; green = 40; blue = 110; }
+                int mask = tile.waterMask[i] & 0xFF;
+                if (mask > 0 && tile.waterSurface[i] != Short.MIN_VALUE) {
+                    int depth = Math.max(0, tile.waterSurface[i] - e);
+                    float k = Math.min(1f, 0.55f + mask / 255f * 0.45f);
+                    float d = Math.min(1f, depth / 60f);
+                    red = Math.round(red * (1 - k) + (30 - 20 * d) * k);
+                    green = Math.round(green * (1 - k) + (120 - 70 * d) * k);
+                    blue = Math.round(blue * (1 - k) + (230 - 60 * d) * k);
+                }
+                image.setRGB(c, r, (red << 16) | (green << 8) | blue);
+            }
+        }
+        try {
+            java.io.File out = new java.io.File("probe-" + blockX + "-" + blockZ + ".png");
+            javax.imageio.ImageIO.write(image, "png", out);
+            System.out.println("  image written: " + out.getAbsolutePath());
+        } catch (java.io.IOException e) {
+            System.out.println("  image not written: " + e);
         }
     }
 

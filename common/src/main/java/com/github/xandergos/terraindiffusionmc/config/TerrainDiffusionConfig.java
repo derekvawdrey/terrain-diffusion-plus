@@ -41,6 +41,8 @@ public final class TerrainDiffusionConfig {
     private static final boolean DEFAULT_CAVE_DENSITY_COMPENSATION = true;
     private static final boolean DEFAULT_BUNDLED_CAVE_MOD_ENABLED = true;
     private static final boolean DEFAULT_CARVERS_REACH_SUMMITS = true;
+    private static final boolean DEFAULT_SNOW_DEPTH_SCALING = true;
+    private static final int DEFAULT_SNOW_MAX_LAYERS_OVER_VEGETATION = 6;
     private static final boolean DEFAULT_MOUNTAIN_CAVERNS = true;
     private static final float DEFAULT_MOUNTAIN_CAVERN_CHANCE_PERCENT = 30f;
     /**
@@ -379,6 +381,24 @@ public final class TerrainDiffusionConfig {
      */
     public static boolean bundledCaveModEnabled() {
         return readBoolean("caves.bundled_cave_mod", DEFAULT_BUNDLED_CAVE_MOD_ENABLED);
+    }
+
+    /**
+     * Whether snow lies deeper the colder the ground is -- 1..7 layers between -3 and -7 C,
+     * then a snow block plus 1..7 layers down to -12 C -- instead of vanilla's single layer
+     * everywhere. Decoration only: turning it off or on changes nothing already generated.
+     */
+    public static boolean snowDepthScaling() {
+        return readBoolean("snow.depth_scaling", DEFAULT_SNOW_DEPTH_SCALING);
+    }
+
+    /**
+     * Layer cap where snow sits on a block that keeps something alive under it (a plant's block
+     * entity), so a mod like Snow Real Magic can keep tending it; keep equal to that mod's
+     * accumulation.maxLayers. 1..8.
+     */
+    public static int snowMaxLayersOverVegetation() {
+        return Math.max(1, Math.min(8, readInt("snow.max_layers_over_vegetation", DEFAULT_SNOW_MAX_LAYERS_OVER_VEGETATION)));
     }
 
     /**

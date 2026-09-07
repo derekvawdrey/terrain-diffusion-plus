@@ -37,7 +37,7 @@ public final class HydrologyProvider {
 
     /** Increment when generated hydrology or compact encoding becomes semantically incompatible. */
     private static final int ALGORITHM_VERSION = 16;
-    private static final int DISK_FORMAT_VERSION = 2;
+    private static final int DISK_FORMAT_VERSION = 3;
     private static final int DISK_MAGIC = 0x54444859; // TDHY
     /** Keeps the initial explorer viewport centered on a canonical grid boundary-compatible origin. */
     public static final int GRID_ORIGIN = -512;
@@ -145,12 +145,13 @@ public final class HydrologyProvider {
         byte[] waterMask = new byte[shape.cells];
         short[] waterSurface = new short[shape.cells];
         short[] biomeIndexes = withBiomes ? new short[shape.cells] : null;
+        byte[] snowLayers = new byte[shape.cells];
 
         if (!copyTiles(seed, scale, blockLowAltitudeSources, i1, j1, i2, j2, shape.width,
-                elevation, waterMask, waterSurface, biomeIndexes, residentOnly)) {
+                elevation, waterMask, waterSurface, biomeIndexes, snowLayers, residentOnly)) {
             return null;
         }
-        return new HydrologyRegion(elevation, waterMask, waterSurface, biomeIndexes, shape.height, shape.width);
+        return new HydrologyRegion(elevation, waterMask, waterSurface, biomeIndexes, snowLayers, shape.height, shape.width);
     }
 
     /** One line for {@code /td-status}: tiles in memory, their size, and the disk cache state. */
@@ -216,7 +217,7 @@ public final class HydrologyProvider {
     private boolean copyTiles(long seed, int scale, boolean blockLowAltitudeSources,
                               int i1, int j1, int i2, int j2, int requestWidth,
                               short[] elevation, byte[] waterMask, short[] waterSurface, short[] biomeIndexes,
-                              boolean residentOnly) {
+                              byte[] snowLayers, boolean residentOnly) {
         int firstTileI = tileIndex(i1);
         int lastTileI = tileIndex(i2 - 1);
         int firstTileJ = tileIndex(j1);
@@ -229,7 +230,7 @@ public final class HydrologyProvider {
                         : getTile(seed, scale, blockLowAltitudeSources, tileI, tileJ);
                 if (tile == null) return false;
                 copyIntersection(tile, i1, j1, i2, j2, requestWidth,
-                        elevation, waterMask, waterSurface, biomeIndexes);
+                        elevation, waterMask, waterSurface, biomeIndexes, snowLayers);
             }
         }
         return true;
@@ -332,7 +333,8 @@ public final class HydrologyProvider {
 
     private static void copyIntersection(HydrologyTile tile,
                                          int requestI1, int requestJ1, int requestI2, int requestJ2, int requestWidth,
-                                         short[] elevation, byte[] waterMask, short[] waterSurface, short[] biomeIndexes) {
+                                         short[] elevation, byte[] waterMask, short[] waterSurface, short[] biomeIndexes,
+                                         byte[] snowLayers) {
         int tileI2 = tile.originI + tile.height;
         int tileJ2 = tile.originJ + tile.width;
         int copyI1 = Math.max(requestI1, tile.originI);
@@ -358,6 +360,9 @@ public final class HydrologyProvider {
             }
             if (biomeIndexes != null) {
                 System.arraycopy(tile.biomeIndexes, srcOffset, biomeIndexes, dstOffset, copyWidth);
+            }
+            if (snowLayers != null && tile.snowLayers != null) {
+                System.arraycopy(tile.snowLayers, srcOffset, snowLayers, dstOffset, copyWidth);
             }
         });
     }
@@ -391,10 +396,12 @@ public final class HydrologyProvider {
             byte[] waterMask = in.readNBytes(n);
             if (waterMask.length != n) throw new EOFException("truncated water mask");
             short[] waterSurface = readShortArray(in, n);
+            byte[] snowLayers = in.readNBytes(n);
+            if (snowLayers.length != n) throw new EOFException("truncated snow layers");
             if (in.read() != -1) throw new IOException("unexpected trailing data");
 
             HydrologyTile tile = new HydrologyTile(originI, originJ, elevation, waterMask,
-                    waterSurface, biomes, tileSize, tileSize);
+                    waterSurface, biomes, snowLayers, tileSize, tileSize);
             validateTile(tile, tileOrigin(key.tileI), tileOrigin(key.tileJ));
             return tile;
         } catch (IOException | RuntimeException exception) {
@@ -436,6 +443,7 @@ public final class HydrologyProvider {
                     writeShortArray(out, tile.biomeIndexes);
                     out.write(tile.waterMask);
                     writeShortArray(out, tile.waterSurface);
+                    out.write(tile.snowLayers);
                 }
                 moveAtomically(temporary, target);
                 LOG.debug("Persisted canonical hydrology tile ({}, {}) scale {} to {}",
@@ -521,17 +529,20 @@ public final class HydrologyProvider {
         public final byte[] waterMask;
         public final short[] waterSurface;
         public final short[] biomeIndexes;
+        /** Snow layer count per cell from the ground temperature; see {@code SnowDepth}. */
+        public final byte[] snowLayers;
         public final int height;
         public final int width;
 
         public HydrologyTile(int originI, int originJ, short[] adjustedElevation, byte[] waterMask,
-                             short[] waterSurface, short[] biomeIndexes, int height, int width) {
+                             short[] waterSurface, short[] biomeIndexes, byte[] snowLayers, int height, int width) {
             this.originI = originI;
             this.originJ = originJ;
             this.adjustedElevation = adjustedElevation;
             this.waterMask = waterMask;
             this.waterSurface = waterSurface;
             this.biomeIndexes = biomeIndexes;
+            this.snowLayers = snowLayers;
             this.height = height;
             this.width = width;
         }
@@ -541,11 +552,12 @@ public final class HydrologyProvider {
                     + (long) adjustedElevation.length * Short.BYTES
                     + (long) waterMask.length
                     + (long) waterSurface.length * Short.BYTES
-                    + (long) biomeIndexes.length * Short.BYTES;
+                    + (long) biomeIndexes.length * Short.BYTES
+                    + (long) snowLayers.length;
         }
     }
 
     public record HydrologyRegion(short[] adjustedElevation, byte[] waterMask, short[] waterSurface,
-                                  short[] biomeIndexes, int height, int width) {}
+                                  short[] biomeIndexes, byte[] snowLayers, int height, int width) {}
 
 }

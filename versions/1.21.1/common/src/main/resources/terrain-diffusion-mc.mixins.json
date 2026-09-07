@@ -13,6 +13,7 @@
     "LevelStemMixin",
     "MinecraftServerMixin",
     "NoiseBasedChunkGeneratorMixin",
+    "SnowAndFreezeFeatureMixin",
     "UniformHeightAccessor",
     "WorldDimensionsMixin"
   ],

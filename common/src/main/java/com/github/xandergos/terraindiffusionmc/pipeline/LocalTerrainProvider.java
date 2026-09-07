@@ -8,6 +8,7 @@ import com.github.xandergos.terraindiffusionmc.hydrology.HydrologyParallel;
 import com.github.xandergos.terraindiffusionmc.hydrology.HydrologyProvider;
 import com.github.xandergos.terraindiffusionmc.infinitetensor.FloatTensor;
 import com.github.xandergos.terraindiffusionmc.world.HeightConverter;
+import com.github.xandergos.terraindiffusionmc.world.SnowDepth;
 import com.github.xandergos.terraindiffusionmc.world.WorldScaleManager;
 import com.github.xandergos.terraindiffusionmc.worldgen.surface.SurfaceNoise;
 import org.slf4j.Logger;
@@ -116,20 +117,27 @@ public final class LocalTerrainProvider {
         public final short[][] riverWater;
         /** Water surface in model elevation metres; convert with HeightConverter before block placement. */
         public final short[][] riverWaterSurface;
+        /** Snow layer count per cell (1 = vanilla's single layer), or null when unknown. */
+        public final byte[][] snowLayers;
         public final int width;
         public final int height;
 
         public HeightmapData(short[][] heightmap, short[][] biomeIndexes, int width, int height) {
-            this(heightmap, biomeIndexes, null, null, width, height);
+            this(heightmap, biomeIndexes, null, null, null, width, height);
         }
 
         public HeightmapData(short[][] heightmap, short[][] biomeIndexes, short[][] riverWater,
                              int width, int height) {
-            this(heightmap, biomeIndexes, riverWater, null, width, height);
+            this(heightmap, biomeIndexes, riverWater, null, null, width, height);
         }
 
         public HeightmapData(short[][] heightmap, short[][] biomeIndexes, short[][] riverWater,
                              short[][] riverWaterSurface, int width, int height) {
+            this(heightmap, biomeIndexes, riverWater, riverWaterSurface, null, width, height);
+        }
+        public HeightmapData(short[][] heightmap, short[][] biomeIndexes, short[][] riverWater,
+                             short[][] riverWaterSurface, byte[][] snowLayers, int width, int height) {
+            this.snowLayers = snowLayers;
             this.heightmap = heightmap;
             this.biomeIndexes = biomeIndexes;
             this.riverWater = riverWater;
@@ -654,7 +662,8 @@ public final class LocalTerrainProvider {
                     key.seed(), i1, j1, i2, j2, key.scale(), key.blockLowAltitudeSources(), true);
             if (hydrology == null) return null;
             return buildHeightmapData(hydrology.adjustedElevation(), hydrology.biomeIndexes(),
-                    hydrology.waterMask(), hydrology.waterSurface(), hydrology.height(), hydrology.width());
+                    hydrology.waterMask(), hydrology.waterSurface(), hydrology.snowLayers(),
+                    hydrology.height(), hydrology.width());
         } finally {
             SEED_LOCK.readLock().unlock();
         }
@@ -904,6 +913,7 @@ public final class LocalTerrainProvider {
                 + estimateShortMatrixBytes(data.biomeIndexes)
                 + estimateShortMatrixBytes(data.riverWater)
                 + estimateShortMatrixBytes(data.riverWaterSurface)
+                + (data.snowLayers != null ? (long) data.height * data.width + 16L * data.height : 0L)
                 + 64L;
     }
 
@@ -926,7 +936,8 @@ public final class LocalTerrainProvider {
         HydrologyProvider.HydrologyRegion hydrology = hydrologyProvider.getRegion(
                 instanceSeed, i1, j1, i2, j2, 1, blockLowAltitudeSources, true);
         return buildHeightmapData(hydrology.adjustedElevation(), hydrology.biomeIndexes(),
-                hydrology.waterMask(), hydrology.waterSurface(), hydrology.height(), hydrology.width());
+                hydrology.waterMask(), hydrology.waterSurface(), hydrology.snowLayers(),
+                hydrology.height(), hydrology.width());
     }
 
     private HeightmapData handleUpsampled(int i1, int j1, int i2, int j2, int scale,
@@ -934,7 +945,8 @@ public final class LocalTerrainProvider {
         HydrologyProvider.HydrologyRegion hydrology = hydrologyProvider.getRegion(
                 instanceSeed, i1, j1, i2, j2, scale, blockLowAltitudeSources, true);
         return buildHeightmapData(hydrology.adjustedElevation(), hydrology.biomeIndexes(),
-                hydrology.waterMask(), hydrology.waterSurface(), hydrology.height(), hydrology.width());
+                hydrology.waterMask(), hydrology.waterSurface(), hydrology.snowLayers(),
+                hydrology.height(), hydrology.width());
     }
 
     /** Compatibility/full-data path. World generation and detail_raw use compact specialised paths instead. */
@@ -1071,6 +1083,7 @@ public final class LocalTerrainProvider {
         short[] compactElevation = new short[cells];
         byte[] compactWaterMask = new byte[cells];
         short[] compactWaterSurface = new short[cells];
+        byte[] compactSnow = new byte[cells];
         float[] channelProfile = topology.channelProfile();
         float[] channelLoad = topology.channelLoad();
         float[] lakeDepth = topology.lakeDepth();
@@ -1088,6 +1101,9 @@ public final class LocalTerrainProvider {
                 compactWaterSurface[targetIndex] = Float.isFinite(surface)
                         ? clampWaterElevationToShort(surface)
                         : HeightmapData.NO_FLUVIAL_WATER;
+                // Plane 0 of the cropped climate is the mean annual temperature at this cell.
+                compactSnow[targetIndex] = coreClimate != null
+                        ? SnowDepth.layersFor(coreClimate[targetIndex]) : (byte) 1;
             }
         });
         long tCompact = System.nanoTime();
@@ -1112,6 +1128,7 @@ public final class LocalTerrainProvider {
                 compactWaterMask,
                 compactWaterSurface,
                 biomes,
+                compactSnow,
                 coreSize,
                 coreSize
         );
@@ -1339,22 +1356,24 @@ public final class LocalTerrainProvider {
     }
 
     private static HeightmapData buildHeightmapData(short[] elevFlat, short[] biomeFlat, byte[] waterMask,
-                                                     short[] waterSurface, int H, int W) {
+                                                     short[] waterSurface, byte[] snowFlat, int H, int W) {
         short[][] heightmap = new short[H][W];
         short[][] biomeIndexes = new short[H][W];
         short[][] riverWater = waterMask != null ? new short[H][W] : null;
         short[][] riverWaterSurface = waterSurface != null ? new short[H][W] : null;
+        byte[][] snowLayers = snowFlat != null ? new byte[H][W] : null;
         HydrologyParallel.forEachRow(0, H, W, row -> {
             int offset = row * W;
             System.arraycopy(elevFlat, offset, heightmap[row], 0, W);
             if (biomeFlat != null) System.arraycopy(biomeFlat, offset, biomeIndexes[row], 0, W);
+            if (snowLayers != null) System.arraycopy(snowFlat, offset, snowLayers[row], 0, W);
             for (int col = 0; col < W; col++) {
                 int index = offset + col;
                 if (riverWater != null) riverWater[row][col] = (short) (waterMask[index] & 0xFF);
                 if (riverWaterSurface != null) riverWaterSurface[row][col] = waterSurface[index];
             }
         });
-        return new HeightmapData(heightmap, biomeIndexes, riverWater, riverWaterSurface, W, H);
+        return new HeightmapData(heightmap, biomeIndexes, riverWater, riverWaterSurface, snowLayers, W, H);
     }
 
     private static float[] shortsToFloats(short[] values) {

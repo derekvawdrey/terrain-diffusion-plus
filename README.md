@@ -10,6 +10,7 @@ That single change pulls several systems with it:
 
 - **Real landforms.** Mountain ranges, river valleys, coastal shelves and plateaus come out with the large-scale structure real terrain has, because the model learned it from real terrain rather than from stacked octaves of noise.
 - **Climate-driven biomes.** Biomes are not painted on; they are derived from the elevation and climate the model produced, through a data-driven rule catalog (`biome_catalog.json`). Deserts sit in rain shadows, taiga follows latitude and altitude, and biome borders land where the climate actually changes.
+- **Snow depth.** Snow lies deeper the colder the ground is, from the model's own temperature: a dusting where it only just settles, one to seven layers between -3 and -7 C, then a snow block with layers on top down to -12 C. Snow on a tree canopy also snows the ground beneath it. `snow.depth_scaling=false` restores vanilla's single layer.
 - **Hydrology.** Rivers are traced by a fluvial network over the generated elevation, so they run downhill, gather tributaries, and reach the sea. Each reach is shaped to its valley: a channel takes at most 72% of the valley floor and deepens where it is confined, it meanders across floodplains with an amplitude tied to its width and stops meandering where the valley wall rises, and its water sits at the level the banks can hold with a continuous downstream profile. Lakes fill the depressions the drainage finds, wade in from the shore to a bowl-shaped bed, and puddles that are small, shallow and not river-fed are left dry.
 - **Tall worlds.** The terrain uses build heights well beyond vanilla's, scaled by the `World Scale` setting — up to 2032 blocks.
 - **Surface features.** Procedural boulders, hoodoos, arches, sea stacks and similar structures are placed against the real slope and material of the terrain under them.
@@ -301,6 +302,11 @@ surface_features.enabled=true
 # the belts only; pick it before creating a world and keep it.
 climate.warm_mountains.enabled=true
 climate.warm_mountains.lapse_c_per_km=-1.5
+
+# Snow depth from the ground temperature (1-7 layers, then a snow block plus layers in the
+# coldest places). Decoration only; changing it affects new chunks only.
+snow.depth_scaling=true
+snow.max_layers_over_vegetation=6
 
 # Caves. See the "Caves" section above for what these do; all of them change which caves
 # are generated, so pick them before creating a world.

@@ -11,6 +11,7 @@
     "FarLookupHeightMixin",
     "MinecraftServerMixin",
     "NoiseBasedChunkGeneratorMixin",
+    "SnowAndFreezeFeatureMixin",
     "UniformHeightAccessor"
   ],
   "client": [],
